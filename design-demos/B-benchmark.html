@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>方向 B · 标杆迁移 · STEAM 教案助手</title>
+<!--
+================================================================================
+方向 B · 现实参照 / 标杆迁移
+================================================================================
+
+【参照案例】Typeform（西班牙巴塞罗那，2012 年由 David Okuniev 与 Robert Muñoz 创立）
+
+【WebSearch 核实结果】
+· 存在性：已核实。typeform.com 官方 brand 页可访问。2018 年由伦敦 DesignStudio
+  操刀品牌重塑（Design Week 报道），设计总监 Alex Johns 称目标是让品牌「grow up」。
+· 设计语言（均来自可核实来源，非记忆断言）：
+  1. 官方 brand 页原文：符号是「a blinking cursor side-by-side with a form」；
+     字体是「Aperçu Pro Regular, is clear and characterful」；
+     配色只有两个词——「Paper (white) and Ink (black)」，刻意留白，
+     让客户把自己的品牌色叠上去（"blank canvas" 逻辑）。
+  2. Design Week（2018）：核心色板刻意压到 black / white / grey，
+     把彩度让给内容里的插画与照片。
+  3. Smashing Magazine（2014，联合创始人自述）：一次只问一题；
+     给每个选项分配字母键（A/B/C…）；选中后打勾；
+     用 Enter 触发的「OK」按钮确认并推进；整套交互先为键盘设计，再适配触屏；
+     灵感来自 1983 年电影《战争游戏》的终端界面。
+  4. Typeform 帮助中心：「Letters on answers」开关控制选项字母的显示，
+     字母同时就是选择快捷键。
+  5. Typeform 官方博客的写作规范也属于设计语言的一部分：
+     用「我」不用「我们」，否则填表人像在面对一排评委；用大白话，不用术语。
+
+【迁移到本产品，不是抄界面】
+  Typeform 的 → 本产品的
+  ① 一次只问一件事           → 每屏一个「焦点区」，大字承担唯一主任务，其余降为轨道
+  ② 选项字母键 A/B/C + 打勾  → 推荐答案卡做成满宽行 + 字母徽标 + 选中打勾（老师一指可点）
+  ③ Paper / Ink 双词配色      → 底色是纸、字是墨，彩度只给「正在发生的那件事」
+  ④ Enter → OK 的确认节奏     → 底部常驻「选好了 · 下一题」，动作永远在拇指位
+  ⑤ 题号 + 箭头的序号母题     → 左侧一条贯穿五屏的竖向序号刻度轨
+  ⑥ 「一对一说话」的语气      → 文案不端着（本版文案严格取自规格第 10 节，未改写）
+  ⚠️ 不搬 Typeform 的 logo、闪烁光标符号、Aperçu 字体、品牌资产——只迁移设计语言。
+
+【布局骨架】非对称双栏：左侧 40px 竖向序号刻度轨 + 右侧焦点内容列 + 底部常驻操作条。
+  区别于方向 A（不等高 bento 模块网格 + 卡片阵列）：这里没有网格、没有并列卡片阵，
+  同一时刻只有一个焦点，其余是行（row）不是卡（card）。
+  区别于方向 C（单列长流、无容器、纯分隔线）：这里有明确的左轨结构与实心焦点容器，
+  信息靠「第几步」定位，不靠分隔线切段。
+
+【form 的种子】规格第 8 节「一轮一轮的提问」——左侧那条竖向序号刻度轨就是它：
+  引导屏上它是第几题，成稿屏上它是教学四环节的第几环节，
+  教案库上它是时间刻度，我的页上它是记忆的第几条。同一根轨，四种含义。
+
+【色彩推导】
+  1. 采样：一半采自参照案例（Typeform 的 Paper / Ink 二元论——底给纸，字给墨，
+     彩度是稀缺资源）；一半采自文化语境（中国幼儿园老师备课本上真实只有三种颜色：
+     牛皮纸/道林纸的暖白、蓝黑钢笔水、红笔批注与奖励贴纸）。
+  2. 收敛（oklch）：
+     · 大面积底色  纸  oklch(0.985 0.008 92) / oklch(0.962 0.013 88)   chroma 0.008–0.013
+     · 主色        墨蓝 oklch(0.45 0.095 248)                            chroma 0.095
+     · 点睛        批注朱 oklch(0.575 0.168 32)                          chroma 0.168（只用于极小面积）
+     · 中性明度序列 oklch(0.28→0.55→0.72→0.90 · 0.012–0.028 · 88/250)
+  3. 论证一句话：老师的备课本上从来只有两种颜色——钢笔的墨蓝和红笔的批注，
+     底子是纸的暖白；所以主色取墨蓝、点睛取批注朱，其余全部交还给纸的中性明度序列，
+     温度由纸和留白提供，不由彩度提供。
+
+【无障碍与硬约束自检】
+  正文 15px / 辅助 12–13px；正文墨色 oklch(0.28) 落在纸底 oklch(0.985) 上，对比 ≈ 13:1；
+  最浅的辅助文字 oklch(0.55) 对比 ≈ 5.1:1，仍高于 4.5:1。
+  无 emoji 图标（全部为手绘 inline SVG 描边）；无编造 stats；无假插画（配图位是诚实灰块）。
+
+【设备框】样式常量整套取自 skill 的 assets/ios_frame.jsx（wrapper padding 12 / radius 60、
+  screen radius 48、status bar height 54、Dynamic Island 124×36 top 12 居中、
+  content top 54 bottom 34、home indicator 140×5 bottom 10），未自行发明任何几何值。
+================================================================================
+-->
+<style>
+:root{
+  /* ——— 纸（大面积底色，chroma 0.008–0.013） ——— */
+  --paper:      oklch(0.985 0.008 92);
+  --paper-2:    oklch(0.962 0.013 88);
+  --paper-3:    oklch(0.940 0.016 86);
+  /* ——— 墨（中性明度序列） ——— */
+  --ink:        oklch(0.280 0.028 250);
+  --ink-2:      oklch(0.430 0.022 250);
+  --ink-3:      oklch(0.550 0.018 250);
+  --line:       oklch(0.900 0.012 88);
+  --line-2:     oklch(0.842 0.014 88);
+  /* ——— 主色 · 钢笔墨蓝 ——— */
+  --blue:       oklch(0.450 0.095 248);
+  --blue-mid:   oklch(0.620 0.075 248);
+  --blue-soft:  oklch(0.945 0.026 248);
+  --blue-line:  oklch(0.880 0.042 248);
+  /* ——— 点睛 · 红笔批注 / 奖励贴纸（只用于极小面积） ——— */
+  --red:        oklch(0.575 0.168 32);
+  --red-soft:   oklch(0.955 0.032 40);
+
+  --f-body: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --f-disp: "Songti SC", "STSong", "Noto Serif SC", "SimSun", serif;
+
+  font-synthesis: none;
+  line-break: strict;
+  overflow-wrap: break-word;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1680px;height:1050px;overflow:hidden}
+body{
+  background:
+    radial-gradient(1200px 700px at 50% -10%, oklch(0.985 0.010 92), transparent 70%),
+    oklch(0.930 0.014 88);
+  font-family:var(--f-body); color:var(--ink);
+  -webkit-font-smoothing:antialiased;
+  display:flex; flex-direction:column; align-items:center;
+}
+
+/* ============ 画布抬头 ============ */
+.canvas-head{width:1680px;padding:26px 60px 0;display:flex;align-items:flex-end;justify-content:space-between}
+.ch-l .kicker{font-size:11px;letter-spacing:.16em;color:var(--ink-3);text-transform:uppercase;font-weight:600}
+.ch-l h1{font-family:var(--f-disp);font-size:25px;font-weight:600;letter-spacing:.01em;margin-top:5px;color:var(--ink)}
+.ch-r{text-align:right;font-size:12px;line-height:1.75;color:var(--ink-3);max-width:640px}
+.ch-r b{color:var(--ink-2);font-weight:600}
+.ch-r .sw{display:inline-flex;gap:5px;vertical-align:-2px;margin-left:8px}
+.ch-r .sw i{width:13px;height:13px;border-radius:3px;display:block;box-shadow:inset 0 0 0 1px oklch(0 0 0 / .10)}
+
+/* ============ 五机平铺 ============ */
+.stage{width:1680px;flex:1;display:flex;align-items:center;justify-content:center}
+.rail-of-phones{display:flex;gap:18px;transform:scale(.755);transform-origin:center center}
+.slot{width:414px}
+.slot-label{display:flex;align-items:baseline;gap:8px;margin:0 0 11px 16px}
+.slot-label .n{font-family:var(--f-disp);font-size:13px;font-weight:600;color:var(--blue);
+  border:1.4px solid var(--blue-line);border-radius:999px;width:24px;height:24px;
+  display:flex;align-items:center;justify-content:center;background:oklch(1 0 0 / .6)}
+.slot-label .t{font-size:15px;font-weight:600;color:var(--ink)}
+.slot-label .s{font-size:12px;color:var(--ink-3)}
+
+/* ============ ios_frame.jsx 常量移植（未改动任何几何值） ============ */
+.ios-wrapper{display:inline-block;padding:12px;background:#000;border-radius:60px;
+  box-shadow:0 0 0 2px #1f2937, 0 20px 60px rgba(0,0,0,.3);position:relative}
+.ios-screen{position:relative;border-radius:48px;overflow:hidden;background:#fff;width:390px;height:844px}
+.ios-statusbar{position:absolute;top:0;left:0;right:0;height:54px;display:flex;align-items:center;
+  justify-content:space-between;padding:0 32px;font-size:16px;font-weight:600;
+  font-family:-apple-system,"SF Pro Text",sans-serif;z-index:20;pointer-events:none;color:#000}
+.ios-island{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:124px;height:36px;
+  background:#000;border-radius:999px;z-index:30}
+.ios-icons{display:flex;align-items:center;gap:6px}
+.ios-signal{display:flex;align-items:flex-end;gap:2px;height:12px}
+.ios-signal i{width:3px;background:currentColor;border-radius:1px;display:block}
+.ios-batt{width:26px;height:12px;border:1.5px solid currentColor;border-radius:3px;padding:1px;
+  position:relative;opacity:.8}
+.ios-batt>span{display:block;width:85%;height:100%;background:currentColor;border-radius:1px;opacity:.9}
+.ios-batt::after{content:"";position:absolute;top:3px;right:-3px;width:2px;height:6px;
+  background:currentColor;border-radius:0 1px 1px 0}
+.ios-content{position:absolute;top:54px;left:0;right:0;bottom:34px;overflow:hidden}
+.ios-home{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);width:140px;height:5px;
+  background:rgba(0,0,0,.3);border-radius:999px;z-index:10}
+
+/* ============ 屏内公共骨架：左序号轨 + 右焦点列 ============ */
+.app{height:100%;background:var(--paper);display:flex;flex-direction:column;position:relative;
+  font-size:15px;line-height:1.7}
+/* 微信胶囊安全区（右上角） */
+.wx-capsule{position:absolute;top:6px;right:14px;width:87px;height:32px;border-radius:999px;
+  border:1px solid var(--line-2);background:oklch(1 0 0 / .72);display:flex;align-items:center;
+  justify-content:space-around;z-index:12}
+.wx-capsule .d{width:12px;height:12px;border-radius:999px;border:1.6px solid var(--ink-3);position:relative}
+.wx-capsule .d::before{content:"";position:absolute;inset:3px;border-radius:999px;background:var(--ink-3)}
+.wx-capsule .sep{width:1px;height:15px;background:var(--line-2)}
+.wx-capsule .o{width:12px;height:12px;border-radius:999px;border:1.6px solid var(--ink-3)}
+
+.scroll{flex:1;overflow:hidden;position:relative}
+/* 非对称双栏：40px 序号刻度轨 + 内容列 */
+.grid{display:grid;grid-template-columns:40px 1fr;column-gap:0}
+.rail{position:relative}
+/* 贯穿全屏的那根轨线 */
+.rail::before{content:"";position:absolute;left:19.5px;top:0;bottom:0;width:1px;background:var(--line)}
+.tick{position:absolute;left:50%;transform:translateX(-50%);background:var(--paper);
+  font-family:var(--f-disp);font-size:11.5px;font-weight:600;color:var(--ink-3);
+  width:22px;text-align:center;padding:5px 0;letter-spacing:.02em}
+.tick.on{color:var(--blue)}
+.tick.dot{padding:0}
+.tick.dot::before{content:"";display:block;width:7px;height:7px;border-radius:999px;
+  background:var(--paper);box-shadow:inset 0 0 0 1.5px var(--line-2);margin:6px auto}
+.tick.dot.on::before{background:var(--blue);box-shadow:inset 0 0 0 1.5px var(--blue)}
+
+.col{padding-right:20px;min-width:0}
+
+/* 焦点区（一次只问一件事） */
+.focus-kicker{font-size:12px;letter-spacing:.02em;color:var(--ink-3);font-weight:600}
+.focus-q{font-family:var(--f-disp);font-weight:600;color:var(--ink);letter-spacing:.01em;
+  text-wrap:balance}
+
+/* 满宽行式选项（Typeform 的字母键 → 一指可点的行） */
+.opt{display:flex;align-items:flex-start;gap:11px;width:100%;text-align:left;cursor:pointer;
+  background:oklch(1 0 0 / .85);border:1px solid var(--line-2);border-radius:13px;
+  padding:13px 13px 13px 12px;font:inherit;color:var(--ink);margin-bottom:9px;
+  transition:border-color .14s, background .14s, box-shadow .14s}
+.opt:hover{border-color:var(--blue-line);background:#fff}
+.opt .key{flex:none;width:23px;height:23px;border-radius:7px;border:1px solid var(--line-2);
+  display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;
+  color:var(--ink-3);background:var(--paper-2);margin-top:1px;letter-spacing:.02em}
+.opt .txt{flex:1;font-size:15px;line-height:1.55;padding-top:1px}
+.opt .tick-svg{flex:none;opacity:0;transition:opacity .14s;margin-top:3px}
+.opt.sel{background:var(--blue-soft);border-color:var(--blue);box-shadow:0 0 0 1px var(--blue)}
+.opt.sel .key{background:var(--blue);border-color:var(--blue);color:#fff}
+.opt.sel .txt{font-weight:600}
+.opt.sel .tick-svg{opacity:1}
+.opt.own{background:transparent;border-style:dashed;border-color:var(--line-2)}
+.opt.own .txt{color:var(--ink-3)}
+.opt.own:hover{border-color:var(--blue-line);background:oklch(1 0 0 / .6)}
+
+/* 底部常驻操作条（Enter → OK 的节奏落到拇指位） */
+.dock{flex:none;border-top:1px solid var(--line);background:oklch(0.985 0.008 92 / .94);
+  backdrop-filter:blur(8px);padding:11px 20px 13px}
+.btn{width:100%;border:none;border-radius:13px;padding:14px;font:inherit;font-size:15.5px;
+  font-weight:600;cursor:pointer;letter-spacing:.02em;display:flex;align-items:center;
+  justify-content:center;gap:7px;transition:background .14s,color .14s}
+.btn-p{background:var(--blue);color:#fff}
+.btn-p:hover{background:oklch(0.395 0.095 248)}
+.btn-p[disabled]{background:var(--paper-3);color:oklch(0.68 0.014 250);cursor:not-allowed}
+.btn-ghost{background:transparent;color:var(--ink-3);font-size:13px;font-weight:500;padding:9px}
+.btn-ghost:hover{color:var(--blue)}
+
+/* tab bar */
+.tabbar{flex:none;display:flex;border-top:1px solid var(--line);background:oklch(0.985 0.008 92 / .96);
+  padding:7px 0 5px}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;
+  color:var(--ink-3);font-size:12px;letter-spacing:.03em;background:none;border:none;font-family:inherit}
+.tab.on{color:var(--blue);font-weight:600}
+.tab svg{display:block}
+
+/* 顶部返回条（流程页） */
+.topbar{flex:none;display:flex;align-items:center;gap:9px;padding:5px 20px 7px;height:38px}
+.topbar .back{width:28px;height:28px;border-radius:9px;border:1px solid var(--line-2);
+  background:oklch(1 0 0 / .7);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.topbar .ttl{font-size:13.5px;font-weight:600;color:var(--ink-2);letter-spacing:.02em}
+
+/* 进度刻度（form 的种子：一轮一轮的提问） */
+.prog{display:flex;align-items:center;gap:9px}
+.prog .bars{display:flex;gap:4px}
+.prog .bars i{width:19px;height:3px;border-radius:2px;background:var(--line-2);display:block}
+.prog .bars i.done{background:var(--blue)}
+.prog .bars i.now{background:var(--blue);opacity:.45}
+.prog .lb{font-size:12px;color:var(--ink-3);letter-spacing:.02em}
+.prog .lb b{color:var(--blue);font-weight:600}
+
+/* 已答折叠行 */
+.answered{border-left:2px solid var(--blue-line);padding:2px 0 2px 12px;margin-bottom:20px}
+.answered .q{font-size:13px;color:var(--ink-3);line-height:1.55}
+.answered .chips{display:flex;gap:6px;margin-top:8px}
+.chip{font-size:12.5px;padding:4px 11px;border-radius:999px;border:1px solid var(--line-2);
+  color:var(--ink-3);background:oklch(1 0 0 / .7);cursor:pointer;font-family:inherit}
+.chip.on{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+.chip:hover:not(.on){border-color:var(--blue-line);color:var(--blue)}
+
+/* 通用小件 */
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;padding:0 0 8px}
+.sec-h .h{font-size:13px;font-weight:600;color:var(--ink-2);letter-spacing:.04em}
+.sec-h .m{font-size:12px;color:var(--ink-3)}
+.meta{font-size:12.5px;color:var(--ink-3);line-height:1.6}
+.hr{height:1px;background:var(--line);margin:0}
+.ph-img{background:repeating-linear-gradient(135deg,var(--paper-3) 0 7px,var(--paper-2) 7px 14px);
+  border:1px solid var(--line-2);border-radius:11px;display:flex;align-items:center;
+  justify-content:center;color:var(--ink-3);font-size:12px;letter-spacing:.04em}
+</style>
+</head>
+<body>
+
+<div class="canvas-head">
+  <div class="ch-l">
+    <div class="kicker">Direction B · Benchmark Transfer</div>
+    <h1>STEAM 教案助手 · 标杆迁移版</h1>
+  </div>
+  <div class="ch-r">
+    参照标杆 <b>Typeform</b>（2012 · 巴塞罗那）——迁移其「一次只问一件事 / 选项字母键 + 打勾 / Paper 与 Ink 二元配色」，不迁移其品牌资产。<br>
+    骨架：<b>左侧序号刻度轨 + 右侧焦点列 + 拇指位常驻操作条</b>。form 的种子：<b>一轮一轮的提问</b>。
+    <span class="sw">
+      <i style="background:var(--paper)"></i><i style="background:var(--paper-3)"></i>
+      <i style="background:var(--blue)"></i><i style="background:var(--blue-soft)"></i>
+      <i style="background:var(--red)"></i><i style="background:var(--ink)"></i>
+    </span>
+  </div>
+</div>
+
+<div class="stage"><div class="rail-of-phones">
+
+<!-- ══════════════════ 屏 1 · 首页 ══════════════════ -->
+<div class="slot">
+  <div class="slot-label"><span class="n">1</span><span class="t">首页</span><span class="s">一句话就开始</span></div>
+  <div class="ios-wrapper"><div class="ios-screen">
+    <div class="ios-statusbar"><span>9:41</span><div class="ios-icons">
+      <div class="ios-signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+      <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/><path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".7"/></svg>
+      <div class="ios-batt"><span></span></div>
+    </div></div>
+    <div class="ios-island"></div>
+    <div class="ios-content"><div class="app">
+      <div class="wx-capsule"><span class="d"></span><span class="sep"></span><span class="o"></span></div>
+
+      <div class="scroll"><div class="grid">
+
+        <!-- 01 焦点区 -->
+        <div class="rail"><span class="tick on" style="top:30px">01</span></div>
+        <div class="col" style="padding:32px 20px 0 4px">
+          <div class="focus-kicker" style="color:var(--blue)">开始新教案</div>
+          <div class="focus-q" style="font-size:24px;line-height:1.4;margin-top:8px">说一个想法<br>剩下的我来问</div>
+          <div style="margin-top:13px;border:1px solid var(--line-2);border-radius:14px;background:#fff;padding:11px 13px">
+            <div style="font-size:15px;color:oklch(0.66 0.014 250);line-height:1.5">例：我想做个浮与沉的活动</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding-top:9px;border-top:1px dashed var(--line)">
+              <span style="font-size:12px;color:var(--ink-3)">也可以直接说主题、材料或班级</span>
+              <span style="width:32px;height:32px;border-radius:10px;background:var(--blue);display:flex;align-items:center;justify-content:center">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3 8h9M8.5 4.5L12.5 8l-4 3.5" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+            </div>
+          </div>
+          <div class="meta" style="margin-top:9px">我会分 2–3 轮问你几个问题，每题都给好备选答案，点一下就行。</div>
+        </div>
+
+        <!-- 02 最近在写 -->
+        <div class="rail"><span class="tick" style="top:18px">02</span></div>
+        <div class="col" style="padding:20px 20px 0 4px">
+          <div class="sec-h" style="padding-bottom:6px"><span class="h">最近在写</span><span class="m">可接着上次继续</span></div>
+          <div style="border:1px solid var(--blue-line);border-radius:14px;background:var(--blue-soft);padding:11px 13px">
+            <div style="font-family:var(--f-disp);font-size:16.5px;font-weight:600;line-height:1.45">浮与沉：谁能浮在水面上</div>
+            <div class="meta" style="margin-top:5px">中班 · 第 1 轮 · 进行到第 2 题</div>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:9px">
+              <div class="prog" style="flex:1"><div class="bars"><i class="done"></i><i class="now"></i><i></i></div></div>
+              <span style="font-size:13px;font-weight:600;color:var(--blue);display:flex;align-items:center;gap:4px">接着写
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 03 已完成 -->
+        <div class="rail"><span class="tick" style="top:18px">03</span></div>
+        <div class="col" style="padding:20px 20px 0 4px">
+          <div class="sec-h" style="padding-bottom:6px"><span class="h">已完成</span><span class="m">共 4 份</span></div>
+          <div style="border-top:1px solid var(--line)">
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line)">
+              <div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:600;line-height:1.4">跷跷板为什么会翘起来</div><div class="meta" style="margin-top:2px">大班 · 8 月 12 日 · 有配图</div></div>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style="color:var(--line-2)"><path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line)">
+              <div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:600;line-height:1.4">影子会跑吗</div><div class="meta" style="margin-top:2px">中班 · 8 月 8 日</div></div>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style="color:var(--line-2)"><path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line)">
+              <div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:600;line-height:1.4">蚂蚁搬家的路</div><div class="meta" style="margin-top:2px">小班 · 8 月 3 日</div></div>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style="color:var(--line-2)"><path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+          </div>
+          <div style="text-align:center;padding:7px 0 2px"><span style="font-size:13px;color:var(--blue);font-weight:600">进入教案库</span></div>
+        </div>
+
+      </div></div>
+
+      <div class="tabbar">
+        <button class="tab on"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3.5 8.5L10 3.5l6.5 5V16a1 1 0 01-1 1h-11a1 1 0 01-1-1V8.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>首页</button>
+        <button class="tab"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4 4h5.2v13H4zM10.8 4H16v13h-5.2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 7.5h1.2M13 7.5h1.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>教案库</button>
+        <button class="tab"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M4 17c0-3 2.7-4.6 6-4.6s6 1.6 6 4.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>我的</button>
+      </div>
+    </div></div>
+    <div class="ios-home"></div>
+  </div></div>
+</div>
+
+<!-- ══════════════════ 屏 2 · 引导对话（灵魂屏 · 可交互） ══════════════════ -->
+<div class="slot">
+  <div class="slot-label"><span class="n">2</span><span class="t">引导对话</span><span class="s">一次只问一件事 · 可点选</span></div>
+  <div class="ios-wrapper"><div class="ios-screen">
+    <div class="ios-statusbar"><span>9:41</span><div class="ios-icons">
+      <div class="ios-signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+      <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/><path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".7"/></svg>
+      <div class="ios-batt"><span></span></div>
+    </div></div>
+    <div class="ios-island"></div>
+    <div class="ios-content"><div class="app">
+      <div class="wx-capsule"><span class="d"></span><span class="sep"></span><span class="o"></span></div>
+
+      <div class="topbar" style="padding-right:112px">
+        <span class="back"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10 3.5L5.5 8l4.5 4.5" stroke="var(--ink-2)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="ttl">浮与沉的活动</span>
+      </div>
+
+      <!-- 进度刻度：一轮一轮的提问 -->
+      <div style="padding:0 20px 14px;display:flex;align-items:center;justify-content:space-between">
+        <div class="prog"><div class="bars"><i class="done"></i><i class="now"></i><i></i></div>
+          <span class="lb">第 1 轮 · 第 <b>2</b>/3 题</span></div>
+        <span class="meta" style="font-size:12px">共 2 轮</span>
+      </div>
+      <div class="hr"></div>
+
+      <div class="scroll"><div class="grid">
+
+        <!-- 01 已答 -->
+        <div class="rail"><span class="tick dot on" style="top:20px"></span></div>
+        <div class="col" style="padding:18px 20px 0 4px">
+          <div class="answered">
+            <div class="q">这次活动是给哪个年龄班的？</div>
+            <div class="chips" data-group="age">
+              <button class="chip" data-v="小班">小班</button>
+              <button class="chip on" data-v="中班">中班</button>
+              <button class="chip" data-v="大班">大班</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 02 进行中 · 焦点区 -->
+        <div class="rail"><span class="tick on" style="top:4px">02</span></div>
+        <div class="col" style="padding:2px 20px 20px 4px">
+          <div class="focus-kicker" style="color:var(--blue)">正在问你</div>
+          <div class="focus-q" style="font-size:23px;line-height:1.48;margin:8px 0 4px">你希望孩子在这次活动里，主要获得什么？</div>
+          <div class="meta" style="margin-bottom:14px">选一个最接近的就好，不用想太久</div>
+
+          <div id="q2opts">
+            <button class="opt" data-k="A"><span class="key">A</span><span class="txt">感受到沉和浮的差别</span>
+              <svg class="tick-svg" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3.5 8.4l3 3 6-6.8" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button class="opt" data-k="B"><span class="key">B</span><span class="txt">学会自己动手试一试、记录结果</span>
+              <svg class="tick-svg" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3.5 8.4l3 3 6-6.8" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button class="opt" data-k="C"><span class="key">C</span><span class="txt">能说出为什么有的东西会浮</span>
+              <svg class="tick-svg" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3.5 8.4l3 3 6-6.8" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button class="opt own" data-k="D"><span class="key">D</span><span class="txt">我自己说 —— 点这里打字</span>
+              <svg class="tick-svg" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3.5 8.4l3 3 6-6.8" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:7px;margin-top:12px;padding:9px 11px;border-radius:10px;background:var(--red-soft)">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style="flex:none"><circle cx="8" cy="8" r="6" stroke="var(--red)" stroke-width="1.5"/><path d="M8 5v3.6M8 10.8v.6" stroke="var(--red)" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <span style="font-size:12px;color:oklch(0.46 0.10 32);line-height:1.5">可以多选，也可以一个都不选</span>
+          </div>
+        </div>
+
+      </div></div>
+
+      <div class="dock">
+        <button class="btn btn-p" id="q2next" disabled>选好了 · 下一题
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8h9M8.5 4.5L12.5 8l-4 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="btn btn-ghost">跳过引导，直接生成</button>
+      </div>
+    </div></div>
+    <div class="ios-home"></div>
+  </div></div>
+</div>
+
+<!-- ══════════════════ 屏 3 · 教案成稿 ══════════════════ -->
+<div class="slot">
+  <div class="slot-label"><span class="n">3</span><span class="t">教案成稿</span><span class="s">四环节落在同一根轨上</span></div>
+  <div class="ios-wrapper"><div class="ios-screen">
+    <div class="ios-statusbar"><span>9:41</span><div class="ios-icons">
+      <div class="ios-signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+      <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/><path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".7"/></svg>
+      <div class="ios-batt"><span></span></div>
+    </div></div>
+    <div class="ios-island"></div>
+    <div class="ios-content"><div class="app">
+      <div class="wx-capsule"><span class="d"></span><span class="sep"></span><span class="o"></span></div>
+
+      <div class="topbar" style="padding-right:112px">
+        <span class="back"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10 3.5L5.5 8l4.5 4.5" stroke="var(--ink-2)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="ttl">教案成稿</span>
+      </div>
+
+      <div class="scroll"><div class="grid">
+
+        <!-- 标题焦点区 -->
+        <div class="rail"></div>
+        <div class="col" style="padding:2px 20px 0 4px">
+          <div class="focus-q" style="font-size:21px;line-height:1.4">浮与沉：谁能浮在水面上</div>
+          <div style="display:flex;align-items:center;gap:7px;margin-top:9px">
+            <span class="chip on" style="cursor:default;font-size:12px;padding:3px 10px">中班</span>
+            <span class="chip" style="cursor:default;font-size:12px;padding:3px 10px">30 分钟</span>
+            <span class="meta" style="font-size:12px">已保存</span>
+          </div>
+        </div>
+
+        <!-- STEAM 五域标注（沿用字母徽标母题） -->
+        <div class="rail"><span class="tick" style="top:14px">S</span></div>
+        <div class="col" style="padding:12px 20px 0 4px">
+          <div class="sec-h" style="padding-bottom:5px"><span class="h">STEAM 五域标注</span></div>
+          <div style="display:grid;row-gap:3px">
+            <div style="display:flex;gap:8px;align-items:flex-start"><span class="key" style="width:19px;height:19px;border-radius:6px;font-size:11px;color:var(--blue);border-color:var(--blue-line);background:var(--blue-soft)">S</span><span style="font-size:12.5px;line-height:1.5;color:var(--ink-2)"><b style="color:var(--ink);font-weight:600">科学</b> · 物体沉浮现象、材料密度的初步感知</span></div>
+            <div style="display:flex;gap:8px;align-items:flex-start"><span class="key" style="width:19px;height:19px;border-radius:6px;font-size:11px;color:var(--blue);border-color:var(--blue-line);background:var(--blue-soft)">T</span><span style="font-size:12.5px;line-height:1.5;color:var(--ink-2)"><b style="color:var(--ink);font-weight:600">技术</b> · 使用记录表、贴纸标记的方法</span></div>
+            <div style="display:flex;gap:8px;align-items:flex-start"><span class="key" style="width:19px;height:19px;border-radius:6px;font-size:11px;color:var(--blue);border-color:var(--blue-line);background:var(--blue-soft)">E</span><span style="font-size:12.5px;line-height:1.5;color:var(--ink-2)"><b style="color:var(--ink);font-weight:600">工程</b> · 改变橡皮泥形状让它浮起来</span></div>
+            <div style="display:flex;gap:8px;align-items:flex-start"><span class="key" style="width:19px;height:19px;border-radius:6px;font-size:11px;color:var(--blue);border-color:var(--blue-line);background:var(--blue-soft)">A</span><span style="font-size:12.5px;line-height:1.5;color:var(--ink-2)"><b style="color:var(--ink);font-weight:600">艺术</b> · 记录表的色彩标记与造型创作</span></div>
+            <div style="display:flex;gap:8px;align-items:flex-start"><span class="key" style="width:19px;height:19px;border-radius:6px;font-size:11px;color:var(--blue);border-color:var(--blue-line);background:var(--blue-soft)">M</span><span style="font-size:12.5px;line-height:1.5;color:var(--ink-2)"><b style="color:var(--ink);font-weight:600">数学</b> · 统计浮与沉的数量、比较多少</span></div>
+          </div>
+        </div>
+
+        <!-- 材料清单 -->
+        <div class="rail"></div>
+        <div class="col" style="padding:11px 20px 0 4px">
+          <div class="sec-h" style="padding-bottom:5px"><span class="h">材料清单</span><span class="m">9 样</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:5px">
+            <span class="chip" style="cursor:default;font-size:12px;padding:3px 9px">透明水盆</span>
+            <span class="chip" style="cursor:default;font-size:12px;padding:3px 9px">塑料瓶盖</span>
+            <span class="chip" style="cursor:default;font-size:12px;padding:3px 9px">小石头</span>
+            <span class="chip" style="cursor:default;font-size:12px;padding:3px 9px">木片</span>
+            <span class="chip" style="cursor:default;font-size:12px;padding:3px 9px">回形针</span>
+            <span class="chip" style="cursor:default;font-size:12px;padding:3px 9px">泡沫块</span>
+            <span class="chip" style="cursor:default;font-size:12px;padding:3px 9px">树叶</span>
+            <span class="chip" style="cursor:default;font-size:12px;padding:3px 9px">记录表</span>
+            <span class="chip" style="cursor:default;font-size:12px;padding:3px 9px">彩色贴纸</span>
+          </div>
+        </div>
+
+        <!-- 教学流程四环节：轨上的序号在这里变成环节序号 -->
+        <div class="rail"></div>
+        <div class="col" style="padding:11px 20px 0 4px">
+          <div class="sec-h" style="padding-bottom:2px"><span class="h">教学流程</span><span class="m">四环节 · 30 分钟</span></div>
+        </div>
+
+        <div class="rail"><span class="tick on" style="top:6px">01</span></div>
+        <div class="col" style="padding:4px 14px 0 4px">
+          <div style="display:flex;align-items:baseline;gap:7px"><span style="font-size:14px;font-weight:600">引起动机</span><span class="meta" style="font-size:12px">5 分钟</span></div>
+          <div style="font-size:12.5px;line-height:1.5;color:var(--ink-2);margin-top:1px;text-wrap:pretty">洗手时有小朋友发现肥皂盒浮在水面上，肥皂却沉下去了</div>
+        </div>
+        <div class="rail"><span class="tick on" style="top:6px">02</span></div>
+        <div class="col" style="padding:4px 14px 0 4px">
+          <div style="display:flex;align-items:baseline;gap:7px"><span style="font-size:14px;font-weight:600">发展活动</span><span class="meta" style="font-size:12px">12 分钟</span></div>
+          <div style="font-size:12.5px;line-height:1.5;color:var(--ink-2);margin-top:1px;text-wrap:pretty">分组预测每样材料会浮还是沉，贴纸记录，再逐一放进水里验证</div>
+        </div>
+        <div class="rail"><span class="tick on" style="top:6px">03</span></div>
+        <div class="col" style="padding:4px 14px 0 4px">
+          <div style="display:flex;align-items:baseline;gap:7px"><span style="font-size:14px;font-weight:600">综合活动</span><span class="meta" style="font-size:12px">8 分钟</span></div>
+          <div style="font-size:12.5px;line-height:1.5;color:var(--ink-2);margin-top:1px;text-wrap:pretty">各组把结果贴到大记录表上，比一比哪些猜对了、哪些猜错了</div>
+        </div>
+        <div class="rail"><span class="tick on" style="top:6px">04</span></div>
+        <div class="col" style="padding:4px 14px 10px 4px">
+          <div style="display:flex;align-items:baseline;gap:7px"><span style="font-size:14px;font-weight:600">延伸活动</span><span class="meta" style="font-size:12px">5 分钟</span></div>
+          <div style="font-size:12.5px;line-height:1.5;color:var(--ink-2);margin-top:1px;text-wrap:pretty">把橡皮泥捏成不同形状，试试怎样才能让它浮起来</div>
+        </div>
+
+      </div></div>
+
+      <div class="dock" style="padding:10px 20px 12px">
+        <div class="ph-img" style="height:32px;margin-bottom:7px">配图待生成</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-p" style="flex:1.5;padding:11px;font-size:14px;border-radius:11px">生成配图</button>
+          <button class="btn" style="flex:1;padding:11px;font-size:14px;border-radius:11px;background:oklch(1 0 0 / .9);border:1px solid var(--line-2);color:var(--ink-2)">导出</button>
+          <button class="btn" style="flex:1;padding:11px;font-size:14px;border-radius:11px;background:oklch(1 0 0 / .9);border:1px solid var(--line-2);color:var(--ink-2)">分享</button>
+          <button class="btn" style="flex:1;padding:11px;font-size:14px;border-radius:11px;background:oklch(1 0 0 / .9);border:1px solid var(--line-2);color:var(--ink-2)">保存</button>
+        </div>
+      </div>
+    </div></div>
+    <div class="ios-home"></div>
+  </div></div>
+</div>
+
+<!-- ══════════════════ 屏 4 · 教案库 ══════════════════ -->
+<div class="slot">
+  <div class="slot-label"><span class="n">4</span><span class="t">教案库</span><span class="s">左轨在这里是时间刻度</span></div>
+  <div class="ios-wrapper"><div class="ios-screen">
+    <div class="ios-statusbar"><span>9:41</span><div class="ios-icons">
+      <div class="ios-signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+      <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/><path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".7"/></svg>
+      <div class="ios-batt"><span></span></div>
+    </div></div>
+    <div class="ios-island"></div>
+    <div class="ios-content"><div class="app">
+      <div class="wx-capsule"><span class="d"></span><span class="sep"></span><span class="o"></span></div>
+
+      <div style="padding:16px 20px 0 24px">
+        <div class="focus-kicker">我写过的</div>
+        <div class="focus-q" style="font-size:26px;line-height:1.4;margin-top:6px">教案库</div>
+      </div>
+
+      <div style="padding:13px 0 11px 24px;display:flex;gap:6px;overflow:hidden" data-group="filter">
+        <button class="chip on" data-v="全部">全部 4</button>
+        <button class="chip" data-v="小班">小班</button>
+        <button class="chip" data-v="中班">中班</button>
+        <button class="chip" data-v="大班">大班</button>
+        <button class="chip" data-v="时间" style="border-style:dashed">按时间</button>
+      </div>
+      <div class="hr"></div>
+
+      <div class="scroll"><div class="grid">
+
+        <div class="rail"><span class="tick on" style="top:16px">16</span></div>
+        <div class="col" style="padding:14px 20px 0 4px">
+          <div style="border:1px solid var(--blue-line);background:var(--blue-soft);border-radius:14px;padding:12px 13px">
+            <div style="font-family:var(--f-disp);font-size:16.5px;font-weight:600;line-height:1.45">浮与沉：谁能浮在水面上</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:7px">
+              <span class="chip on" style="cursor:default;font-size:12px;padding:2px 9px">中班</span>
+              <span class="meta" style="font-size:12px">8 月 16 日</span>
+              <span style="display:flex;align-items:center;gap:3px;font-size:12px;color:var(--red)">
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><rect x="2.2" y="3.2" width="11.6" height="9.6" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M2.6 10.5l3-2.6 2.6 2.2 2.4-1.9 2.8 2.3" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>有配图</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="rail"><span class="tick" style="top:16px">12</span></div>
+        <div class="col" style="padding:14px 20px 0 4px">
+          <div style="border-bottom:1px solid var(--line);padding-bottom:12px">
+            <div style="font-size:15.5px;font-weight:600;line-height:1.45">跷跷板为什么会翘起来</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+              <span class="chip" style="cursor:default;font-size:12px;padding:2px 9px">大班</span>
+              <span class="meta" style="font-size:12px">8 月 12 日</span>
+              <span style="display:flex;align-items:center;gap:3px;font-size:12px;color:var(--red)">
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><rect x="2.2" y="3.2" width="11.6" height="9.6" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M2.6 10.5l3-2.6 2.6 2.2 2.4-1.9 2.8 2.3" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>有配图</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="rail"><span class="tick" style="top:16px">08</span></div>
+        <div class="col" style="padding:14px 20px 0 4px">
+          <div style="border-bottom:1px solid var(--line);padding-bottom:12px">
+            <div style="font-size:15.5px;font-weight:600;line-height:1.45">影子会跑吗</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+              <span class="chip" style="cursor:default;font-size:12px;padding:2px 9px">中班</span>
+              <span class="meta" style="font-size:12px">8 月 8 日</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="rail"><span class="tick" style="top:16px">03</span></div>
+        <div class="col" style="padding:14px 20px 0 4px">
+          <div style="border-bottom:1px solid var(--line);padding-bottom:12px">
+            <div style="font-size:15.5px;font-weight:600;line-height:1.45">蚂蚁搬家的路</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+              <span class="chip" style="cursor:default;font-size:12px;padding:2px 9px">小班</span>
+              <span class="meta" style="font-size:12px">8 月 3 日</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="rail"></div>
+        <div class="col" style="padding:18px 20px 0 4px">
+          <div class="meta" style="font-size:12px;text-align:center">到底了 · 8 月共 4 份</div>
+        </div>
+
+      </div></div>
+
+      <div class="tabbar">
+        <button class="tab"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3.5 8.5L10 3.5l6.5 5V16a1 1 0 01-1 1h-11a1 1 0 01-1-1V8.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>首页</button>
+        <button class="tab on"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4 4h5.2v13H4zM10.8 4H16v13h-5.2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 7.5h1.2M13 7.5h1.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>教案库</button>
+        <button class="tab"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M4 17c0-3 2.7-4.6 6-4.6s6 1.6 6 4.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>我的</button>
+      </div>
+    </div></div>
+    <div class="ios-home"></div>
+  </div></div>
+</div>
+
+<!-- ══════════════════ 屏 5 · 我的 ══════════════════ -->
+<div class="slot">
+  <div class="slot-label"><span class="n">5</span><span class="t">我的</span><span class="s">我的记忆 = 一条条编号的轨</span></div>
+  <div class="ios-wrapper"><div class="ios-screen">
+    <div class="ios-statusbar"><span>9:41</span><div class="ios-icons">
+      <div class="ios-signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+      <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/><path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".7"/></svg>
+      <div class="ios-batt"><span></span></div>
+    </div></div>
+    <div class="ios-island"></div>
+    <div class="ios-content"><div class="app">
+      <div class="wx-capsule"><span class="d"></span><span class="sep"></span><span class="o"></span></div>
+
+      <div class="scroll"><div class="grid">
+
+        <div class="rail"></div>
+        <div class="col" style="padding:20px 20px 0 4px">
+          <div class="focus-kicker">我的档案</div>
+          <div class="focus-q" style="font-size:26px;line-height:1.4;margin-top:6px">李老师</div>
+          <div class="meta" style="margin-top:6px;font-size:13px">阳光幼儿园 · 中班 · 教龄 5 年</div>
+        </div>
+
+        <div class="rail"></div>
+        <div class="col" style="padding:20px 20px 0 4px">
+          <div class="sec-h" style="padding-bottom:4px"><span class="h">我的记忆</span><span class="m">写教案时我会自动带上</span></div>
+          <div class="meta" style="font-size:12px;margin-bottom:10px">这些是我从你以前的教案里记下来的，可以随时改。</div>
+        </div>
+
+        <div class="rail"><span class="tick on" style="top:8px">01</span></div>
+        <div class="col" style="padding:6px 20px 0 4px">
+          <div style="display:flex;align-items:flex-start;gap:9px;border:1px solid var(--line-2);background:oklch(1 0 0 / .85);border-radius:12px;padding:10px 12px">
+            <span style="flex:1;font-size:14px;line-height:1.5">主要带中班，孩子 4–5 岁</span>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="flex:none;margin-top:2px;color:var(--ink-3)"><path d="M9.6 3.2l3.2 3.2-6.4 6.4H3.2V9.6l6.4-6.4z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="flex:none;margin-top:2px;color:var(--ink-3)"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8h5.8l.6-8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+        <div class="rail"><span class="tick on" style="top:14px">02</span></div>
+        <div class="col" style="padding:12px 20px 0 4px">
+          <div style="display:flex;align-items:flex-start;gap:9px;border:1px solid var(--line-2);background:oklch(1 0 0 / .85);border-radius:12px;padding:10px 12px">
+            <span style="flex:1;font-size:14px;line-height:1.5">偏好表格式教案</span>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="flex:none;margin-top:2px;color:var(--ink-3)"><path d="M9.6 3.2l3.2 3.2-6.4 6.4H3.2V9.6l6.4-6.4z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="flex:none;margin-top:2px;color:var(--ink-3)"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8h5.8l.6-8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+        <div class="rail"><span class="tick on" style="top:14px">03</span></div>
+        <div class="col" style="padding:12px 20px 0 4px">
+          <div style="display:flex;align-items:flex-start;gap:9px;border:1px solid var(--line-2);background:oklch(1 0 0 / .85);border-radius:12px;padding:10px 12px">
+            <span style="flex:1;font-size:14px;line-height:1.5">园里没有投影仪</span>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="flex:none;margin-top:2px;color:var(--ink-3)"><path d="M9.6 3.2l3.2 3.2-6.4 6.4H3.2V9.6l6.4-6.4z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="flex:none;margin-top:2px;color:var(--ink-3)"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8h5.8l.6-8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+        <div class="rail"><span class="tick on" style="top:14px">04</span></div>
+        <div class="col" style="padding:12px 20px 0 4px">
+          <div style="display:flex;align-items:flex-start;gap:9px;border:1px solid var(--line-2);background:oklch(1 0 0 / .85);border-radius:12px;padding:10px 12px">
+            <span style="flex:1;font-size:14px;line-height:1.5">喜欢用生活废旧材料</span>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="flex:none;margin-top:2px;color:var(--ink-3)"><path d="M9.6 3.2l3.2 3.2-6.4 6.4H3.2V9.6l6.4-6.4z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="flex:none;margin-top:2px;color:var(--ink-3)"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8h5.8l.6-8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+        <div class="rail"><span class="tick dot" style="top:14px"></span></div>
+        <div class="col" style="padding:12px 20px 0 4px">
+          <div style="display:flex;align-items:center;gap:8px;border:1px dashed var(--line-2);border-radius:12px;padding:10px 12px;color:var(--ink-3)">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3.5v9M3.5 8h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <span style="font-size:13.5px">再记一条</span>
+          </div>
+        </div>
+
+        <div class="rail"></div>
+        <div class="col" style="padding:20px 20px 0 4px">
+          <div style="border-top:1px solid var(--line)">
+            <div style="display:flex;align-items:center;gap:10px;padding:13px 2px;border-bottom:1px solid var(--line)">
+              <svg width="17" height="17" viewBox="0 0 20 20" fill="none" style="color:var(--ink-3)"><circle cx="10" cy="10" r="2.6" stroke="currentColor" stroke-width="1.5"/><path d="M10 2.6v2M10 15.4v2M17.4 10h-2M4.6 10h-2M15.2 4.8l-1.4 1.4M6.2 13.8l-1.4 1.4M15.2 15.2l-1.4-1.4M6.2 6.2L4.8 4.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              <span style="flex:1;font-size:14.5px">设置</span>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style="color:var(--line-2)"><path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+          </div>
+        </div>
+
+      </div></div>
+
+      <div class="tabbar">
+        <button class="tab"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3.5 8.5L10 3.5l6.5 5V16a1 1 0 01-1 1h-11a1 1 0 01-1-1V8.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>首页</button>
+        <button class="tab"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4 4h5.2v13H4zM10.8 4H16v13h-5.2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 7.5h1.2M13 7.5h1.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>教案库</button>
+        <button class="tab on"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M4 17c0-3 2.7-4.6 6-4.6s6 1.6 6 4.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>我的</button>
+      </div>
+    </div></div>
+    <div class="ios-home"></div>
+  </div></div>
+</div>
+
+</div></div>
+
+<script>
+/* 屏 2 灵魂屏交互：迁移 Typeform 的「字母键选中 + 打勾 + OK 推进」节奏 */
+(function () {
+  var box = document.getElementById('q2opts');
+  var next = document.getElementById('q2next');
+  if (box) {
+    box.addEventListener('click', function (e) {
+      var b = e.target.closest('.opt');
+      if (!b) return;
+      b.classList.toggle('sel');
+      var n = box.querySelectorAll('.opt.sel').length;
+      next.disabled = n === 0;
+      next.firstChild.nodeValue = n === 0 ? '选好了 · 下一题'
+        : (n === 1 ? '选好了 · 下一题' : '已选 ' + n + ' 项 · 下一题');
+    });
+    /* 演示态：进屏时 B 已选中，选中态一眼可见 */
+    box.querySelector('[data-k="B"]').click();
+  }
+  /* 单选组：年龄班三档 / 教案库筛选 */
+  document.querySelectorAll('[data-group]').forEach(function (g) {
+    g.addEventListener('click', function (e) {
+      var c = e.target.closest('.chip');
+      if (!c) return;
+      g.querySelectorAll('.chip').forEach(function (x) { x.classList.remove('on'); });
+      c.classList.add('on');
+    });
+  });
+  /* tab bar 可点 */
+  document.querySelectorAll('.tabbar').forEach(function (t) {
+    t.addEventListener('click', function (e) {
+      var b = e.target.closest('.tab');
+      if (!b) return;
+      t.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+    });
+  });
+})();
+</script>
+</body>
+</html>

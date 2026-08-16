@@ -1,0 +1,19 @@
+# 密钥！绝对不能提交。提交过一次就等于泄露，必须去各平台重置 key。
+.env
+.env.local
+.env.*.local
+
+node_modules/
+npm-debug.log*
+*.log
+logs/
+
+# 导出的临时文件
+tmp/
+uploads/
+
+# 编辑器/系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

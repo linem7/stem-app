@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>方向 C · 备课本罫線 · 幼师 STEAM 教案助手</title>
+<!--
+================================================================================
+方向 C ｜ 最佳设计师 · 顶级定制
+================================================================================
+
+【为什么是杉浦康平（Kohei Sugiura，日本书籍设计家）】
+预算无上限时，我不选最有名的那个（原研哉的"白"会把这个产品推进死白微字的常见失败，
+Pentagram 的编辑式大标题对疲惫的老师太吵）。这个产品的真身是一本汉字文档——备课本，
+用户是被任务压着、单手、断续阅读的一线幼师。全世界最懂"如何让密集汉字信息既有条理
+又有体温、且不靠盒子"的人是杉浦康平：他用罫線（横竖细线）的粗细、留白的呼吸、页边
+的柱与边码、以及作为索引而非装饰的颜色，替代了一切卡片边框。他反对空无一物的极简，
+主张页面要有"にぎわい"（热闹、生气），留白是乐句之间的休止，不是内容缺席——这正好
+是本方向骨架（单列长流 / 弱容器 / 分隔线驱动）最容易滑倒的地方的解药。
+
+【提炼的设计哲学（不抄具体作品）】
+1. 罫線即结构：层级由线的粗细（0.5 / 1 / 3px）与缩进编码，全 App 零卡片、零阴影。
+2. 柱与边码：每屏左侧留一条窄边码栏（问一/问二、时长、序号），页边负责导航。
+3. 色是索引不是装饰：墨绿=系统与主行动，朱红=当前所在与你的选择，蜜黄=已被点亮的内容。
+   三个班别用三色编码（小班蜜黄/中班墨绿/大班朱红），颜色一出现就有意义。
+4. 时间的层叠：阅读是有节奏的，四环节按时长给出不等长的节拍，问答按轮次层叠成文档。
+5. 有生气的密度：正文 15px 起、次要 13px、辅助 12px，不用缩字号换"高级"。
+
+【色彩推导】
+采样（中国幼儿园老师的日常色彩记忆）：备课本微黄的内页与横线、软抄本深墨绿的封面与
+黑板、老师批改用的红笔与班级墙上的剪纸红、便利贴与粉笔的蜜黄、牛皮纸教具卡。
+收敛（oklch）：大面积纸底 oklch(.977 .014 88) 与 oklch(.958 .020 85)，chroma 0.014–0.020；
+主色墨绿 oklch(.42 .085 165)，chroma 0.085；点睛朱红 oklch(.55 .185 32)，chroma 0.185；
+蜜黄高亮 oklch(.90 .10 88)；中性明度序列 .26 / .44 / .54 / .72 / .86 同色相 80–85。
+论证：这三个颜色老师手边真实存在——纸是备课本内页的微黄，墨绿是软抄本封面和黑板的
+颜色，朱红是她自己批改时那支红笔和班级墙面剪纸；不是屏幕上凭空调出来的品牌色，所以
+温度不需要卡通来补。
+
+【form 的种子】
+来自第 8 节的"备课本"：备课本内页的横线（罫線）被抽出来当作全 App 唯一的容器语言——
+所有分组、所有层级、所有选中态都由线的粗细、颜色和缩进决定，一个卡片都没有。
+
+【设备框】
+几何参数逐项照搬 skill 的 assets/ios_frame.jsx（灵动岛 124×36 / top 12 居中，状态栏 h54
+padding 0 32，信号 4·6·9·11，电池 26×12，Home Indicator 140×5 bottom 10，wrapper padding 12
+radius 60，screen radius 48，内容区 top 54 / bottom 34），由页脚脚本统一注入，未在页面里
+另起一套。因规格要求"单文件、无外部依赖"，未引 React/Babel CDN，改为原生 JS 注入同一组件。
+================================================================================
+-->
+<style>
+:root{
+  --paper:      oklch(.977 .014 88);
+  --paper-2:    oklch(.958 .020 85);
+  --paper-3:    oklch(.938 .024 85);
+  --rule:       oklch(.86 .018 85);
+  --rule-mid:   oklch(.72 .020 85);
+  --ink:        oklch(.26 .014 80);
+  --ink-2:      oklch(.44 .014 80);
+  --ink-3:      oklch(.54 .012 80);
+  --green:      oklch(.42 .085 165);
+  --green-2:    oklch(.55 .070 165);
+  --green-tint: oklch(.935 .030 165);
+  --red:        oklch(.55 .185 32);
+  --red-tint:   oklch(.945 .035 32);
+  --honey:      oklch(.90 .100 88);
+  --honey-2:    oklch(.83 .120 88);
+  --f-sans: "PingFang SC","Noto Sans SC","Microsoft YaHei","Heiti SC",-apple-system,sans-serif;
+  --f-serif: "Songti SC","Source Han Serif SC","Noto Serif SC","SimSun",serif;
+  font-synthesis: none;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  width:1680px;height:1050px;overflow:hidden;
+  background:oklch(.918 .016 85);
+  font-family:var(--f-sans);
+  line-break:strict;overflow-wrap:break-word;
+  -webkit-font-smoothing:antialiased;
+}
+.canvas{width:1680px;height:1050px;padding:22px 14px 0;display:flex;flex-direction:column;}
+.deck-head{display:flex;align-items:baseline;gap:16px;padding:0 18px 14px;}
+.deck-head h1{font-family:var(--f-serif);font-size:21px;font-weight:600;color:var(--ink);letter-spacing:.02em;}
+.deck-head .sep{width:3px;height:15px;background:var(--red);}
+.deck-head p{font-size:13px;color:var(--ink-2);line-height:1.6;}
+.deck-head p b{color:var(--green);font-weight:600;}
+.row-phones{display:flex;gap:19px;padding:0 6px;}
+.deck-foot{display:flex;gap:32px;margin:24px 20px 0;padding-top:16px;border-top:3px solid var(--ink);}
+.deck-foot .ff{flex:1;}
+.deck-foot .ff:first-child{flex:1.45;}
+.deck-foot .ff:nth-child(2){flex:.85;}
+.deck-foot h4{font-size:12.5px;color:var(--ink-2);letter-spacing:.14em;font-weight:600;margin-bottom:11px;}
+.deck-foot p{font-size:13px;line-height:1.75;color:var(--ink-2);max-width:34em;}
+.sw{display:flex;gap:22px;flex-wrap:wrap;}
+.sw div{display:flex;flex-direction:column;gap:4px;}
+.sw i{width:56px;height:26px;border:1px solid var(--rule-mid);display:block;}
+.sw b{font-size:12px;color:var(--ink);font-weight:600;letter-spacing:.01em;}
+.sw span{font-size:12px;color:var(--ink-3);}
+.rl div{display:flex;align-items:center;gap:10px;margin-bottom:9px;}
+.rl i{width:64px;display:block;}
+.rl span{font-size:12.5px;color:var(--ink-2);}
+.slot{width:317px;}
+.slot-label{font-size:12.5px;color:var(--ink-2);margin:0 0 9px 4px;letter-spacing:.04em;display:flex;align-items:center;gap:6px;}
+.slot-label i{font-style:normal;color:var(--red);font-family:var(--f-serif);font-size:13px;}
+.slot-stage{width:317px;height:668px;}
+.scaler{transform:scale(.76);transform-origin:top left;}
+
+/* ===== 设备框（几何取自 assets/ios_frame.jsx） ===== */
+.frame{display:inline-block;padding:12px;background:#000;border-radius:60px;
+  box-shadow:0 0 0 2px #1f2937, 0 20px 60px rgba(0,0,0,.3);position:relative;}
+.screen{position:relative;width:390px;height:844px;border-radius:48px;overflow:hidden;background:var(--paper);}
+.ios-status{position:absolute;top:0;left:0;right:0;height:54px;display:flex;align-items:center;
+  justify-content:space-between;padding:0 32px;font-size:16px;font-weight:600;
+  font-family:-apple-system,"SF Pro Text",sans-serif;z-index:20;pointer-events:none;color:#000;}
+.ios-icons{display:flex;align-items:center;gap:6px;}
+.ios-signal{display:flex;align-items:flex-end;gap:2px;height:12px;}
+.ios-signal i{width:3px;background:currentColor;border-radius:1px;}
+.ios-batt{width:26px;height:12px;border:1.5px solid currentColor;border-radius:3px;padding:1px;position:relative;opacity:.8;}
+.ios-batt u{display:block;height:100%;background:currentColor;border-radius:1px;opacity:.9;}
+.ios-batt s{position:absolute;top:3px;right:-3px;width:2px;height:6px;background:currentColor;border-radius:0 1px 1px 0;}
+.ios-island{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:124px;height:36px;background:#000;border-radius:999px;z-index:30;}
+.ios-home{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);width:140px;height:5px;background:rgba(0,0,0,.3);border-radius:999px;z-index:10;}
+.app{position:absolute;top:54px;left:0;right:0;bottom:34px;overflow:hidden;
+  background:var(--paper);display:flex;flex-direction:column;}
+
+/* ===== 眉：微信胶囊安全区 ===== */
+.wxbar{height:44px;flex:0 0 44px;display:flex;align-items:center;padding:0 18px;
+  border-bottom:1px solid var(--rule);background:var(--paper);}
+.wxbar .t{font-size:14px;font-weight:600;color:var(--ink);letter-spacing:.03em;}
+.wxbar .act{margin-left:auto;font-size:12.5px;color:var(--green);}
+.capsule{width:80px;height:30px;border:1px solid var(--rule-mid);border-radius:999px;
+  margin-left:10px;display:flex;align-items:center;justify-content:space-around;flex:0 0 80px;}
+.capsule b{display:block;width:12px;height:2.5px;border-radius:2px;background:var(--ink-3);}
+.capsule b.dot{width:11px;height:11px;border-radius:50%;border:1.6px solid var(--ink-3);background:none;}
+
+/* ===== 滚动体 ===== */
+.body{flex:1 1 auto;overflow:auto;}
+.body::-webkit-scrollbar{display:none;}
+
+/* ===== 罫線语言 ===== */
+.r-hair{height:1px;background:var(--rule);}
+.r-mid{height:1px;background:var(--rule-mid);}
+.r-heavy{height:3px;background:var(--ink);}
+.r-green{height:2px;background:var(--green);}
+
+/* ===== 通用行 ===== */
+.sec-h{display:flex;align-items:baseline;gap:8px;padding:11px 18px 7px;}
+.sec-h h3{font-size:13px;font-weight:600;color:var(--ink-2);letter-spacing:.16em;}
+.sec-h span{margin-left:auto;font-size:12px;color:var(--ink-3);}
+.row{display:flex;gap:12px;padding:12px 18px;align-items:flex-start;background:none;border:none;
+  width:100%;text-align:left;font-family:inherit;}
+.gut{flex:0 0 38px;font-family:var(--f-serif);font-size:12.5px;color:var(--ink-3);
+  line-height:1.4;padding-top:2px;letter-spacing:.02em;}
+.ttl{font-size:15px;color:var(--ink);line-height:1.5;font-weight:500;}
+.meta{font-size:12.5px;color:var(--ink-3);margin-top:5px;letter-spacing:.02em;}
+.badge{display:inline-block;font-size:12px;line-height:1;padding:4px 6px;border-radius:2px;letter-spacing:.04em;}
+.b-small{background:var(--honey);color:oklch(.36 .06 80);}
+.b-mid{background:var(--green-tint);color:var(--green);}
+.b-big{background:var(--red-tint);color:var(--red);}
+.tag-img{font-size:12px;color:var(--green);display:inline-flex;align-items:center;gap:4px;}
+.tag-img::before{content:"";width:9px;height:9px;border:1.5px solid var(--green);border-radius:1px;}
+
+/* ===== 底部 tab ===== */
+.tabbar{flex:0 0 54px;display:flex;border-top:1px solid var(--rule-mid);background:var(--paper-2);}
+.tabbar div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  font-size:12px;color:var(--ink-3);letter-spacing:.06em;position:relative;}
+.tabbar div svg{stroke:var(--ink-3);}
+.tabbar div.on{color:var(--green);font-weight:600;}
+.tabbar div.on svg{stroke:var(--green);}
+.tabbar div.on::before{content:"";position:absolute;top:-1px;left:22%;right:22%;height:2px;background:var(--green);}
+
+/* ===== 屏1 首页 ===== */
+.hero{padding:19px 18px 17px;}
+.hero .kicker{font-size:12.5px;color:var(--ink-3);letter-spacing:.14em;margin-bottom:10px;}
+.hero h2{font-family:var(--f-serif);font-size:23px;line-height:1.42;color:var(--ink);font-weight:600;letter-spacing:.01em;}
+.hero h2 em{font-style:normal;background:linear-gradient(transparent 62%, var(--honey) 62%);padding:0 1px;}
+.ask{margin-top:16px;display:flex;align-items:flex-end;gap:10px;border-bottom:3px solid var(--ink);padding-bottom:9px;}
+.ask .caret{width:2px;height:19px;background:var(--red);flex:0 0 2px;margin-bottom:2px;animation:blink 1.2s steps(1,end) infinite;}
+@keyframes blink{50%{opacity:0}}
+.ask p{font-size:15px;color:var(--ink-3);line-height:1.5;flex:1;}
+.ask button{flex:0 0 auto;background:var(--green);color:var(--paper);border:none;font-family:inherit;
+  font-size:14px;font-weight:600;padding:9px 16px;border-radius:2px;letter-spacing:.06em;cursor:pointer;}
+.hero .hint{margin-top:11px;font-size:12.5px;color:var(--ink-3);line-height:1.6;}
+.cont-row{display:flex;align-items:center;gap:12px;padding:13px 18px 14px;background:var(--paper-2);cursor:pointer;}
+.cont-row .bar{flex:0 0 3px;align-self:stretch;background:var(--red);}
+.cont-row .go{margin-left:auto;font-size:13px;color:var(--green);font-weight:600;white-space:nowrap;}
+.prog-mini{display:flex;gap:3px;margin-top:7px;align-items:center;}
+.prog-mini i{width:14px;height:3px;background:var(--rule-mid);display:block;}
+.prog-mini i.on{background:var(--red);}
+.foot-link{padding:12px 18px;font-size:13px;color:var(--green);display:flex;align-items:center;gap:6px;}
+
+/* ===== 屏2 引导对话 ===== */
+.prog{padding:14px 18px 12px;display:flex;align-items:center;gap:10px;}
+.prog .txt{font-size:12.5px;color:var(--ink-2);letter-spacing:.03em;}
+.prog .ticks{margin-left:auto;display:flex;gap:4px;align-items:center;}
+.prog .ticks i{width:20px;height:4px;background:var(--rule-mid);display:block;}
+.prog .ticks i.done{background:var(--green);}
+.prog .ticks i.now{background:var(--red);}
+.qblock{padding:16px 18px 6px;display:flex;gap:12px;}
+.qnum{flex:0 0 38px;font-family:var(--f-serif);font-size:14px;color:var(--ink-3);letter-spacing:.05em;padding-top:1px;}
+.qnum.now{color:var(--red);font-weight:600;}
+.qtext{font-size:16px;line-height:1.6;color:var(--ink);font-weight:500;flex:1;}
+.answered{margin:2px 18px 0 68px;font-size:13px;color:var(--ink-2);}
+.chips{display:flex;gap:8px;margin:9px 18px 14px 68px;}
+.chip{font-family:inherit;font-size:13.5px;padding:7px 14px;border:1px solid var(--rule-mid);background:none;
+  color:var(--ink-2);border-radius:2px;cursor:pointer;letter-spacing:.04em;}
+.chip.on{background:var(--green);border-color:var(--green);color:var(--paper);font-weight:600;}
+.opts{margin:6px 0 0;}
+.opt{display:flex;gap:12px;align-items:flex-start;padding:14px 18px 14px 18px;width:100%;background:none;
+  border:none;border-top:1px solid var(--rule);font-family:inherit;text-align:left;cursor:pointer;position:relative;}
+.opt:last-of-type{border-bottom:1px solid var(--rule);}
+.opt .mark{flex:0 0 38px;display:flex;justify-content:flex-start;padding-top:2px;}
+.opt .box{width:16px;height:16px;border:1.5px solid var(--rule-mid);border-radius:2px;position:relative;}
+.opt .lab{font-size:15px;line-height:1.55;color:var(--ink);flex:1;}
+.opt .key{font-family:var(--f-serif);font-size:12.5px;color:var(--ink-3);margin-right:8px;}
+.opt.on{background:var(--honey);}
+.opt.on .box{border-color:var(--red);background:var(--red);}
+.opt.on .box::after{content:"";position:absolute;left:4px;top:1px;width:5px;height:9px;
+  border:2px solid var(--paper);border-top:none;border-left:none;transform:rotate(42deg);}
+.opt.on .lab{font-weight:600;}
+.opt.on::before{content:"";position:absolute;left:0;top:-1px;bottom:-1px;width:3px;background:var(--red);}
+.selfsay{display:flex;gap:12px;align-items:center;padding:15px 18px;border-bottom:1px solid var(--rule);}
+.selfsay .mark{flex:0 0 38px;font-family:var(--f-serif);font-size:12.5px;color:var(--ink-3);}
+.selfsay .line{flex:1;border-bottom:1px dashed var(--rule-mid);padding-bottom:6px;font-size:14px;color:var(--ink-3);}
+.qbar{flex:0 0 auto;border-top:1px solid var(--rule-mid);background:var(--paper-2);padding:11px 18px;
+  display:flex;align-items:center;gap:12px;}
+.qbar .skip{font-size:13px;color:var(--ink-2);text-decoration:underline;text-underline-offset:3px;cursor:pointer;}
+.qbar .cnt{margin-left:auto;font-size:12.5px;color:var(--ink-3);}
+.qbar button{background:var(--green);color:var(--paper);border:none;font-family:inherit;font-size:14px;
+  font-weight:600;padding:10px 18px;border-radius:2px;letter-spacing:.06em;cursor:pointer;}
+.qbar button[disabled]{background:var(--rule-mid);color:var(--paper);cursor:default;}
+
+/* ===== 屏3 教案成稿 ===== */
+.doc-h{padding:15px 18px 10px;}
+.doc-h h2{font-family:var(--f-serif);font-size:21px;line-height:1.4;color:var(--ink);font-weight:600;}
+.doc-h .m{margin-top:8px;font-size:13px;color:var(--ink-2);display:flex;gap:8px;align-items:center;}
+.steam{display:flex;border-top:1px solid var(--rule-mid);border-bottom:1px solid var(--rule-mid);}
+.steam div{flex:1;padding:6px 0 7px;text-align:center;border-right:1px solid var(--rule);}
+.steam div:last-child{border-right:none;}
+.steam b{display:block;font-family:var(--f-serif);font-size:17px;color:var(--green);font-weight:600;}
+.steam span{display:block;font-size:12px;color:var(--ink-3);margin-top:3px;}
+.mat{padding:10px 18px 11px;}
+.mat p{font-size:14.5px;line-height:1.72;color:var(--ink);}
+.step{display:flex;gap:12px;padding:10px 18px;border-top:1px solid var(--rule);}
+.step .t{flex:0 0 46px;font-family:var(--f-serif);font-size:12.5px;color:var(--ink-3);padding-top:3px;text-align:right;}
+.step .stem{flex:0 0 9px;position:relative;}
+.step .stem::before{content:"";position:absolute;left:3px;top:0;bottom:-13px;width:1px;background:var(--rule-mid);}
+.step:last-of-type .stem::before{bottom:auto;height:8px;}
+.step .stem::after{content:"";position:absolute;left:0;top:5px;width:7px;height:7px;background:var(--green);border-radius:50%;}
+.step .c h4{font-size:15px;color:var(--ink);font-weight:600;}
+.step .c p{font-size:14px;line-height:1.62;color:var(--ink-2);margin-top:3px;}
+.ph{margin:14px 18px 4px;height:76px;background:var(--paper-3);border:1px dashed var(--rule-mid);
+  display:flex;align-items:center;justify-content:center;font-size:12.5px;color:var(--ink-3);letter-spacing:.06em;}
+.steam-d{padding:0 18px 14px;}
+.steam-d div{display:flex;gap:10px;padding:9px 0;border-top:1px solid var(--rule);}
+.steam-d b{flex:0 0 16px;font-family:var(--f-serif);font-size:14px;color:var(--green);}
+.steam-d p{font-size:13.5px;line-height:1.6;color:var(--ink-2);}
+.actbar{flex:0 0 auto;border-top:1px solid var(--rule-mid);background:var(--paper-2);padding:7px 12px;display:flex;gap:8px;}
+.actbar button{flex:1;font-family:inherit;font-size:13px;padding:9px 0;border-radius:2px;cursor:pointer;
+  border:1px solid var(--rule-mid);background:none;color:var(--ink-2);letter-spacing:.04em;}
+.actbar button.pri{background:var(--green);border-color:var(--green);color:var(--paper);font-weight:600;flex:1.35;}
+
+/* ===== 屏4 教案库 ===== */
+.filters{display:flex;gap:16px;padding:12px 18px 0;}
+.filters button{font-family:inherit;font-size:13.5px;background:none;border:none;padding:0 0 9px;
+  color:var(--ink-3);cursor:pointer;border-bottom:2px solid transparent;letter-spacing:.04em;}
+.filters button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--red);}
+.filters .sort{margin-left:auto;font-size:12.5px;color:var(--ink-3);padding-bottom:9px;}
+.lib-row{display:flex;gap:12px;padding:19px 18px;border-bottom:1px solid var(--rule);align-items:flex-start;cursor:pointer;}
+.lib-row .n{flex:0 0 26px;font-family:var(--f-serif);font-size:13px;color:var(--ink-3);padding-top:3px;}
+.lib-row .c{flex:1;}
+.lib-row h4{font-family:var(--f-serif);font-size:16px;color:var(--ink);font-weight:600;line-height:1.45;}
+.count{padding:12px 18px 4px;font-size:12.5px;color:var(--ink-3);}
+
+/* ===== 屏5 我的 ===== */
+.prof{padding:18px 18px 15px;border-bottom:3px solid var(--ink);}
+.prof h2{font-family:var(--f-serif);font-size:24px;color:var(--ink);font-weight:600;letter-spacing:.02em;}
+.prof .m{margin-top:10px;font-size:13.5px;color:var(--ink-2);line-height:1.7;}
+.mem-lead{padding:0 18px 12px;font-size:13px;color:var(--ink-2);line-height:1.7;}
+.mem{display:flex;gap:12px;padding:12px 18px;border-top:1px solid var(--rule);align-items:flex-start;}
+.mem .n{flex:0 0 26px;font-family:var(--f-serif);font-size:12.5px;color:var(--red);padding-top:3px;}
+.mem p{flex:1;font-size:14.5px;line-height:1.6;color:var(--ink);}
+.mem .ops{display:flex;gap:10px;padding-top:3px;}
+.mem .ops button{font-family:inherit;font-size:12.5px;background:none;border:none;color:var(--ink-3);cursor:pointer;padding:0;}
+.mem .ops button:last-child{color:var(--red);}
+.mem-add{display:flex;gap:12px;padding:13px 18px;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);
+  font-size:14px;color:var(--green);cursor:pointer;}
+.mem-add .n{flex:0 0 26px;font-family:var(--f-serif);font-size:14px;}
+.set{display:flex;padding:13px 18px;border-bottom:1px solid var(--rule);font-size:14.5px;color:var(--ink);cursor:pointer;}
+.set span{margin-left:auto;font-size:13px;color:var(--ink-3);}
+</style>
+</head>
+<body>
+<div class="canvas">
+  <div class="deck-head">
+    <h1>方向 C · 备课本罫線</h1>
+    <div class="sep"></div>
+    <p>杉浦康平式书籍设计思维：单列长流、零卡片，层级全由<b>罫線的粗细、缩进与作为索引的颜色</b>建立。屏 2 可交互。</p>
+  </div>
+
+  <div class="row-phones">
+
+  <!-- ══════════ 屏 1 · 首页 ══════════ -->
+  <div class="slot">
+    <div class="slot-label"><i>屏 1</i> 首页</div>
+    <div class="slot-stage"><div class="scaler"><div class="frame"><div class="screen">
+      <div class="app" data-title="备课本" data-tab="home">
+        <div class="body">
+          <div class="hero">
+            <div class="kicker">8 月 16 日 · 星期日</div>
+            <h2>李老师，这次<em>想做个什么活动</em>？</h2>
+            <div class="ask">
+              <div class="caret"></div>
+              <p>我想做个浮与沉的活动</p>
+              <button>开始</button>
+            </div>
+            <p class="hint">说一句话就行，接下来我问你两三个问题，帮你把教案写完。</p>
+          </div>
+
+          <div class="r-heavy"></div>
+          <div class="sec-h"><h3>在写的</h3><span>今天 14:32</span></div>
+          <div class="cont-row">
+            <div class="bar"></div>
+            <div>
+              <div class="ttl">浮与沉：谁能浮在水面上</div>
+              <div class="meta">中班 · 第 1 轮 第 2 题</div>
+              <div class="prog-mini"><i class="on"></i><i class="on"></i><i></i><span style="font-size:12px;color:var(--ink-3);margin-left:5px;">还剩 1 题</span></div>
+            </div>
+            <div class="go">继续 →</div>
+          </div>
+
+          <div class="r-mid"></div>
+          <div class="sec-h"><h3>最近完成</h3><span>共 4 份</span></div>
+          <div class="r-hair"></div>
+          <div class="row"><div class="gut">八·12</div><div style="flex:1">
+            <div class="ttl">跷跷板为什么会翘起来</div>
+            <div class="meta"><span class="badge b-big">大班</span> &nbsp;<span class="tag-img">有配图</span></div>
+          </div></div>
+          <div class="r-hair"></div>
+          <div class="row"><div class="gut">八·08</div><div style="flex:1">
+            <div class="ttl">影子会跑吗</div>
+            <div class="meta"><span class="badge b-mid">中班</span></div>
+          </div></div>
+          <div class="r-hair"></div>
+          <div class="row"><div class="gut">八·03</div><div style="flex:1">
+            <div class="ttl">蚂蚁搬家的路</div>
+            <div class="meta"><span class="badge b-small">小班</span></div>
+          </div></div>
+          <div class="r-hair"></div>
+          <div class="foot-link">查看全部教案 →</div>
+        </div>
+      </div>
+    </div></div></div></div>
+  </div>
+
+  <!-- ══════════ 屏 2 · 引导对话（可交互） ══════════ -->
+  <div class="slot">
+    <div class="slot-label"><i>屏 2</i> 引导对话 · 可点选</div>
+    <div class="slot-stage"><div class="scaler"><div class="frame"><div class="screen">
+      <div class="app" data-title="浮与沉" data-act="跳过引导，直接生成" data-tab="none">
+        <div class="body">
+          <div class="qblock" style="padding:14px 18px 13px;">
+            <div class="qnum">你 说</div>
+            <div class="qtext" style="font-weight:400;font-size:15px;color:var(--ink-2);">我想做个浮与沉的活动</div>
+          </div>
+          <div class="r-hair"></div>
+          <div class="prog">
+            <div class="txt">第 1 轮 · 共 2 轮</div>
+            <div class="ticks"><i class="done"></i><i class="now"></i><i></i></div>
+          </div>
+          <div class="r-mid"></div>
+
+          <div class="qblock">
+            <div class="qnum">问 一</div>
+            <div class="qtext">这次活动是给哪个年龄班的？</div>
+          </div>
+          <div class="answered">已选：</div>
+          <div class="chips" data-group="age">
+            <button class="chip">小班</button>
+            <button class="chip on">中班</button>
+            <button class="chip">大班</button>
+          </div>
+          <div class="r-hair"></div>
+
+          <div class="qblock">
+            <div class="qnum now">问 二</div>
+            <div class="qtext">你希望孩子在这次活动里，主要获得什么？</div>
+          </div>
+          <div style="margin:0 18px 10px 68px;font-size:12.5px;color:var(--ink-3);">点一下就好，可以多选</div>
+
+          <div class="opts" data-group="goal">
+            <button class="opt"><div class="mark"><div class="box"></div></div>
+              <div class="lab"><span class="key">甲</span>感受到沉和浮的差别</div></button>
+            <button class="opt"><div class="mark"><div class="box"></div></div>
+              <div class="lab"><span class="key">乙</span>学会自己动手试一试、记录结果</div></button>
+            <button class="opt"><div class="mark"><div class="box"></div></div>
+              <div class="lab"><span class="key">丙</span>能说出为什么有的东西会浮</div></button>
+          </div>
+          <div class="selfsay">
+            <div class="mark">丁</div>
+            <div class="line">我自己说……</div>
+          </div>
+          <div style="padding:16px 18px 0 68px;">
+            <div style="font-size:12.5px;color:var(--ink-3);letter-spacing:.14em;margin-bottom:7px;">接 下 来</div>
+            <div style="font-size:14px;color:var(--ink-3);line-height:1.7;">问三 · 这次活动大概安排多长时间？<br>答完这一轮就能生成教案，中途走开也不会丢。</div>
+          </div>
+        </div>
+        <div class="qbar">
+          <div class="skip">跳过引导，直接生成</div>
+          <div class="cnt" id="c-cnt">已选 0 项</div>
+          <button id="c-next" disabled>下一题</button>
+        </div>
+      </div>
+    </div></div></div></div>
+  </div>
+
+  <!-- ══════════ 屏 3 · 教案成稿 ══════════ -->
+  <div class="slot">
+    <div class="slot-label"><i>屏 3</i> 教案成稿</div>
+    <div class="slot-stage"><div class="scaler"><div class="frame"><div class="screen">
+      <div class="app" data-title="教案" data-act="编辑" data-tab="none">
+        <div class="body">
+          <div class="doc-h">
+            <h2>浮与沉：<br>谁能浮在水面上</h2>
+            <div class="m"><span class="badge b-mid">中班</span> 30 分钟 · 四个环节</div>
+          </div>
+          <div class="steam">
+            <div><b>S</b><span>科学</span></div>
+            <div><b>T</b><span>技术</span></div>
+            <div><b>E</b><span>工程</span></div>
+            <div><b>A</b><span>艺术</span></div>
+            <div><b>M</b><span>数学</span></div>
+          </div>
+          <div class="sec-h"><h3>教 学 流 程</h3><span>四环节 · 30 分钟</span></div>
+          <div class="step"><div class="t">5 分钟</div><div class="stem"></div><div class="c">
+            <h4>引起动机</h4>
+            <p>洗手时有小朋友发现肥皂盒浮在水面上，肥皂却沉下去了</p></div></div>
+          <div class="step"><div class="t">12 分钟</div><div class="stem"></div><div class="c">
+            <h4>发展活动</h4>
+            <p>分组预测每样材料会浮还是沉，贴纸记录，再逐一放进水里验证</p></div></div>
+          <div class="step"><div class="t">8 分钟</div><div class="stem"></div><div class="c">
+            <h4>综合活动</h4>
+            <p>各组把结果贴到大记录表上，比一比哪些猜对了、哪些猜错了</p></div></div>
+          <div class="step"><div class="t">5 分钟</div><div class="stem"></div><div class="c">
+            <h4>延伸活动</h4>
+            <p>把橡皮泥捏成不同形状，试试怎样才能让它浮起来</p></div></div>
+
+          <div class="r-heavy" style="margin-top:12px"></div>
+          <div class="sec-h"><h3>材 料</h3><span>共 9 样</span></div>
+          <div class="mat"><p>透明水盆、塑料瓶盖、小石头、木片、回形针、泡沫块、树叶、记录表、彩色贴纸</p></div>
+
+          <div class="r-mid" style="margin-top:6px"></div>
+          <div class="sec-h"><h3>配 图</h3></div>
+          <div class="ph">配图待生成</div>
+          <div class="r-heavy" style="margin-top:16px"></div>
+          <div class="sec-h"><h3>S T E A M 标 注</h3></div>
+          <div class="steam-d">
+            <div><b>S</b><p>科学：物体沉浮现象、材料密度的初步感知</p></div>
+            <div><b>T</b><p>技术：使用记录表、贴纸标记的方法</p></div>
+            <div><b>E</b><p>工程：改变橡皮泥形状让它浮起来</p></div>
+            <div><b>A</b><p>艺术：记录表的色彩标记与造型创作</p></div>
+            <div><b>M</b><p>数学：统计浮与沉的数量、比较多少</p></div>
+          </div>
+        </div>
+        <div class="actbar">
+          <button class="pri">生成配图</button>
+          <button>导出</button>
+          <button>分享</button>
+          <button>保存</button>
+        </div>
+      </div>
+    </div></div></div></div>
+  </div>
+
+  <!-- ══════════ 屏 4 · 教案库 ══════════ -->
+  <div class="slot">
+    <div class="slot-label"><i>屏 4</i> 教案库</div>
+    <div class="slot-stage"><div class="scaler"><div class="frame"><div class="screen">
+      <div class="app" data-title="教案库" data-tab="lib">
+        <div class="body">
+          <div class="filters" data-group="lib">
+            <button class="on" data-f="all">全部</button>
+            <button data-f="小班">小班</button>
+            <button data-f="中班">中班</button>
+            <button data-f="大班">大班</button>
+            <div class="sort">按时间 ↓</div>
+          </div>
+          <div class="r-mid"></div>
+          <div class="count" id="lib-count">共 4 份教案</div>
+          <div id="lib-list">
+            <div class="lib-row" data-age="中班"><div class="n">01</div><div class="c">
+              <h4>浮与沉：谁能浮在水面上</h4>
+              <div class="meta"><span class="badge b-mid">中班</span> &nbsp;今天 · 30 分钟</div>
+            </div></div>
+            <div class="lib-row" data-age="大班"><div class="n">02</div><div class="c">
+              <h4>跷跷板为什么会翘起来</h4>
+              <div class="meta"><span class="badge b-big">大班</span> &nbsp;8 月 12 日 &nbsp;<span class="tag-img">有配图</span></div>
+            </div></div>
+            <div class="lib-row" data-age="中班"><div class="n">03</div><div class="c">
+              <h4>影子会跑吗</h4>
+              <div class="meta"><span class="badge b-mid">中班</span> &nbsp;8 月 8 日</div>
+            </div></div>
+            <div class="lib-row" data-age="小班"><div class="n">04</div><div class="c">
+              <h4>蚂蚁搬家的路</h4>
+              <div class="meta"><span class="badge b-small">小班</span> &nbsp;8 月 3 日</div>
+            </div></div>
+          </div>
+          <div class="foot-link">＋ 写一份新教案</div>
+          <div class="r-hair"></div>
+          <div style="padding:14px 18px;font-size:12.5px;color:var(--ink-3);line-height:1.7;">
+            教案存在这里，随时可以改。导出成 Word 或图片，也可以直接发到园所群里。
+          </div>
+        </div>
+      </div>
+    </div></div></div></div>
+  </div>
+
+  <!-- ══════════ 屏 5 · 我的 ══════════ -->
+  <div class="slot">
+    <div class="slot-label"><i>屏 5</i> 我的</div>
+    <div class="slot-stage"><div class="scaler"><div class="frame"><div class="screen">
+      <div class="app" data-title="我的" data-tab="me">
+        <div class="body">
+          <div class="prof">
+            <h2>李老师</h2>
+            <div class="m">阳光幼儿园 · 中班<br>教龄 5 年</div>
+          </div>
+
+          <div class="sec-h"><h3>我 的 记 忆</h3><span id="mem-count">4 条</span></div>
+          <div class="mem-lead">这些是我记住的事，写教案时会自动照着办。不合适可以随时改。</div>
+          <div id="mem-list">
+            <div class="mem"><div class="n">一</div><p>主要带中班，孩子 4–5 岁</p>
+              <div class="ops"><button>编辑</button><button class="del">删除</button></div></div>
+            <div class="mem"><div class="n">二</div><p>偏好表格式教案</p>
+              <div class="ops"><button>编辑</button><button class="del">删除</button></div></div>
+            <div class="mem"><div class="n">三</div><p>园里没有投影仪</p>
+              <div class="ops"><button>编辑</button><button class="del">删除</button></div></div>
+            <div class="mem"><div class="n">四</div><p>喜欢用生活废旧材料</p>
+              <div class="ops"><button>编辑</button><button class="del">删除</button></div></div>
+          </div>
+          <div class="mem-add"><div class="n">＋</div><div>再记一条</div></div>
+
+          <div class="sec-h"><h3>设 置</h3></div>
+          <div class="r-hair"></div>
+          <div class="set">教案默认格式<span>表格式 ›</span></div>
+          <div class="set">默认年龄班<span>中班 ›</span></div>
+          <div class="set">关于与帮助<span>›</span></div>
+        </div>
+      </div>
+    </div></div></div></div>
+  </div>
+
+  </div><!-- /row-phones -->
+
+  <div class="deck-foot">
+    <div class="ff">
+      <h4>色 彩 · 从老师的桌面采样</h4>
+      <div class="sw">
+        <div><i style="background:var(--paper)"></i><b>纸 oklch(.977 .014 88)</b><span>备课本内页的微黄</span></div>
+        <div><i style="background:var(--green)"></i><b>墨绿 oklch(.42 .085 165)</b><span>软抄本封面与黑板</span></div>
+        <div><i style="background:var(--red)"></i><b>朱红 oklch(.55 .185 32)</b><span>批改的红笔、墙面剪纸</span></div>
+        <div><i style="background:var(--honey)"></i><b>蜜黄 oklch(.90 .10 88)</b><span>便利贴、粉笔黄</span></div>
+      </div>
+    </div>
+    <div class="ff">
+      <h4>罫 線 即 层 级（零卡片）</h4>
+      <div class="rl">
+        <div><i class="r-heavy"></i><span>3px 墨线 · 章之间</span></div>
+        <div><i class="r-mid"></i><span>1px 中线 · 节之间</span></div>
+        <div><i class="r-hair"></i><span>1px 细线 · 条目之间</span></div>
+        <div><i style="background:var(--red);height:3px"></i><span>朱红短线 · 你此刻在哪、你选了什么</span></div>
+      </div>
+    </div>
+    <div class="ff">
+      <h4>form 的 种 子</h4>
+      <p>取自规格第 8 节的「备课本」——把备课本内页的横线抽出来当作全 App 唯一的容器语言：分组、层级、选中态全由线的粗细、颜色与缩进决定，一个卡片都没有。</p>
+      <p style="margin-top:8px;color:var(--ink-3)">设计思维参照：杉浦康平（罫線结构 · 页边柱与边码 · 色作索引 · 有生气的密度）。设备框几何取自 skill 的 ios_frame.jsx。</p>
+    </div>
+  </div>
+</div><!-- /canvas -->
+
+<script>
+/* ── 设备框注入：几何全部取自 skill 的 assets/ios_frame.jsx ── */
+var WIFI='<svg width="16" height="12" viewBox="0 0 16 12" fill="none">'+
+  '<path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/>'+
+  '<path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/>'+
+  '<path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" opacity="0.7"/></svg>';
+document.querySelectorAll('.screen').forEach(function(sc){
+  var st=document.createElement('div');
+  st.className='ios-status';
+  st.innerHTML='<span>9:41</span><div class="ios-icons"><div class="ios-signal">'+
+    '<i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>'+
+    WIFI+'<div class="ios-batt"><u style="width:85%"></u><s></s></div></div>';
+  var isl=document.createElement('div'); isl.className='ios-island';
+  var hm=document.createElement('div'); hm.className='ios-home';
+  sc.insertBefore(st, sc.firstChild); sc.insertBefore(isl, sc.firstChild); sc.appendChild(hm);
+});
+
+/* ── 眉（含微信胶囊安全区）与底部 tab 注入 ── */
+var ICONS={
+  home:'<path d="M3 9l7-6 7 6v8a1 1 0 01-1 1h-4v-5H8v5H4a1 1 0 01-1-1z"/>',
+  lib:'<path d="M4 3h5v14H4zM11 3h5v14h-5zM4 7h5M11 7h5"/>',
+  me:'<circle cx="10" cy="6.5" r="3.2"/><path d="M3.5 17c0-3.6 2.9-5.5 6.5-5.5s6.5 1.9 6.5 5.5"/>'
+};
+function icon(k,on){return '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">'+ICONS[k]+'</svg>';}
+document.querySelectorAll('.app').forEach(function(app){
+  var bar=document.createElement('div');
+  bar.className='wxbar';
+  var act=app.dataset.act?'<div class="act">'+app.dataset.act+'</div>':'<div class="act" style="visibility:hidden">·</div>';
+  bar.innerHTML='<div class="t">'+app.dataset.title+'</div>'+act+
+    '<div class="capsule"><b></b><b class="dot"></b></div>';
+  app.insertBefore(bar, app.firstChild);
+  var tab=app.dataset.tab;
+  if(tab && tab!=='none'){
+    var tb=document.createElement('div'); tb.className='tabbar';
+    tb.innerHTML=['home','lib','me'].map(function(k,i){
+      var name=['首页','教案库','我的'][i];
+      return '<div class="'+(k===tab?'on':'')+'">'+icon(k)+'<span>'+name+'</span></div>';
+    }).join('');
+    app.appendChild(tb);
+  }
+});
+
+/* ── 屏 2：年龄班三档单选 ── */
+document.querySelectorAll('.chips[data-group="age"] .chip').forEach(function(c){
+  c.addEventListener('click',function(){
+    c.parentNode.querySelectorAll('.chip').forEach(function(x){x.classList.remove('on');});
+    c.classList.add('on');
+    var a=c.closest('.body').querySelector('.answered');
+    a.textContent='已选：';
+  });
+});
+
+/* ── 屏 2：推荐卡片多选 + 进度反馈 ── */
+var opts=document.querySelectorAll('.opts[data-group="goal"] .opt');
+var cnt=document.getElementById('c-cnt'), next=document.getElementById('c-next');
+function syncGoal(){
+  var n=document.querySelectorAll('.opts[data-group="goal"] .opt.on').length;
+  cnt.textContent='已选 '+n+' 项';
+  next.disabled = n===0;
+  next.textContent = n===0 ? '下一题' : '下一题 →';
+}
+opts.forEach(function(o){o.addEventListener('click',function(){o.classList.toggle('on');syncGoal();});});
+opts[0].classList.add('on'); syncGoal();
+
+/* ── 屏 4：按年龄班筛选 ── */
+document.querySelectorAll('.filters[data-group="lib"] button').forEach(function(b){
+  b.addEventListener('click',function(){
+    b.parentNode.querySelectorAll('button').forEach(function(x){x.classList.remove('on');});
+    b.classList.add('on');
+    var f=b.dataset.f, shown=0;
+    document.querySelectorAll('#lib-list .lib-row').forEach(function(r){
+      var ok=(f==='all'||r.dataset.age===f);
+      r.style.display=ok?'':'none'; if(ok)shown++;
+    });
+    document.getElementById('lib-count').textContent='共 '+shown+' 份教案';
+  });
+});
+
+/* ── 屏 5：记忆可删除 ── */
+document.querySelectorAll('#mem-list .del').forEach(function(b){
+  b.addEventListener('click',function(){
+    b.closest('.mem').remove();
+    var n=document.querySelectorAll('#mem-list .mem').length;
+    document.getElementById('mem-count').textContent=n+' 条';
+    var num=['一','二','三','四','五','六'];
+    document.querySelectorAll('#mem-list .mem .n').forEach(function(x,i){x.textContent=num[i];});
+  });
+});
+</script>
+</body>
+</html>

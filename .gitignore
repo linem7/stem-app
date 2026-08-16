@@ -1,0 +1,36 @@
+# 依赖
+node_modules/
+**/node_modules/
+
+# 环境变量与密钥（绝对不能提交）
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# 构建产物
+dist/
+build/
+unpackage/
+.output/
+
+# 日志
+*.log
+npm-debug.log*
+logs/
+
+# 编辑器与系统
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# 原书 PDF —— 有版权且体积大（22MB×2），不入库
+# 框架已提炼到 docs/design/framework-extraction.md，后续开发用不到原书
+research/*.pdf
+
+# 临时文件
+*.tmp
+.cache/

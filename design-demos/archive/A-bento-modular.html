@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>方向 A · Bento 便当格模块网格 · STEAM 教案小程序</title>
+<!--
+  ============================================================================
+  方向 A：Bento 便当格模块网格（明亮版）
+  ============================================================================
+
+  【色彩论证 · 一句话】
+  这套色不是配方，是从中国幼师的案头实物采出来的：备课本微微发黄的纸
+  （oklch 0.982 0.010 88 做全局底）、批改教案用的蓝黑钢笔水（oklch 0.48
+  0.10 248 做唯一主色）、以及贴在记录表上的标签贴纸橙（oklch 0.60 0.19 42
+  只做小面积点睛）——大面积 chroma 压在 0.01 以内、主色 0.10、点睛 0.19，
+  层次全部来自明度阶梯而不是霓虹光晕。
+
+  【form 的种子 · 一句话】
+  取规格第 8 节的「STEAM 五个字母」：五个方形域标记被放大成便当格模块，
+  界面里的格子和教案里的 S/T/E/A/M 方块是同一个形状语言。
+
+  【风格轮盘的诚实改造】
+  轮盘抽中「Linear 暗色发光 + Bento 网格」。保留：不等高 bento 模块网格的
+  信息组织、模块化分区秩序感、发丝级分隔、微妙层叠深度。转译：暗底发光 →
+  明亮语境的极淡底色分层 + 柔和投影 + 克制边框。丢弃：近黑底、霓虹渐变、
+  玻璃磨砂、赛博气质——那是开发者工具语言，幼师会觉得陌生冷硬。
+
+  【设备框说明】
+  为满足「单文件 / 双击即开 / 无外部依赖」硬约束，本文件不引 React+Babel
+  CDN，故把 skill 的 assets/ios_frame.jsx 里的 iosFrameStyles 常量 1:1 移植
+  成 CSS 类（padding 12 / wrapper radius 60 / screen radius 48 / 灵动岛
+  124×36 top:12 居中 / status bar h54 / content top:54 bottom:34 /
+  home indicator 140×5 bottom:10），数值一个未改，未自行重估任何尺寸。
+  ============================================================================
+-->
+<style>
+:root{
+  /* —— 中性明度序列：备课本纸张 —— */
+  --paper:      oklch(0.982 0.010 88);
+  --card:       oklch(0.998 0.004 88);
+  --card-2:     oklch(0.963 0.012 88);
+  --card-3:     oklch(0.942 0.014 84);
+  --line:       oklch(0.895 0.010 88);
+  --line-soft:  oklch(0.930 0.008 88);
+  --ink:        oklch(0.280 0.020 250);
+  --ink-2:      oklch(0.420 0.018 250);
+  --ink-3:      oklch(0.475 0.015 250);
+  /* —— 有彩色 1：蓝黑钢笔水（主色） —— */
+  --blue:       oklch(0.480 0.100 248);
+  --blue-deep:  oklch(0.390 0.090 248);
+  --blue-soft:  oklch(0.945 0.022 248);
+  --blue-line:  oklch(0.870 0.040 248);
+  /* —— 有彩色 2：木料与麻布展板（次色） —— */
+  --tan:        oklch(0.520 0.055 68);
+  --tan-soft:   oklch(0.950 0.020 78);
+  --tan-line:   oklch(0.888 0.028 78);
+  /* —— 有彩色 3：标签贴纸橙（点睛，小面积） —— */
+  --accent:     oklch(0.600 0.190 42);
+  --accent-ink: oklch(0.480 0.150 42);
+  --accent-soft:oklch(0.955 0.030 55);
+
+  --sh-1: 0 1px 2px oklch(0.28 0.02 250 / 0.045);
+  --sh-2: 0 1px 2px oklch(0.28 0.02 250 / 0.05), 0 4px 12px oklch(0.28 0.02 250 / 0.05);
+  --sh-3: 0 2px 4px oklch(0.28 0.02 250 / 0.06), 0 10px 24px oklch(0.28 0.02 250 / 0.07);
+
+  --font-body: -apple-system, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --font-num: "SF Pro Text", -apple-system, "PingFang SC", sans-serif;
+  font-synthesis: none;
+  line-break: strict;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{
+  width:1680px;height:1050px;overflow:hidden;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, oklch(0.975 0.014 84), transparent 70%),
+    oklch(0.955 0.008 88);
+  font-family:var(--font-body);
+  color:var(--ink);
+  -webkit-font-smoothing:antialiased;
+  font-feature-settings:"liga" 1,"calt" 1;
+}
+.canvas{width:1680px;height:1050px;display:flex;flex-direction:column;align-items:center;}
+
+/* ===== 画布抬头 ===== */
+.head{width:1560px;padding:30px 8px 16px;display:flex;align-items:flex-end;justify-content:space-between;gap:40px;}
+.head-l{max-width:760px;}
+.head-eyebrow{font-size:11px;letter-spacing:.16em;color:var(--ink-3);text-transform:uppercase;margin-bottom:9px;}
+.head-title{font-size:25px;font-weight:700;letter-spacing:.01em;color:var(--ink);}
+.head-title em{font-style:normal;color:var(--blue);}
+.head-sub{margin-top:9px;font-size:13px;line-height:1.75;color:var(--ink-2);}
+.head-r{display:flex;gap:22px;align-items:flex-end;}
+.swatchgroup{display:flex;flex-direction:column;gap:7px;}
+.swatchrow{display:flex;gap:5px;}
+.sw{width:26px;height:26px;border-radius:7px;border:1px solid oklch(0.28 0.02 250/.09);}
+.swatchcap{font-size:10.5px;color:var(--ink-3);letter-spacing:.04em;}
+
+/* ===== 手机机架 ===== */
+.rack{zoom:.75;display:flex;gap:22px;padding:0 30px;align-items:flex-start;}
+.slot{display:flex;flex-direction:column;align-items:center;}
+.slot-label{font-size:16px;color:var(--ink-2);margin-bottom:10px;letter-spacing:.02em;font-weight:600;}
+.slot-label b{color:var(--blue);font-weight:700;margin-right:6px;}
+.slot-note{font-size:14px;color:var(--ink-3);font-weight:400;margin-left:8px;}
+
+/* ===== ios_frame.jsx 常量 1:1 移植 ===== */
+.ios-wrapper{display:inline-block;padding:12px;background:#000;border-radius:60px;
+  box-shadow:0 0 0 2px #1f2937, 0 20px 60px rgba(0,0,0,0.3);position:relative;}
+.ios-screen{position:relative;border-radius:48px;overflow:hidden;background:#fff;width:390px;height:844px;}
+.ios-statusbar{position:absolute;top:0;left:0;right:0;height:54px;display:flex;align-items:center;
+  justify-content:space-between;padding:0 32px;font-size:16px;font-weight:600;
+  font-family:-apple-system,"SF Pro Text",sans-serif;z-index:20;pointer-events:none;color:#000;}
+.ios-island{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:124px;height:36px;
+  background:#000;border-radius:999px;z-index:30;}
+.ios-icons{display:flex;align-items:center;gap:6px;}
+.ios-signal{display:flex;align-items:flex-end;gap:2px;height:12px;}
+.ios-signal i{width:3px;background:currentColor;border-radius:1px;display:block;}
+.ios-batt{width:26px;height:12px;border:1.5px solid currentColor;border-radius:3px;padding:1px;position:relative;opacity:.8;}
+.ios-batt em{display:block;width:85%;height:100%;background:currentColor;border-radius:1px;opacity:.9;}
+.ios-batt s{position:absolute;top:3px;right:-3px;width:2px;height:6px;background:currentColor;border-radius:0 1px 1px 0;}
+.ios-content{position:absolute;top:54px;left:0;right:0;bottom:34px;overflow:hidden;}
+.ios-home{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);width:140px;height:5px;
+  background:rgba(0,0,0,0.3);border-radius:999px;z-index:10;}
+
+/* ===== 屏内骨架 ===== */
+.app{width:100%;height:100%;display:flex;flex-direction:column;background:var(--paper);}
+.nav{height:44px;flex:0 0 44px;display:flex;align-items:center;padding:0 14px 0 16px;gap:8px;
+  background:var(--paper);border-bottom:1px solid transparent;}
+.nav-title{font-size:16px;font-weight:600;letter-spacing:.01em;flex:1;}
+.nav-sub{font-size:12px;color:var(--ink-3);font-weight:400;margin-left:7px;}
+.back{width:26px;height:26px;display:flex;align-items:center;justify-content:center;flex:0 0 26px;
+  border-radius:8px;color:var(--ink-2);}
+/* 微信胶囊：小程序右上角安全区（真实形态占位） */
+.capsule{width:87px;height:32px;flex:0 0 87px;border-radius:16px;border:.5px solid oklch(0.28 .02 250/.16);
+  background:oklch(1 0 0/.6);display:flex;align-items:center;justify-content:space-around;
+  margin-left:auto;color:var(--ink-2);}
+.capsule .div{width:.5px;height:17px;background:oklch(0.28 .02 250/.14);}
+.main{flex:1;overflow:hidden;padding:2px 14px 0;}
+
+/* tab bar */
+.tabbar{flex:0 0 56px;height:56px;display:flex;border-top:.5px solid var(--line);
+  background:oklch(0.995 0.006 88);padding:0 8px;}
+.tabitem{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  color:var(--ink-3);cursor:pointer;}
+.tabitem span{font-size:10.5px;letter-spacing:.03em;}
+.tabitem.on{color:var(--blue);}
+
+/* ===== bento 模块 ===== */
+.bento{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+.mod{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:13px 14px;
+  box-shadow:var(--sh-1);position:relative;overflow:hidden;}
+.span2{grid-column:span 2;}
+.mod-eyebrow{font-size:11px;letter-spacing:.12em;color:var(--ink-3);display:flex;align-items:center;
+  gap:6px;margin-bottom:9px;}
+.mod-eyebrow .tick{width:3px;height:11px;border-radius:2px;background:var(--blue);flex:0 0 3px;}
+.mod-eyebrow .tick.tan{background:var(--tan);}
+.mod-eyebrow .tick.acc{background:var(--accent);}
+.mod-eyebrow .cnt{margin-left:auto;letter-spacing:0;color:var(--ink-3);font-family:var(--font-num);}
+
+/* 通用文字 */
+.t14{font-size:14px;line-height:1.65;color:var(--ink);}
+.t15{font-size:15px;line-height:1.6;color:var(--ink);}
+.t13{font-size:13px;line-height:1.6;color:var(--ink-2);}
+.t12{font-size:12px;line-height:1.55;color:var(--ink-3);}
+.strong{font-weight:600;}
+.hair{height:1px;background:var(--line-soft);border:0;}
+
+/* 主按钮 */
+.btn-main{height:46px;border-radius:13px;background:var(--blue);color:#fff;display:flex;
+  align-items:center;justify-content:center;gap:7px;font-size:15px;font-weight:600;letter-spacing:.03em;
+  box-shadow:0 2px 6px oklch(0.48 .10 248/.24);cursor:pointer;}
+.btn-ghost{height:38px;border-radius:11px;border:1px solid var(--line);background:var(--card);
+  display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;color:var(--ink-2);cursor:pointer;}
+
+/* STEAM 五方格 —— form 母题 */
+.steam{display:flex;gap:5px;}
+.steam .sq{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-num);font-size:13px;font-weight:700;letter-spacing:0;
+  background:var(--blue-soft);color:var(--blue-deep);border:1px solid var(--blue-line);}
+.steam.sm .sq{width:19px;height:19px;border-radius:5px;font-size:10.5px;}
+
+/* chip：年龄班三档 */
+.chip{height:32px;padding:0 15px;border-radius:10px;border:1px solid var(--line);background:var(--card);
+  display:flex;align-items:center;font-size:13.5px;color:var(--ink-2);cursor:pointer;}
+.chip.on{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600;
+  box-shadow:0 1px 4px oklch(0.48 .10 248/.28);}
+
+/* 推荐答案卡片（阵列单元） */
+.pick{position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:12px 13px 13px;box-shadow:var(--sh-1);cursor:pointer;min-height:108px;
+  transition:background .12s,border-color .12s;}
+.pick-tag{width:20px;height:20px;border-radius:6px;background:var(--card-3);color:var(--ink-2);
+  display:flex;align-items:center;justify-content:center;font-family:var(--font-num);
+  font-size:11.5px;font-weight:700;}
+.pick-t{margin-top:9px;font-size:15px;line-height:1.5;font-weight:600;color:var(--ink);letter-spacing:.01em;}
+.pick-s{margin-top:6px;font-size:12px;color:var(--ink-3);}
+.pick-mark{position:absolute;top:11px;right:12px;width:18px;height:18px;border-radius:50%;
+  background:var(--blue);display:none;}
+.pick-mark::after{content:"";position:absolute;left:5.6px;top:4px;width:4.5px;height:9px;
+  border:solid #fff;border-width:0 1.8px 1.8px 0;transform:rotate(42deg);}
+.pick.on{background:var(--blue-soft);border-color:var(--blue);box-shadow:var(--sh-2);}
+.pick.on .pick-tag{background:var(--blue);color:#fff;}
+.pick.on .pick-mark{display:block;}
+.pick.row{display:flex;align-items:center;gap:11px;min-height:0;padding:14px 13px;}
+.pick.row .pick-t,.pick.row .pick-s{margin:0;}
+.pick.row .pick-t{flex:1;}
+.pick.row .pick-mark{position:static;flex:0 0 18px;}
+
+.minichip{height:25px;padding:0 9px;border-radius:7px;background:oklch(1 0 0/.72);
+  border:1px solid var(--tan-line);font-size:12px;color:var(--tan);display:flex;align-items:center;}
+
+/* STEAM 维度 tile（横向阵列） */
+.dtile{flex:0 0 152px;width:152px;background:var(--card-2);border:1px solid var(--line-soft);
+  border-radius:12px;padding:9px 11px 10px;}
+.dtile-h{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:600;color:var(--ink);}
+.sq2{width:21px;height:21px;border-radius:6px;background:var(--blue);color:#fff;display:flex;
+  align-items:center;justify-content:center;font-family:var(--font-num);font-size:11.5px;font-weight:700;}
+.dtile-b{margin-top:7px;font-size:12px;line-height:1.55;color:var(--ink-2);}
+
+/* 材料 chip */
+.matchip{height:26px;padding:0 10px;border-radius:8px;background:var(--tan-soft);
+  border:1px solid var(--tan-line);font-size:12.5px;color:var(--tan);display:flex;align-items:center;}
+
+/* 四环节时间轴 */
+.tl{padding-left:3px;}
+.tl-row{position:relative;padding:0 0 7px 19px;}
+.tl-row::before{content:"";position:absolute;left:4.5px;top:11px;bottom:0;width:1px;background:var(--line);}
+.tl-row.last{padding-bottom:0;}
+.tl-row.last::before{display:none;}
+.tl-dot{position:absolute;left:0;top:4px;width:10px;height:10px;border-radius:3px;
+  background:var(--card);border:2px solid var(--accent);}
+.tl-h{font-size:14px;font-weight:600;color:var(--ink);display:flex;align-items:baseline;gap:7px;}
+.tl-h span{font-size:11.5px;font-weight:400;color:var(--ink-3);font-family:var(--font-num);}
+.tl-b{margin-top:3px;font-size:12.5px;line-height:1.55;color:var(--ink-2);}
+
+/* 底栏图标按钮 */
+.actbtn{width:52px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--card);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  color:var(--ink-2);cursor:pointer;}
+.actbtn span{font-size:10.5px;}
+
+/* 记忆条目 */
+.memo{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line-soft);}
+.memo.last{border-bottom:0;}
+.memo-t{flex:1;font-size:14px;line-height:1.5;color:var(--ink);}
+.memo-i{color:var(--ink-3);cursor:pointer;flex:0 0 15px;}
+/* 设置行 */
+.setrow{display:flex;align-items:center;gap:8px;padding:11px 0;border-bottom:1px solid var(--line-soft);}
+.setrow.last{border-bottom:0;}
+.setrow span{font-size:14px;color:var(--ink);flex:1;}
+.setrow b{font-size:13px;font-weight:400;color:var(--ink-3);}
+
+svg{display:block;}
+</style>
+</head>
+<body>
+<div class="canvas">
+
+  <div class="head">
+    <div class="head-l">
+      <div class="head-eyebrow">Direction A / Bento Modular Grid</div>
+      <div class="head-title">便当格模块网格 · <em>STEAM 教案助手</em>（微信小程序）</div>
+      <div class="head-sub">
+        取 Bento 网格的结构 DNA——不等高模块承载不同密度的信息、发丝级分隔、微妙层叠；
+        弃其暗色发光皮，层次改由「纸张明度阶梯」制造。form 的种子是 STEAM 五个字母的方形域标记，
+        被放大成界面里的便当格。
+      </div>
+    </div>
+    <div class="head-r">
+      <div class="swatchgroup">
+        <div class="swatchrow">
+          <div class="sw" style="background:var(--paper)"></div>
+          <div class="sw" style="background:var(--card-2)"></div>
+          <div class="sw" style="background:var(--card-3)"></div>
+          <div class="sw" style="background:var(--ink-2)"></div>
+          <div class="sw" style="background:var(--ink)"></div>
+        </div>
+        <div class="swatchcap">备课本纸张 · 中性明度序列</div>
+      </div>
+      <div class="swatchgroup">
+        <div class="swatchrow">
+          <div class="sw" style="background:var(--blue)"></div>
+          <div class="sw" style="background:var(--tan)"></div>
+          <div class="sw" style="background:var(--accent)"></div>
+        </div>
+        <div class="swatchcap">钢笔蓝黑 · 木与麻 · 标签贴纸橙</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="rack">
+    <!-- ================= 屏 1 · 首页 ================= -->
+    <div class="slot">
+      <div class="slot-label"><b>屏 1</b>首页<span class="slot-note">不等高模块网格</span></div>
+      <div class="ios-wrapper"><div class="ios-screen">
+        <div class="ios-statusbar"><span>9:41</span><div class="ios-icons">
+          <div class="ios-signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/><path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".7"/></svg>
+          <div class="ios-batt"><em></em><s></s></div></div>
+        </div>
+        <div class="ios-island"></div>
+        <div class="ios-content"><div class="app">
+
+          <div class="nav">
+            <div class="nav-title">教案助手</div>
+            <div class="capsule">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor"><circle cx="3" cy="7.5" r="1.4"/><circle cx="7.5" cy="7.5" r="1.4"/><circle cx="12" cy="7.5" r="1.4"/></svg>
+              <div class="div"></div>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="7" cy="7" r="5.6"/><circle cx="7" cy="7" r="1.9"/></svg>
+            </div>
+          </div>
+
+          <div class="main"><div class="bento">
+
+            <!-- 主行动格 -->
+            <div class="mod span2" style="padding:15px 15px 14px;background:linear-gradient(178deg,var(--card),oklch(0.985 0.012 84));">
+              <div class="mod-eyebrow"><span class="tick"></span>开始新教案</div>
+              <div class="t15" style="font-weight:600;font-size:17px;line-height:1.45;letter-spacing:.01em;">说一句你想做的活动<br>剩下的交给我</div>
+              <div style="margin-top:11px;height:44px;border-radius:12px;border:1px solid var(--line);background:oklch(1 0 0/.9);display:flex;align-items:center;padding:0 13px;gap:8px;">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="oklch(0.475 .015 250)" stroke-width="1.4" stroke-linecap="round"><path d="M11.2 2.6l2.2 2.2L5.6 12.6 2.6 13.4l.8-3z"/></svg>
+                <span class="t14" style="color:var(--ink-3);font-size:14px;">例如：我想做个浮与沉的活动</span>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:9px;">
+                <div class="btn-main" style="flex:1;">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>开始
+                </div>
+                <div class="btn-ghost" style="width:96px;height:46px;">语音说</div>
+              </div>
+            </div>
+
+            <!-- 继续上次 -->
+            <div class="mod span2" style="border-color:var(--blue-line);background:linear-gradient(100deg,var(--blue-soft),var(--card) 62%);">
+              <div class="mod-eyebrow"><span class="tick"></span>还没写完，接着来
+                <span class="cnt" style="color:var(--blue-deep);">第 1 轮 · 第 2 题</span></div>
+              <div class="t15 strong" style="font-size:15.5px;">浮与沉：谁能浮在水面上</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:9px;">
+                <div style="flex:1;height:5px;border-radius:3px;background:oklch(0.28 .02 250/.09);overflow:hidden;">
+                  <div style="width:40%;height:100%;border-radius:3px;background:var(--blue);"></div>
+                </div>
+                <span class="t12" style="color:var(--blue-deep);font-family:var(--font-num);">2 / 5</span>
+                <div style="height:29px;padding:0 12px;border-radius:9px;background:var(--blue);color:#fff;font-size:12.5px;display:flex;align-items:center;font-weight:600;">继续</div>
+              </div>
+            </div>
+
+            <!-- 教案库 -->
+            <div class="mod">
+              <div class="mod-eyebrow"><span class="tick tan"></span>教案库</div>
+              <div style="display:flex;align-items:baseline;gap:5px;">
+                <span style="font-family:var(--font-num);font-size:27px;font-weight:700;line-height:1;color:var(--ink);">4</span>
+                <span class="t13">篇已完成</span>
+              </div>
+              <div class="t12" style="margin-top:9px;line-height:1.7;">小班 1 · 中班 2 · 大班 1</div>
+              <div style="display:flex;gap:4px;margin-top:10px;">
+                <div style="flex:1;height:4px;border-radius:2px;background:var(--tan-line);"></div>
+                <div style="flex:2;height:4px;border-radius:2px;background:var(--tan);"></div>
+                <div style="flex:1;height:4px;border-radius:2px;background:var(--tan-line);"></div>
+              </div>
+            </div>
+
+            <!-- 我的记忆 -->
+            <div class="mod">
+              <div class="mod-eyebrow"><span class="tick acc"></span>我的记忆<span class="cnt">4</span></div>
+              <div class="t13" style="line-height:1.9;color:var(--ink-2);">
+                主要带中班<br>偏好表格式教案<br>园里没有投影仪
+              </div>
+              <div class="t12" style="margin-top:7px;color:var(--accent-ink);">写教案时会自动用上</div>
+            </div>
+
+            <!-- 最近完成 -->
+            <div class="mod span2" style="padding-bottom:9px;">
+              <div class="mod-eyebrow"><span class="tick tan"></span>最近完成
+                <span class="cnt" style="display:flex;align-items:center;gap:3px;">全部
+                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4 2.5L7 5.5L4 8.5"/></svg>
+                </span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:2px 0 9px;">
+                <div style="width:34px;height:34px;flex:0 0 34px;border-radius:10px;background:var(--card-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--tan)" stroke-width="1.4" stroke-linecap="round"><path d="M2.5 4.2c2-1 4.5-1 5.5.3 1-1.3 3.5-1.3 5.5-.3v8c-2-1-4.5-1-5.5.3-1-1.3-3.5-1.3-5.5-.3z"/></svg>
+                </div>
+                <div style="flex:1;min-width:0;">
+                  <div class="t14 strong" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">跷跷板为什么会翘起来</div>
+                  <div class="t12" style="margin-top:2px;">大班 · 8 月 12 日 · 有配图</div>
+                </div>
+                <div class="steam sm"><span class="sq">S</span><span class="sq">E</span><span class="sq">M</span></div>
+              </div>
+              <hr class="hair">
+              <div style="display:flex;align-items:center;gap:10px;padding:9px 0 0;">
+                <div style="width:34px;height:34px;flex:0 0 34px;border-radius:10px;background:var(--card-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--tan)" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="6" r="3.2"/><path d="M3 13c1.6-1.6 8.4-1.6 10 0"/></svg>
+                </div>
+                <div style="flex:1;min-width:0;">
+                  <div class="t14 strong" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">影子会跑吗</div>
+                  <div class="t12" style="margin-top:2px;">中班 · 8 月 8 日</div>
+                </div>
+                <div class="steam sm"><span class="sq">S</span><span class="sq">A</span></div>
+              </div>
+            </div>
+
+          </div></div>
+
+          <div class="tabbar">
+            <div class="tabitem on">
+              <svg width="21" height="21" viewBox="0 0 21 21" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3.5 8.8L10.5 3.5l7 5.3v8.2a1 1 0 01-1 1h-12a1 1 0 01-1-1z"/></svg>
+              <span>首页</span></div>
+            <div class="tabitem">
+              <svg width="21" height="21" viewBox="0 0 21 21" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="3.5" y="3.5" width="6" height="6" rx="1.5"/><rect x="11.5" y="3.5" width="6" height="6" rx="1.5"/><rect x="3.5" y="11.5" width="6" height="6" rx="1.5"/><rect x="11.5" y="11.5" width="6" height="6" rx="1.5"/></svg>
+              <span>教案库</span></div>
+            <div class="tabitem">
+              <svg width="21" height="21" viewBox="0 0 21 21" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="10.5" cy="7.5" r="3.4"/><path d="M4 17.5c1.7-3.4 11.3-3.4 13 0"/></svg>
+              <span>我的</span></div>
+          </div>
+
+        </div></div>
+        <div class="ios-home"></div>
+      </div></div>
+    </div>
+    <!-- ================= 屏 2 · 引导对话（灵魂屏，可交互） ================= -->
+    <div class="slot" data-picker>
+      <div class="slot-label"><b>屏 2</b>引导对话<span class="slot-note">推荐答案 = 卡片阵列，可点选</span></div>
+      <div class="ios-wrapper"><div class="ios-screen">
+        <div class="ios-statusbar"><span>9:41</span><div class="ios-icons">
+          <div class="ios-signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/><path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".7"/></svg>
+          <div class="ios-batt"><em></em><s></s></div></div>
+        </div>
+        <div class="ios-island"></div>
+        <div class="ios-content"><div class="app">
+
+          <div class="nav">
+            <div class="back"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 3.5L5.5 9l5.5 5.5"/></svg></div>
+            <div class="nav-title">聊几句就好<span class="nav-sub">浮与沉</span></div>
+            <div class="capsule">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor"><circle cx="3" cy="7.5" r="1.4"/><circle cx="7.5" cy="7.5" r="1.4"/><circle cx="12" cy="7.5" r="1.4"/></svg>
+              <div class="div"></div>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="7" cy="7" r="5.6"/><circle cx="7" cy="7" r="1.9"/></svg>
+            </div>
+          </div>
+
+          <div class="main" style="padding-top:6px;"><div class="bento" style="gap:10px;">
+
+            <!-- 进度：一轮一轮的提问 = 方格刻度 -->
+            <div class="mod span2" style="padding:11px 14px 12px;background:var(--card);">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span class="t12" style="letter-spacing:.1em;color:var(--ink-3);">第 1 轮 · 共 3 题</span>
+                <span class="t12" style="margin-left:auto;color:var(--blue-deep);font-weight:600;">还剩 1 题</span>
+              </div>
+              <div style="display:flex;gap:6px;margin-top:9px;">
+                <div style="flex:1;height:8px;border-radius:3px;background:var(--blue);"></div>
+                <div style="flex:1;height:8px;border-radius:3px;background:var(--blue);"></div>
+                <div style="flex:1;height:8px;border-radius:3px;background:oklch(0.28 .02 250/.10);"></div>
+              </div>
+            </div>
+
+            <!-- Q1 已答 -->
+            <div class="mod span2" style="background:var(--card-2);border-color:var(--line);box-shadow:none;padding:12px 14px 13px;">
+              <div class="mod-eyebrow" style="margin-bottom:7px;"><span class="tick" style="background:var(--ink-3);"></span>第 1 题 · 已回答
+                <svg class="cnt" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="var(--blue)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 7.4l2.7 2.7 5.7-6"/></svg>
+              </div>
+              <div class="t14" style="color:var(--ink-2);">这次活动是给哪个年龄班的？</div>
+              <div style="display:flex;gap:7px;margin-top:9px;">
+                <div class="chip" data-pick="q1">小班</div>
+                <div class="chip on" data-pick="q1">中班</div>
+                <div class="chip" data-pick="q1">大班</div>
+                <div class="t12" style="margin-left:auto;align-self:center;color:var(--ink-3);">可改</div>
+              </div>
+            </div>
+
+            <!-- Q2 进行中 -->
+            <div class="span2" style="display:flex;gap:9px;align-items:flex-start;margin-top:2px;">
+              <div style="width:30px;height:30px;flex:0 0 30px;border-radius:9px;background:var(--blue);display:flex;align-items:center;justify-content:center;box-shadow:var(--sh-1);">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round"><path d="M8 2.6v2.2"/><rect x="3" y="4.8" width="10" height="8" rx="2.6"/><path d="M6.2 8.2v1.2M9.8 8.2v1.2"/></svg>
+              </div>
+              <div style="flex:1;">
+                <div class="t12" style="margin-bottom:4px;letter-spacing:.08em;">第 2 题</div>
+                <div style="font-size:17px;line-height:1.5;font-weight:600;letter-spacing:.01em;">你希望孩子在这次活动里，主要获得什么？</div>
+                <div class="t12" style="margin-top:5px;">点一张就行，也可以多选</div>
+              </div>
+            </div>
+
+            <!-- 推荐答案卡片阵列 -->
+            <div class="pick on" data-pick="q2">
+              <div class="pick-mark"></div>
+              <div class="pick-tag">A</div>
+              <div class="pick-t">感受到沉和浮的差别</div>
+              <div class="pick-s">偏体验与感知</div>
+            </div>
+            <div class="pick" data-pick="q2">
+              <div class="pick-mark"></div>
+              <div class="pick-tag">B</div>
+              <div class="pick-t">学会自己动手试一试、记录结果</div>
+              <div class="pick-s">偏探究与方法</div>
+            </div>
+            <div class="pick row span2" data-pick="q2">
+              <div class="pick-tag">C</div>
+              <div class="pick-t">能说出为什么有的东西会浮</div>
+              <div class="pick-s">偏表达与推理</div>
+              <div class="pick-mark"></div>
+            </div>
+
+            <!-- 自填入口 -->
+            <div class="span2" style="height:46px;border:1px dashed var(--line);border-radius:14px;display:flex;align-items:center;justify-content:center;gap:7px;background:oklch(1 0 0/.5);cursor:pointer;">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-linecap="round"><path d="M10.6 2.4l2 2L5.3 11.8l-2.7.7.7-2.7z"/></svg>
+              <span class="t14" style="color:var(--ink-2);">我自己说</span>
+            </div>
+
+            <!-- 已收集信息（体现"记得住"，非装饰数字） -->
+            <div class="mod span2" style="background:var(--tan-soft);border-color:var(--tan-line);box-shadow:none;padding:11px 13px 12px;">
+              <div class="mod-eyebrow" style="margin-bottom:8px;"><span class="tick tan"></span>已经记下</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <span class="minichip">主题 · 浮与沉</span>
+                <span class="minichip">年龄班 · 中班</span>
+                <span class="minichip">园里没有投影仪</span>
+              </div>
+            </div>
+
+          </div></div>
+
+          <!-- 底栏：出口 + 下一步 -->
+          <div style="flex:0 0 62px;display:flex;align-items:center;gap:10px;padding:0 14px;border-top:1px solid var(--line-soft);background:oklch(0.995 0.006 88);">
+            <div class="t13" style="color:var(--ink-3);text-decoration:underline;text-underline-offset:3px;cursor:pointer;line-height:1.3;">跳过引导<br>直接生成</div>
+            <div class="btn-main" data-nextbar style="flex:1;height:44px;">下一题
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 2.5L10.5 7.5l-5 5"/></svg>
+            </div>
+          </div>
+
+        </div></div>
+        <div class="ios-home"></div>
+      </div></div>
+    </div>
+    <!-- ================= 屏 3 · 教案成稿 ================= -->
+    <div class="slot">
+      <div class="slot-label"><b>屏 3</b>教案成稿<span class="slot-note">四环节 = 一条有节奏的时间轴</span></div>
+      <div class="ios-wrapper"><div class="ios-screen">
+        <div class="ios-statusbar"><span>9:41</span><div class="ios-icons">
+          <div class="ios-signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/><path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".7"/></svg>
+          <div class="ios-batt"><em></em><s></s></div></div>
+        </div>
+        <div class="ios-island"></div>
+        <div class="ios-content"><div class="app">
+
+          <div class="nav">
+            <div class="back"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 3.5L5.5 9l5.5 5.5"/></svg></div>
+            <div class="nav-title">教案<span class="nav-sub">已生成</span></div>
+            <div class="capsule">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor"><circle cx="3" cy="7.5" r="1.4"/><circle cx="7.5" cy="7.5" r="1.4"/><circle cx="12" cy="7.5" r="1.4"/></svg>
+              <div class="div"></div>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="7" cy="7" r="5.6"/><circle cx="7" cy="7" r="1.9"/></svg>
+            </div>
+          </div>
+
+          <div class="main" style="padding-top:2px;"><div class="bento" style="gap:7px;">
+
+            <!-- 抬头 + 诚实的配图占位 -->
+            <div class="mod span2" style="display:flex;gap:12px;align-items:center;padding:10px 13px;">
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:17px;font-weight:700;line-height:1.4;letter-spacing:.01em;">浮与沉：<br>谁能浮在水面上</div>
+                <div style="display:flex;gap:6px;margin-top:8px;">
+                  <span class="minichip" style="border-color:var(--blue-line);color:var(--blue-deep);background:var(--blue-soft);">中班</span>
+                  <span class="minichip" style="border-color:var(--line);color:var(--ink-2);background:var(--card-2);">30 分钟</span>
+                </div>
+              </div>
+              <div style="width:66px;height:66px;flex:0 0 66px;border-radius:12px;background:repeating-linear-gradient(45deg,var(--card-3),var(--card-3) 5px,var(--card-2) 5px,var(--card-2) 10px);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;text-align:center;">
+                <span class="t12" style="font-size:11px;line-height:1.4;color:var(--ink-3);">配图<br>待生成</span>
+              </div>
+            </div>
+
+            <!-- STEAM 五域：form 母题 -->
+            <div class="mod span2" style="padding:11px 0 11px 14px;">
+              <div class="mod-eyebrow" style="padding-right:14px;margin-bottom:8px;"><span class="tick"></span>STEAM 五域
+                <span class="cnt">左右滑动 · 5 个维度</span></div>
+              <div style="display:flex;gap:8px;overflow:hidden;">
+                <div class="dtile"><div class="dtile-h"><span class="sq2">S</span>科学</div><div class="dtile-b">物体沉浮现象、材料密度的初步感知</div></div>
+                <div class="dtile"><div class="dtile-h"><span class="sq2">T</span>技术</div><div class="dtile-b">使用记录表、贴纸标记的方法</div></div>
+                <div class="dtile"><div class="dtile-h"><span class="sq2">E</span>工程</div><div class="dtile-b">改变橡皮泥形状让它浮起来</div></div>
+                <div class="dtile"><div class="dtile-h"><span class="sq2">A</span>艺术</div><div class="dtile-b">记录表的色彩标记与造型创作</div></div>
+                <div class="dtile"><div class="dtile-h"><span class="sq2">M</span>数学</div><div class="dtile-b">统计浮与沉的数量、比较多少</div></div>
+              </div>
+            </div>
+
+            <!-- 材料清单 -->
+            <div class="mod span2" style="padding:10px 13px;">
+              <div class="mod-eyebrow" style="margin-bottom:8px;"><span class="tick tan"></span>材料<span class="cnt">9 样</span></div>
+              <div style="display:flex;flex-wrap:wrap;gap:5px;">
+                <span class="matchip">透明水盆</span><span class="matchip">塑料瓶盖</span><span class="matchip">小石头</span>
+                <span class="matchip">木片</span><span class="matchip">回形针</span><span class="matchip">泡沫块</span>
+                <span class="matchip">树叶</span><span class="matchip">记录表</span><span class="matchip">彩色贴纸</span>
+              </div>
+            </div>
+
+            <!-- 四环节时间轴 -->
+            <div class="mod span2" style="padding:11px 13px 10px;">
+              <div class="mod-eyebrow" style="margin-bottom:8px;"><span class="tick acc"></span>教学流程<span class="cnt">4 个环节</span></div>
+              <div class="tl">
+                <div class="tl-row"><div class="tl-dot"></div>
+                  <div class="tl-h">引起动机<span>5 分钟</span></div>
+                  <div class="tl-b">洗手时有小朋友发现肥皂盒浮在水面上，肥皂却沉下去了</div></div>
+                <div class="tl-row"><div class="tl-dot"></div>
+                  <div class="tl-h">发展活动<span>12 分钟</span></div>
+                  <div class="tl-b">分组预测每样材料会浮还是沉，贴纸记录，再逐一放进水里验证</div></div>
+                <div class="tl-row"><div class="tl-dot"></div>
+                  <div class="tl-h">综合活动<span>8 分钟</span></div>
+                  <div class="tl-b">各组把结果贴到大记录表上，比一比哪些猜对了、哪些猜错了</div></div>
+                <div class="tl-row last"><div class="tl-dot"></div>
+                  <div class="tl-h">延伸活动<span>5 分钟</span></div>
+                  <div class="tl-b">把橡皮泥捏成不同形状，试试怎样才能让它浮起来</div></div>
+              </div>
+            </div>
+
+          </div></div>
+
+          <div style="flex:0 0 62px;display:flex;align-items:center;gap:8px;padding:0 14px;border-top:1px solid var(--line-soft);background:oklch(0.995 0.006 88);">
+            <div class="btn-main" style="flex:1;height:44px;font-size:14.5px;">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"><rect x="2.2" y="3" width="11.6" height="10" rx="2"/><path d="M2.2 10.4l3.2-2.8 3 2.4 2.6-2 2.8 2.4"/></svg>生成配图
+            </div>
+            <div class="actbtn"><svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 2v8M5.4 6.9l3.1 3.1 3.1-3.1M3 12.6v1.6h11v-1.6"/></svg><span>导出</span></div>
+            <div class="actbtn"><svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12.6" cy="4" r="2"/><circle cx="4.2" cy="8.5" r="2"/><circle cx="12.6" cy="13" r="2"/><path d="M6 7.5l4.8-2.5M6 9.5l4.8 2.5"/></svg><span>分享</span></div>
+            <div class="actbtn"><svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.6h9v11.8L8.5 11 4 14.4z"/></svg><span>保存</span></div>
+          </div>
+
+        </div></div>
+        <div class="ios-home"></div>
+      </div></div>
+    </div>
+    <!-- ================= 屏 4 · 教案库 ================= -->
+    <div class="slot" data-picker>
+      <div class="slot-label"><b>屏 4</b>教案库<span class="slot-note">不等高卡片，可筛选</span></div>
+      <div class="ios-wrapper"><div class="ios-screen">
+        <div class="ios-statusbar"><span>9:41</span><div class="ios-icons">
+          <div class="ios-signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/><path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".7"/></svg>
+          <div class="ios-batt"><em></em><s></s></div></div>
+        </div>
+        <div class="ios-island"></div>
+        <div class="ios-content"><div class="app">
+
+          <div class="nav">
+            <div class="nav-title">教案库<span class="nav-sub">4 篇</span></div>
+            <div class="capsule">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor"><circle cx="3" cy="7.5" r="1.4"/><circle cx="7.5" cy="7.5" r="1.4"/><circle cx="12" cy="7.5" r="1.4"/></svg>
+              <div class="div"></div>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="7" cy="7" r="5.6"/><circle cx="7" cy="7" r="1.9"/></svg>
+            </div>
+          </div>
+
+          <div class="main" style="padding-top:4px;"><div class="bento" style="gap:9px;">
+
+            <!-- 筛选 -->
+            <div class="span2" style="display:flex;gap:6px;align-items:center;">
+              <div class="chip on" data-pick="lib" style="height:31px;padding:0 13px;font-size:13px;">全部</div>
+              <div class="chip" data-pick="lib" style="height:31px;padding:0 13px;font-size:13px;">小班</div>
+              <div class="chip" data-pick="lib" style="height:31px;padding:0 13px;font-size:13px;">中班</div>
+              <div class="chip" data-pick="lib" style="height:31px;padding:0 13px;font-size:13px;">大班</div>
+              <div style="margin-left:auto;display:flex;align-items:center;gap:4px;color:var(--ink-3);font-size:12.5px;">最近
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.2 5L6.5 8.3 9.8 5"/></svg>
+              </div>
+            </div>
+
+            <!-- 最新一篇：大格 -->
+            <div class="mod span2" style="padding:14px;border-color:var(--blue-line);background:linear-gradient(160deg,var(--blue-soft),var(--card) 55%);">
+              <div class="mod-eyebrow" style="margin-bottom:8px;"><span class="tick"></span>刚刚生成
+                <span class="cnt" style="color:var(--blue-deep);">今天</span></div>
+              <div style="font-size:17px;font-weight:700;line-height:1.45;">浮与沉：谁能浮在水面上</div>
+              <div style="display:flex;align-items:center;gap:6px;margin-top:10px;">
+                <span class="minichip" style="border-color:var(--blue-line);color:var(--blue-deep);background:oklch(1 0 0/.7);">中班</span>
+                <span class="minichip" style="border-color:var(--line);color:var(--ink-2);background:oklch(1 0 0/.7);">30 分钟</span>
+                <div class="steam sm" style="margin-left:auto;"><span class="sq">S</span><span class="sq">T</span><span class="sq">E</span><span class="sq">A</span><span class="sq">M</span></div>
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;">
+                <span class="minichip" style="background:oklch(1 0 0/.62);border-color:var(--line);color:var(--ink-2);">引起动机</span>
+                <span class="minichip" style="background:oklch(1 0 0/.62);border-color:var(--line);color:var(--ink-2);">发展活动</span>
+                <span class="minichip" style="background:oklch(1 0 0/.62);border-color:var(--line);color:var(--ink-2);">综合活动</span>
+                <span class="minichip" style="background:oklch(1 0 0/.62);border-color:var(--line);color:var(--ink-2);">延伸活动</span>
+              </div>
+              <hr class="hair" style="margin:12px 0 10px;background:var(--blue-line);opacity:.5;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="var(--ink-3)" stroke-width="1.4" stroke-linejoin="round"><rect x="1.8" y="2.6" width="10.4" height="8.8" rx="1.8"/><path d="M1.8 9.2l2.9-2.5 2.7 2.2 2.3-1.8 2.5 2.1"/></svg>
+                <span class="t12">还没有配图</span>
+                <span class="t12" style="margin-left:auto;color:var(--blue-deep);font-weight:600;">打开</span>
+              </div>
+            </div>
+
+            <div class="t12 span2" style="padding:3px 2px 0;letter-spacing:.1em;">8 月</div>
+
+            <!-- 两张并排 -->
+            <div class="mod" style="padding:15px 13px 16px;">
+              <div style="width:36px;height:36px;border-radius:11px;background:var(--card-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="var(--tan)" stroke-width="1.4" stroke-linecap="round"><path d="M2 10.5L14 5.5"/><path d="M8 8v5"/><path d="M5.6 13.4h4.8"/></svg>
+              </div>
+              <div class="t15 strong" style="margin-top:12px;font-size:15px;line-height:1.5;">跷跷板为什么会翘起来</div>
+              <div class="t12" style="margin-top:8px;">大班 · 8 月 12 日</div>
+              <div style="display:flex;align-items:center;gap:4px;margin-top:7px;color:var(--tan);">
+                <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.8" y="2.6" width="10.4" height="8.8" rx="1.8"/><path d="M1.8 9.2l2.9-2.5 2.7 2.2 2.3-1.8 2.5 2.1"/></svg>
+                <span style="font-size:11.5px;">有配图</span>
+              </div>
+            </div>
+            <div class="mod" style="padding:15px 13px 16px;">
+              <div style="width:36px;height:36px;border-radius:11px;background:var(--card-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="var(--tan)" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="5.6" r="2.8"/><path d="M3.5 13c1.4-1.5 7.6-1.5 9 0"/></svg>
+              </div>
+              <div class="t15 strong" style="margin-top:12px;font-size:15px;line-height:1.5;">影子会跑吗</div>
+              <div class="t12" style="margin-top:8px;">中班 · 8 月 8 日</div>
+              <div style="display:flex;align-items:center;gap:4px;margin-top:7px;color:var(--ink-3);">
+                <span style="font-size:11.5px;">暂无配图</span>
+              </div>
+            </div>
+
+            <!-- 一张横格 -->
+            <div class="mod span2" style="display:flex;align-items:center;gap:12px;padding:15px 13px;">
+              <div style="width:36px;height:36px;flex:0 0 36px;border-radius:11px;background:var(--card-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--tan)" stroke-width="1.4" stroke-linecap="round"><path d="M2 11.5c2.5 0 3-3 5-3s2.5 3 5 3M2.6 6.2h1.6M11.8 6.2h1.6M8 3v2"/></svg>
+              </div>
+              <div style="flex:1;min-width:0;">
+                <div class="t14 strong">蚂蚁搬家的路</div>
+                <div class="t12" style="margin-top:3px;">小班 · 8 月 3 日 · 暂无配图</div>
+              </div>
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 2.5l5 5-5 5"/></svg>
+            </div>
+
+            <div class="span2" style="height:52px;border:1px dashed var(--line);border-radius:14px;display:flex;align-items:center;justify-content:center;gap:7px;background:oklch(1 0 0/.5);cursor:pointer;margin-top:5px;">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="var(--ink-3)" stroke-width="1.6" stroke-linecap="round"><path d="M7.5 3v9M3 7.5h9"/></svg>
+              <span class="t14" style="color:var(--ink-2);">写一篇新教案</span>
+            </div>
+            <div class="t12 span2" style="text-align:center;padding:6px 0 2px;">共 4 篇 · 都存在小程序里，换手机也在</div>
+
+          </div></div>
+
+          <div class="tabbar">
+            <div class="tabitem">
+              <svg width="21" height="21" viewBox="0 0 21 21" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3.5 8.8L10.5 3.5l7 5.3v8.2a1 1 0 01-1 1h-12a1 1 0 01-1-1z"/></svg>
+              <span>首页</span></div>
+            <div class="tabitem on">
+              <svg width="21" height="21" viewBox="0 0 21 21" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="3.5" y="3.5" width="6" height="6" rx="1.5"/><rect x="11.5" y="3.5" width="6" height="6" rx="1.5"/><rect x="3.5" y="11.5" width="6" height="6" rx="1.5"/><rect x="11.5" y="11.5" width="6" height="6" rx="1.5"/></svg>
+              <span>教案库</span></div>
+            <div class="tabitem">
+              <svg width="21" height="21" viewBox="0 0 21 21" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="10.5" cy="7.5" r="3.4"/><path d="M4 17.5c1.7-3.4 11.3-3.4 13 0"/></svg>
+              <span>我的</span></div>
+          </div>
+
+        </div></div>
+        <div class="ios-home"></div>
+      </div></div>
+    </div>
+    <!-- ================= 屏 5 · 我的 ================= -->
+    <div class="slot">
+      <div class="slot-label"><b>屏 5</b>我的<span class="slot-note">我的记忆 = 可管理的条目格</span></div>
+      <div class="ios-wrapper"><div class="ios-screen">
+        <div class="ios-statusbar"><span>9:41</span><div class="ios-icons">
+          <div class="ios-signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/><path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".7"/></svg>
+          <div class="ios-batt"><em></em><s></s></div></div>
+        </div>
+        <div class="ios-island"></div>
+        <div class="ios-content"><div class="app">
+
+          <div class="nav">
+            <div class="nav-title">我的</div>
+            <div class="capsule">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor"><circle cx="3" cy="7.5" r="1.4"/><circle cx="7.5" cy="7.5" r="1.4"/><circle cx="12" cy="7.5" r="1.4"/></svg>
+              <div class="div"></div>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="7" cy="7" r="5.6"/><circle cx="7" cy="7" r="1.9"/></svg>
+            </div>
+          </div>
+
+          <div class="main" style="padding-top:4px;"><div class="bento" style="gap:9px;">
+
+            <!-- 档案 -->
+            <div class="mod span2" style="display:flex;align-items:center;gap:12px;padding:14px 13px;">
+              <div style="width:52px;height:52px;flex:0 0 52px;border-radius:15px;background:var(--blue-soft);border:1px solid var(--blue-line);display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:700;color:var(--blue-deep);">李</div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:17px;font-weight:700;letter-spacing:.01em;">李老师</div>
+                <div class="t13" style="margin-top:5px;">阳光幼儿园 · 中班 · 教龄 5 年</div>
+              </div>
+              <div class="btn-ghost" style="width:56px;height:31px;font-size:12.5px;border-radius:9px;">编辑</div>
+            </div>
+
+            <!-- 我的记忆 -->
+            <div class="mod span2" style="padding:13px 13px 12px;">
+              <div class="mod-eyebrow" style="margin-bottom:5px;"><span class="tick acc"></span>我的记忆<span class="cnt">4 条</span></div>
+              <div class="t12" style="margin-bottom:10px;line-height:1.6;">写教案时会自动带上这些，不用每次重说</div>
+
+              <div class="memo"><span class="memo-t">主要带中班，孩子 4–5 岁</span>
+                <svg class="memo-i" width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.4 2.3l2.3 2.3-7.4 7.4-3 .7.7-3z"/></svg>
+                <svg class="memo-i" width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.6 4.2h7.8M6.2 4.2V2.9h2.6v1.3M4.6 4.2l.5 7.6h4.8l.5-7.6"/></svg>
+              </div>
+              <div class="memo"><span class="memo-t">偏好表格式教案</span>
+                <svg class="memo-i" width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.4 2.3l2.3 2.3-7.4 7.4-3 .7.7-3z"/></svg>
+                <svg class="memo-i" width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.6 4.2h7.8M6.2 4.2V2.9h2.6v1.3M4.6 4.2l.5 7.6h4.8l.5-7.6"/></svg>
+              </div>
+              <div class="memo"><span class="memo-t">园里没有投影仪</span>
+                <svg class="memo-i" width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.4 2.3l2.3 2.3-7.4 7.4-3 .7.7-3z"/></svg>
+                <svg class="memo-i" width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.6 4.2h7.8M6.2 4.2V2.9h2.6v1.3M4.6 4.2l.5 7.6h4.8l.5-7.6"/></svg>
+              </div>
+              <div class="memo last"><span class="memo-t">喜欢用生活废旧材料</span>
+                <svg class="memo-i" width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.4 2.3l2.3 2.3-7.4 7.4-3 .7.7-3z"/></svg>
+                <svg class="memo-i" width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.6 4.2h7.8M6.2 4.2V2.9h2.6v1.3M4.6 4.2l.5 7.6h4.8l.5-7.6"/></svg>
+              </div>
+
+              <div style="height:38px;border:1px dashed var(--line);border-radius:11px;display:flex;align-items:center;justify-content:center;gap:6px;margin-top:11px;cursor:pointer;">
+                <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="var(--ink-3)" stroke-width="1.6" stroke-linecap="round"><path d="M7.5 3v9M3 7.5h9"/></svg>
+                <span class="t13">再记一条</span>
+              </div>
+            </div>
+
+            <!-- 设置 -->
+            <div class="mod span2" style="padding:13px 13px 4px;">
+              <div class="mod-eyebrow"><span class="tick tan"></span>设置</div>
+              <div class="setrow"><span>导出格式</span><b>Word 文档</b>
+                <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 2.5l5 5-5 5"/></svg></div>
+              <div class="setrow"><span>默认年龄班</span><b>中班</b>
+                <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 2.5l5 5-5 5"/></svg></div>
+              <div class="setrow last"><span>关于与帮助</span><b></b>
+                <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 2.5l5 5-5 5"/></svg></div>
+            </div>
+
+          </div></div>
+
+          <div class="tabbar">
+            <div class="tabitem">
+              <svg width="21" height="21" viewBox="0 0 21 21" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3.5 8.8L10.5 3.5l7 5.3v8.2a1 1 0 01-1 1h-12a1 1 0 01-1-1z"/></svg>
+              <span>首页</span></div>
+            <div class="tabitem">
+              <svg width="21" height="21" viewBox="0 0 21 21" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="3.5" y="3.5" width="6" height="6" rx="1.5"/><rect x="11.5" y="3.5" width="6" height="6" rx="1.5"/><rect x="3.5" y="11.5" width="6" height="6" rx="1.5"/><rect x="11.5" y="11.5" width="6" height="6" rx="1.5"/></svg>
+              <span>教案库</span></div>
+            <div class="tabitem on">
+              <svg width="21" height="21" viewBox="0 0 21 21" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="10.5" cy="7.5" r="3.4"/><path d="M4 17.5c1.7-3.4 11.3-3.4 13 0"/></svg>
+              <span>我的</span></div>
+          </div>
+
+        </div></div>
+        <div class="ios-home"></div>
+      </div></div>
+    </div>
+
+  </div>
+</div>
+<script>
+document.querySelectorAll('[data-pick]').forEach(function(el){
+  el.addEventListener('click', function(){
+    var group = el.getAttribute('data-pick');
+    document.querySelectorAll('[data-pick="'+group+'"]').forEach(function(o){o.classList.remove('on');});
+    el.classList.add('on');
+    var host = el.closest('[data-picker]');
+    if(host){
+      var n = host.querySelectorAll('[data-pick].on').length;
+      var bar = host.querySelector('[data-nextbar]');
+      if(bar) bar.style.opacity = n ? '1' : '.45';
+    }
+  });
+});
+</script>
+</body>
+</html>
