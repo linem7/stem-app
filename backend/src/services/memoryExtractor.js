@@ -19,8 +19,26 @@ import { logger } from '../utils/logger.js';
 /** db-schema 里 mem_type 的合法取值，模型给了别的就归到「教学信息」 */
 const VALID_TYPES = ['教学信息', '教学风格', '约束条件', '材料偏好', '年龄班专长'];
 
-/** 单人记忆条数上限，超了淘汰最不重要的（db-schema.md「上限策略」） */
-const MAX_MEMORIES = 60;
+/**
+ * 单人记忆条数上限。
+ *
+ * 定成 10 而不是 db-schema.md 最初写的 60：这个工具不贯穿老师整个学期，
+ * 她只在需要时打开找协助，记这些是好事但不该把她的画像绑得太死。
+ * 10 条足够撑起「写教案时自动带上」这件事，多了反而是噪声。
+ */
+const MAX_MEMORIES = 10;
+
+/**
+ * 记忆重要性排序 —— prune 和 list 必须用同一套，否则「留下来的」和「用得上的」会错位。
+ *
+ * 第一优先级是老师手动置顶的（明确表达过的意愿）；
+ * 紧接着是所带班级（年龄班专长）—— 它决定了整套适龄规则怎么应用，是最不能丢的一条。
+ */
+const MEMORY_ORDER = `is_pinned DESC,
+                      (mem_type = '年龄班专长') DESC,
+                      frequency DESC,
+                      confidence DESC,
+                      updated_at DESC`;
 
 /**
  * 主入口。
@@ -36,7 +54,7 @@ export async function extractAndSaveMemories({ teacherId, conversationId, transc
       `SELECT id, fact, mem_type, frequency, is_pinned
          FROM teacher_memories
         WHERE teacher_id = $1 AND deleted_at IS NULL
-        ORDER BY is_pinned DESC, frequency DESC, updated_at DESC`,
+        ORDER BY ${MEMORY_ORDER}`,
       [teacherId]
     )
   ).rows;
@@ -84,6 +102,23 @@ export async function extractAndSaveMemories({ teacherId, conversationId, transc
  * 必须和 001_init.sql 里 idx_mem_dedupe 的定义**一模一样**，否则 PostgreSQL 匹配不到那个索引会报错。
  */
 async function upsertMemory({ teacherId, conversationId, fact, memType, confidence }) {
+  // 一个老师只带一个班，所以「年龄班专长」在库里必须是唯一的一条。
+  // 不这么做的话，她哪次为别的班写了一份教案，库里就会同时留着
+  // 「主要带小班」和「主要带大班」两条互相打架的记忆，之后每次生成都会被一起注入提示词。
+  // 老师手动置顶过的不动 —— 那是她自己认定的。
+  if (memType === '年龄班专长') {
+    await query(
+      `UPDATE teacher_memories
+          SET deleted_at = now()
+        WHERE teacher_id = $1
+          AND mem_type = '年龄班专长'
+          AND deleted_at IS NULL
+          AND is_pinned = false
+          AND md5(fact) <> md5($2)`,
+      [teacherId, fact]
+    );
+  }
+
   const res = await query(
     `INSERT INTO teacher_memories (teacher_id, fact, mem_type, confidence, source_conv)
      VALUES ($1, $2, $3, $4, $5)
@@ -101,8 +136,13 @@ async function upsertMemory({ teacherId, conversationId, fact, memType, confiden
 }
 
 /**
- * 超过上限时淘汰：只淘汰 is_pinned = false 且 frequency = 1 且最久没更新的。
- * 老师手动加的（is_pinned）永不淘汰 —— 那是他明确表达过的意愿。
+ * 超过上限时淘汰排在 MAX_MEMORIES 之后的，老师手动置顶的（is_pinned）除外。
+ *
+ * 这里**不再要求 frequency = 1**。上限还是 60 的时候那个条件无所谓，
+ * 但降到 10 之后，只要有几条被反复印证过（frequency > 1），上限就永远守不住了 ——
+ * 条数会一路涨上去，而这正是「不要把老师的画像绑太死」要避免的。
+ *
+ * 唯一守不住的情况是老师自己置顶了超过 10 条。那是她明确的意愿，代码不该替她删。
  */
 async function pruneMemories(teacherId) {
   const res = await query(
@@ -110,14 +150,13 @@ async function pruneMemories(teacherId) {
        SELECT id
          FROM teacher_memories
         WHERE teacher_id = $1 AND deleted_at IS NULL
-        ORDER BY is_pinned DESC, frequency DESC, updated_at DESC
+        ORDER BY ${MEMORY_ORDER}
        OFFSET $2
      )
      UPDATE teacher_memories
         SET deleted_at = now()
       WHERE id IN (SELECT id FROM ranked)
         AND is_pinned = false
-        AND frequency = 1
       RETURNING id`,
     [teacherId, MAX_MEMORIES]
   );
@@ -130,7 +169,7 @@ export async function listMemories(teacherId) {
     `SELECT id, fact, mem_type, confidence, frequency, is_pinned, created_at
        FROM teacher_memories
       WHERE teacher_id = $1 AND deleted_at IS NULL
-      ORDER BY is_pinned DESC, frequency DESC, updated_at DESC`,
+      ORDER BY ${MEMORY_ORDER}`,
     [teacherId]
   );
   return res.rows;
