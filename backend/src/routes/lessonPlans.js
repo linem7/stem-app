@@ -181,7 +181,7 @@ lessonPlansRouter.post(
     // 接口形状（api-spec 第 5 节）已经定死了，前端不用改。
     // =========================================
     logger.warn('export_not_implemented', { lesson_plan_id: plan.id, format });
-    throw new AppError(ErrorCode.INTERNAL, {
+    throw new AppError(ErrorCode.NOT_IMPLEMENTED, {
       message: '导出 Word 还在做，先用「复制全文」把教案带走吧',
       detail: { reason: 'export_docx_not_implemented' },
     });

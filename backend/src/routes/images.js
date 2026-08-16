@@ -8,8 +8,9 @@
  * 这个闸门查的是数据库而不是内存，进程重启不会重置（见 middleware/rateLimit.js）。
  */
 import { Router } from 'express';
+import { config } from '../config.js';
 import { query, queryOne } from '../db/pool.js';
-import { ok, asyncRoute, notFound } from '../utils/errors.js';
+import { ok, asyncRoute, notFound, AppError, ErrorCode } from '../utils/errors.js';
 import { assertImageQuota } from '../middleware/rateLimit.js';
 import { taskQueue } from '../services/taskQueue.js';
 import { generateImage, uploadImage, buildImageUrl } from '../services/doubao.js';
@@ -48,6 +49,20 @@ imagesRouter.post(
     const plan = await loadPlan(req.params.id, req.teacherId);
     const sectionKey = req.body?.section_key ? String(req.body.section_key).slice(0, 32) : null;
     const note = req.body?.note ? String(req.body.note).slice(0, 200) : '';
+
+    // 没配豆包或对象存储就在这里挡掉，别往下走。
+    // 往下走的代价是实打实的：会先调一次 DeepSeek 把中文描述翻成英文提示词
+    // （每次约 250 token），再到出图那步必然失败；而且 assertImageQuota 在下面，
+    // 老师每天 10 张的额度会被这些注定失败的请求白白吃掉。
+    if (!config.doubao.configured || !config.storage.configured) {
+      throw new AppError(ErrorCode.NOT_IMPLEMENTED, {
+        message: '配图功能还没开通，先用文字教案吧',
+        detail: {
+          reason: !config.doubao.configured ? 'doubao_not_configured' : 'storage_not_configured',
+          hint: '在 .env 里填 DOUBAO_ACCESS_KEY_ID / DOUBAO_SECRET_ACCESS_KEY 和 OBJECT_STORAGE_* 那几项',
+        },
+      });
+    }
 
     await assertImageQuota(req.teacherId);
 

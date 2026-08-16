@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "migrate": "node src/db/migrate.js"
+    "migrate": "node src/db/migrate.js",
+    "smoke": "node scripts/smoke.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

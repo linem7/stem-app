@@ -14,6 +14,9 @@ export const ERROR_CATALOG = {
   MODEL_TIMEOUT: { http: 504, message: '生成超时了，再试一次通常就好', retryable: true },
   MODEL_FAILED: { http: 502, message: '生成没成功，换个说法再试试', retryable: true },
   IMAGE_FAILED: { http: 502, message: '配图没生成出来，可以重试', retryable: true },
+  // 功能还没做完的接口用这个，关键在 retryable: false ——
+  // 用 INTERNAL 的话前端会照着 retryable 一直重试一个永远不会成功的接口。
+  NOT_IMPLEMENTED: { http: 501, message: '这个功能还在做，先用别的方式吧', retryable: false },
   INTERNAL: { http: 500, message: '出了点问题，我们已经记录下来了', retryable: true },
 };
 
