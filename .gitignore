@@ -34,3 +34,7 @@ research/*.pdf
 # 临时文件
 *.tmp
 .cache/
+
+# 原型数据导出的临时目录
+.tmpdata/
+*.stackdump

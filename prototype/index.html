@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>STEAM 教案助手 · 可点击原型</title>
+<!--
+================================================================================
+STEAM 教案助手 · 可交互原型
+================================================================================
+这不是设计稿，是能真正点下去的原型：能打字、能选 A/B/C/D、能一题题走完三轮、
+能看到生成过程、能翻教案库和记忆。
+
+【数据是真的】
+屏幕里的问题、推荐答案、两份教案正文，全部是 2026-08-16 后端接 DeepSeek
+真实跑出来的，不是编的。导出自本地 stem_app 库的 conversations / lesson_plans 两张表。
+
+【但它不连后端】
+GitHub Pages 是纯静态的，后端在作者本机。所以这里所有交互走内置数据，
+点「生成」不会真的调模型 —— 进度动画是按真实耗时（小班 14 秒 / 大班 20 秒）配的时长。
+
+【视觉资产照搬 design-demos/B-v4-final.html】
+:root 色值逐字来自 docs/design/design-tokens.md，组件 CSS 直接复用定稿版，
+没有发明新色、新圆角、新字号。核心骨架（左 40px 序号刻度轨 + 右单一焦点列、
+一次只问一题、A/B/C/D + 打勾、拇指位常驻操作条）是用户选定的资产，原样保留。
+
+【原型没有的东西 —— 诚实标注，不假装】
+  · 中班：只带了小班和大班两份真实数据，中班选项置灰
+  · 配图：豆包 API 签名还没做，按钮点了给诚实提示
+  · 导出 Word：后端也还没做（返回 NOT_IMPLEMENTED / 501）
+  · 登录：小程序 wx.login 在浏览器里没有
+================================================================================
+-->
+<style>
+:root{
+  /* ══ 全部色值来自 docs/design/design-tokens.md，逐字照抄，不发明新色 ══ */
+  --canvas:      #F9F5E3;
+  --paper:       #FFFDF8;
+  --paper-2:     #FBF7EC;
+  --amber:       #F5C63D;
+  --amber-soft:  #FDF6DE;
+  --amber-line:  #E8B62A;
+  --amber-deep:  #8A6410;
+  --mint:        #6FBF8B;
+  --mint-deep:   oklch(0.52 0.115 155);
+  --mint-soft:   #EAF6EE;
+  --sky:         #8FC7E8;
+  --sky-soft:    #EAF3FA;
+  --sky-deep:    #2E6E96;
+  --coral:       #EE8069;
+  --coral-deep:  #B44B33;
+  --ink:         #3A3630;
+  --ink-2:       #6B655C;
+  --ink-3:       oklch(0.505 0.014 82);
+  --rule:        #EBE5D6;
+  --rule-2:      oklch(0.885 0.018 92);
+
+  --f-body: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", "Noto Sans SC", sans-serif;
+  font-synthesis: none;
+  line-break: strict;
+  overflow-wrap: break-word;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--canvas);font-family:var(--f-body);color:var(--ink);
+  -webkit-font-smoothing:antialiased;min-height:100vh;padding:22px 20px 40px}
+
+/* ============ 页面抬头与说明 ============ */
+.page-head{max-width:1080px;margin:0 auto 18px}
+.page-head .kicker{font-size:11px;letter-spacing:.16em;color:var(--amber-deep);
+  text-transform:uppercase;font-weight:700}
+.page-head h1{font-size:25px;font-weight:700;letter-spacing:-.01em;margin-top:5px}
+.page-head p{font-size:13.5px;line-height:1.75;color:var(--ink-2);margin-top:9px;max-width:760px}
+.page-head p b{color:var(--ink);font-weight:600}
+.page-head .note{margin-top:10px;font-size:12.5px;color:var(--ink-3);background:var(--sky-soft);
+  border:1px solid oklch(0.90 0.02 235);border-radius:12px;padding:9px 13px;max-width:760px;line-height:1.65}
+
+/* ============ 主区：左侧导航 + 手机 ============ */
+.wrap{max-width:1080px;margin:0 auto;display:flex;gap:34px;align-items:flex-start;justify-content:center}
+.side{width:224px;flex:none;position:sticky;top:22px}
+.side h2{font-size:12px;font-weight:700;color:var(--ink-2);letter-spacing:.06em;margin-bottom:9px}
+.navb{display:block;width:100%;text-align:left;background:oklch(1 0 0 / .7);border:1px solid var(--rule-2);
+  border-radius:12px;padding:9px 12px;margin-bottom:7px;cursor:pointer;font:inherit;font-size:13.5px;
+  color:var(--ink-2);transition:.14s;line-height:1.45}
+.navb:hover{border-color:var(--amber-line);color:var(--amber-deep)}
+.navb.on{background:var(--amber-soft);border-color:var(--amber-line);color:var(--ink);font-weight:600}
+.navb small{display:block;font-size:11.5px;color:var(--ink-3);font-weight:400;margin-top:2px}
+.navb.on small{color:var(--amber-deep)}
+.side .tip{font-size:11.5px;color:var(--ink-3);line-height:1.7;margin-top:14px;
+  padding-top:12px;border-top:1px dashed var(--rule)}
+.side .rst{margin-top:10px;width:100%;background:transparent;border:1px dashed var(--rule-2);
+  border-radius:10px;padding:7px;font:inherit;font-size:12px;color:var(--ink-3);cursor:pointer}
+.side .rst:hover{border-color:var(--coral);color:var(--coral-deep)}
+
+/* ============ ios_frame 几何常量，与设计稿逐值一致 ============ */
+.ios-wrapper{display:inline-block;padding:12px;background:#000;border-radius:60px;
+  box-shadow:0 0 0 2px #1f2937, 0 20px 60px rgba(0,0,0,.3);position:relative;flex:none}
+.ios-screen{position:relative;border-radius:48px;overflow:hidden;background:#fff;width:390px;height:844px}
+.ios-statusbar{position:absolute;top:0;left:0;right:0;height:54px;display:flex;align-items:center;
+  justify-content:space-between;padding:0 32px;font-size:16px;font-weight:600;
+  font-family:-apple-system,"SF Pro Text",sans-serif;z-index:20;pointer-events:none;color:#000}
+.ios-island{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:124px;height:36px;
+  background:#000;border-radius:999px;z-index:30}
+.ios-icons{display:flex;align-items:center;gap:6px}
+.ios-signal{display:flex;align-items:flex-end;gap:2px;height:12px}
+.ios-signal i{width:3px;background:currentColor;border-radius:1px;display:block}
+.ios-batt{width:26px;height:12px;border:1.5px solid currentColor;border-radius:3px;padding:1px;
+  position:relative;opacity:.8}
+.ios-batt>span{display:block;width:85%;height:100%;background:currentColor;border-radius:1px;opacity:.9}
+.ios-batt::after{content:"";position:absolute;top:3px;right:-3px;width:2px;height:6px;
+  background:currentColor;border-radius:0 1px 1px 0}
+.ios-content{position:absolute;top:54px;left:0;right:0;bottom:34px;overflow:hidden}
+.ios-home{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);width:140px;height:5px;
+  background:rgba(0,0,0,.3);border-radius:999px;z-index:10}
+
+/* ============ 屏内骨架 ============ */
+.app{height:100%;background:var(--paper);display:flex;flex-direction:column;position:relative;
+  font-size:15px;line-height:1.7}
+.wx-capsule{position:absolute;top:6px;right:14px;width:87px;height:32px;border-radius:999px;
+  border:1px solid var(--rule-2);background:oklch(1 0 0 / .72);display:flex;align-items:center;
+  justify-content:space-around;z-index:12}
+.wx-capsule .d{width:12px;height:12px;border-radius:999px;border:1.6px solid var(--ink-3);position:relative}
+.wx-capsule .d::before{content:"";position:absolute;inset:3px;border-radius:999px;background:var(--ink-3)}
+.wx-capsule .sep{width:1px;height:15px;background:var(--rule-2)}
+.wx-capsule .o{width:12px;height:12px;border-radius:999px;border:1.6px solid var(--ink-3)}
+
+/* 可滚动内容区 —— 原型里是真的能滚的 */
+.scroll{flex:1;overflow-y:auto;overflow-x:hidden;position:relative;scrollbar-width:thin;
+  scrollbar-color:var(--rule-2) transparent}
+.scroll::-webkit-scrollbar{width:5px}
+.scroll::-webkit-scrollbar-thumb{background:var(--rule-2);border-radius:9px}
+.grid{display:grid;grid-template-columns:40px 1fr;column-gap:0}
+.rail{position:relative}
+.rail::before{content:"";position:absolute;left:19.5px;top:0;bottom:0;width:1px;background:var(--rule)}
+.tick{position:absolute;left:50%;transform:translateX(-50%);background:var(--paper);
+  font-size:11.5px;font-weight:700;color:var(--ink-3);width:22px;text-align:center;
+  padding:5px 0;letter-spacing:.01em}
+.tick.on{color:var(--amber-deep)}
+.tick.dot{padding:0}
+.tick.dot::before{content:"";display:block;width:7px;height:7px;border-radius:999px;
+  background:var(--paper);box-shadow:inset 0 0 0 1.5px var(--rule-2);margin:6px auto}
+.tick.dot.on::before{background:var(--amber-deep);box-shadow:inset 0 0 0 1.5px var(--amber-deep)}
+.col{padding-right:20px;min-width:0}
+
+.focus-kicker{font-size:12px;letter-spacing:.02em;color:var(--ink-3);font-weight:600}
+.focus-q{font-weight:700;color:var(--ink);letter-spacing:-.012em;text-wrap:balance}
+
+/* 满宽行式选项 */
+.opt{display:flex;align-items:flex-start;gap:11px;width:100%;text-align:left;cursor:pointer;
+  background:oklch(1 0 0 / .88);border:1px solid var(--rule-2);border-radius:16px;
+  padding:13px 13px 13px 12px;font:inherit;color:var(--ink);margin-bottom:9px;
+  transition:border-color .14s, background .14s, box-shadow .14s}
+.opt:hover{border-color:var(--amber-line);background:#fff}
+.opt .key{flex:none;width:23px;height:23px;border-radius:8px;border:1px solid var(--rule-2);
+  display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;
+  color:var(--ink-3);background:var(--paper-2);margin-top:1px;letter-spacing:.02em}
+.opt .txt{flex:1;font-size:15px;line-height:1.55;padding-top:1px}
+.opt .txt .sub{display:block;font-size:12.5px;color:var(--ink-3);margin-top:2px;font-weight:400}
+.opt .tick-svg{flex:none;opacity:0;transition:opacity .14s;margin-top:3px}
+.opt.sel{background:var(--amber-soft);border-color:var(--amber-line);
+  box-shadow:0 0 0 1px var(--amber-line), 0 2px 8px rgba(138,100,16,.14)}
+.opt.sel .key{background:var(--amber);border-color:var(--amber);color:var(--ink)}
+.opt.sel .txt{font-weight:600}
+.opt.sel .txt .sub{font-weight:400}
+.opt.sel .tick-svg{opacity:1}
+.opt.own{background:transparent;border-style:dashed;border-color:var(--rule-2)}
+.opt.own .txt{color:var(--ink-3)}
+.opt.own:hover{border-color:var(--amber-line);background:oklch(1 0 0 / .6)}
+/* 原型未包含的选项（中班）：置灰但不藏起来 —— 正式版三个班齐全 */
+.opt.na{opacity:.5;cursor:not-allowed;background:var(--paper-2)}
+.opt.na:hover{border-color:var(--rule-2);background:var(--paper-2)}
+.opt.na .txt .sub{color:var(--coral-deep)}
+/* 自己打字的输入框 */
+.own-input{width:100%;border:1px solid var(--amber-line);border-radius:16px;padding:12px 13px;
+  font:inherit;font-size:15px;color:var(--ink);background:#fff;margin-bottom:9px;resize:none;
+  line-height:1.55;outline:none;box-shadow:0 0 0 1px var(--amber-line)}
+
+/* 底部常驻操作条 */
+.dock{flex:none;border-top:1px solid var(--rule);background:rgba(255,253,248,.94);
+  backdrop-filter:blur(8px);padding:11px 20px 13px}
+.btn{width:100%;border:none;border-radius:18px;padding:14px;font:inherit;font-size:15.5px;
+  font-weight:600;cursor:pointer;letter-spacing:.02em;display:flex;align-items:center;
+  justify-content:center;gap:7px;transition:background .14s,color .14s,box-shadow .14s}
+.btn-p{background:var(--amber);color:var(--ink);
+  box-shadow:inset 0 0 0 1.4px var(--amber-deep), 0 3px 0 var(--amber-line), 0 8px 18px rgba(138,100,16,.22)}
+.btn-p:hover{background:#F7D05E}
+.btn-p[disabled]{background:oklch(0.935 0.012 92);color:oklch(0.58 0.012 82);cursor:not-allowed;box-shadow:none}
+.btn-mint{background:var(--mint-deep);color:#fff;
+  box-shadow:0 3px 0 oklch(0.44 0.105 155), 0 8px 18px rgba(46,110,73,.22)}
+.btn-mint:hover{background:oklch(0.47 0.110 155)}
+.btn-ghost{background:transparent;color:var(--ink-3);font-size:13px;font-weight:500;padding:9px}
+.btn-ghost:hover{color:var(--amber-deep)}
+.btn-row{display:flex;gap:8px}
+.btn-row .btn{font-size:14px;padding:12px 8px;border-radius:15px}
+.btn-sm{background:oklch(1 0 0 / .8);color:var(--ink-2);border:1px solid var(--rule-2);box-shadow:none}
+.btn-sm:hover{border-color:var(--amber-line);color:var(--amber-deep);background:#fff}
+
+/* tab bar */
+.tabbar{flex:none;display:flex;border-top:1px solid var(--rule);background:rgba(255,253,248,.96);
+  padding:7px 0 5px}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;
+  color:var(--ink-3);font-size:12px;letter-spacing:.03em;background:none;border:none;font-family:inherit}
+.tab:nth-child(1).on{color:var(--amber-deep);font-weight:600}
+.tab:nth-child(2).on{color:var(--mint-deep);font-weight:600}
+.tab:nth-child(3).on{color:var(--coral-deep);font-weight:600}
+.tab svg{display:block}
+
+.topbar{flex:none;display:flex;align-items:center;gap:9px;padding:5px 20px 7px;height:38px}
+.topbar .back{width:28px;height:28px;border-radius:10px;border:1px solid var(--rule-2);
+  background:oklch(1 0 0 / .7);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.topbar .back:hover{border-color:var(--amber-line)}
+.topbar .ttl{font-size:13.5px;font-weight:600;color:var(--ink-2);letter-spacing:.02em}
+
+.prog{display:flex;align-items:center;gap:9px}
+.prog .bars{display:flex;gap:4px}
+.prog .bars i{width:19px;height:4px;border-radius:2px;background:var(--rule-2);display:block;
+  transition:background .2s}
+.prog .bars i.done{background:var(--amber-deep)}
+.prog .bars i.now{background:var(--amber);box-shadow:inset 0 0 0 1px var(--amber-deep)}
+.prog .lb{font-size:12px;color:var(--ink-3);letter-spacing:.02em}
+.prog .lb b{color:var(--amber-deep);font-weight:700}
+
+.answered{border-left:2px solid var(--amber-line);padding:2px 0 2px 12px;margin-bottom:20px}
+.answered .q{font-size:13px;color:var(--ink-3);line-height:1.55}
+.answered .chips{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.chip{font-size:12.5px;padding:4px 11px;border-radius:999px;border:1px solid var(--rule-2);
+  color:var(--ink-2);background:oklch(1 0 0 / .7);cursor:pointer;font-family:inherit;line-height:1.5}
+.chip.on{background:var(--amber);border-color:var(--amber-line);color:var(--ink);font-weight:600}
+[data-group="lib-state"] .chip.on,[data-group="lib-age"] .chip.on{
+  background:var(--mint);border-color:var(--mint-deep);color:var(--ink)}
+.chip:hover:not(.on){border-color:var(--amber-line);color:var(--amber-deep)}
+.chip.static{cursor:default}
+.chip.static:hover{border-color:var(--rule-2);color:var(--ink-2)}
+
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;padding:0 0 8px}
+.sec-h .h{font-size:13px;font-weight:700;color:var(--ink-2);letter-spacing:.04em}
+.sec-h .m{font-size:12px;color:var(--ink-3)}
+.meta{font-size:12.5px;color:var(--ink-3);line-height:1.6}
+.hr{height:1px;background:var(--rule);margin:0}
+.ph-img{background:repeating-linear-gradient(135deg,oklch(0.935 0.020 92) 0 7px,var(--paper-2) 7px 14px);
+  border:1px solid var(--rule-2);border-radius:12px;display:flex;align-items:center;
+  justify-content:center;color:var(--ink-3);font-size:12px;letter-spacing:.04em}
+
+.badge-draft{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;
+  color:var(--ink);background:var(--amber);border-radius:999px;padding:2px 10px;letter-spacing:.02em}
+.badge-done{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--mint-deep);
+  font-weight:600;background:var(--mint-soft);border-radius:999px;padding:2px 9px}
+.badge-done i{width:6px;height:6px;border-radius:999px;background:var(--mint);display:block;
+  box-shadow:inset 0 0 0 1px var(--mint-deep)}
+
+.hero-illo{display:block;width:100%;height:126px;border-radius:18px;overflow:hidden}
+.ask{border:1px solid var(--rule-2);border-radius:22px;background:#fff;padding:15px 16px 12px;
+  box-shadow:0 2px 10px rgba(138,100,16,.06)}
+.ask textarea{width:100%;border:none;outline:none;resize:none;font:inherit;font-size:15px;
+  line-height:1.55;color:var(--ink);background:transparent;min-height:46px}
+.ask textarea::placeholder{color:var(--ink-3)}
+.ask .seeds{display:flex;gap:6px;margin-top:11px;padding-top:10px;border-top:1px dashed var(--rule);flex-wrap:wrap}
+.ask .seeds .lb{font-size:12px;color:var(--ink-3);align-self:center;margin-right:1px}
+.ask .seeds .chip{font-size:12.5px;padding:3px 10px}
+
+/* ============ 生成中 ============ */
+.gen-step{display:flex;align-items:flex-start;gap:10px;padding:7px 0;font-size:14px}
+.gen-step .ic{flex:none;width:18px;height:18px;border-radius:999px;border:1.5px solid var(--rule-2);
+  margin-top:3px;display:flex;align-items:center;justify-content:center;transition:.2s}
+.gen-step .ic.done{background:var(--mint);border-color:var(--mint-deep)}
+.gen-step .ic.now{border-color:var(--amber-deep);background:var(--amber)}
+.gen-step .tx{flex:1;color:var(--ink-3);line-height:1.5}
+.gen-step.act .tx{color:var(--ink);font-weight:600}
+.gen-step.fin .tx{color:var(--ink-2)}
+.gen-step .st{font-size:12px;color:var(--ink-3);flex:none;align-self:center}
+.leave-card{background:var(--mint-soft);border:1px solid oklch(0.88 0.04 158);border-radius:14px;
+  padding:12px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;margin-top:16px}
+.leave-card:hover{border-color:var(--mint-deep)}
+.leave-card .t{flex:1;font-size:13.5px;font-weight:600;color:var(--mint-deep);line-height:1.5}
+.leave-card .t small{display:block;font-weight:400;font-size:12px;color:var(--ink-3);margin-top:2px}
+
+/* ============ 成稿 ============ */
+.steam-row{display:flex;align-items:flex-start;gap:9px;padding:5px 0;font-size:13.5px;line-height:1.6}
+.steam-row .bd{flex:none;width:19px;height:19px;border-radius:6px;display:flex;align-items:center;
+  justify-content:center;font-size:11px;font-weight:700;color:var(--ink);margin-top:2px}
+.steam-row .bd.S{background:var(--mint)} .steam-row .bd.T{background:var(--sky)}
+.steam-row .bd.E{background:var(--amber)} .steam-row .bd.A{background:var(--coral)}
+.steam-row .bd.M{background:var(--mint)}
+.steam-row .cn{flex:1}
+/* 「刻意不做」：虚线框 + 胶囊 + 一句理由（B-v5-states 的 B3 屏） */
+.skip-box{border:1.5px dashed var(--rule-2);border-radius:12px;padding:10px 12px;margin:6px 0 4px;
+  background:var(--paper-2)}
+.skip-box .hd{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.skip-cap{font-size:11.5px;font-weight:700;color:var(--ink);background:var(--amber);
+  border-radius:999px;padding:2px 9px;letter-spacing:.02em}
+.skip-box .why{font-size:12.5px;color:var(--ink-2);line-height:1.65}
+.flow-item{margin-bottom:14px}
+.flow-item .fh{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}
+.flow-item .fh b{font-size:14.5px;font-weight:600}
+.flow-item .fh span{font-size:12px;color:var(--ink-3)}
+.flow-item p{font-size:13.5px;line-height:1.7;color:var(--ink-2)}
+.mat-chips{display:flex;flex-wrap:wrap;gap:6px}
+.mat-chips span{font-size:12.5px;padding:4px 10px;border-radius:999px;background:var(--paper-2);
+  border:1px solid var(--rule-2);color:var(--ink-2)}
+.list-dot{font-size:13.5px;line-height:1.75;color:var(--ink-2);padding-left:15px;position:relative;margin-bottom:5px}
+.list-dot::before{content:"";position:absolute;left:2px;top:9px;width:5px;height:5px;border-radius:999px;
+  background:var(--mint)}
+.safe-dot::before{background:var(--coral)}
+.dlg{font-size:13px;line-height:1.7;margin-bottom:6px}
+.dlg b{color:var(--sky-deep);font-weight:700;margin-right:5px}
+.dlg.c b{color:var(--coral-deep)}
+
+/* ============ 教案库 ============ */
+.lib-card{border:1px solid var(--rule-2);border-radius:16px;padding:13px 14px;margin-bottom:11px;
+  background:oklch(1 0 0 / .8);cursor:pointer;transition:.14s}
+.lib-card:hover{border-color:var(--amber-line);background:#fff}
+.lib-card.draft{background:var(--amber-soft);border-color:var(--amber-line)}
+.lib-card .t{font-size:16px;font-weight:600;line-height:1.45;margin:7px 0 5px}
+.lib-card .b{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.lib-card .go{display:flex;align-items:center;justify-content:space-between;margin-top:9px;
+  font-size:12.5px;color:var(--amber-deep);font-weight:600}
+
+/* ============ 我的 ============ */
+.mem-row{display:flex;align-items:flex-start;gap:10px;padding:11px 0;border-bottom:1px solid var(--rule)}
+.mem-row .fx{flex:1;font-size:14px;line-height:1.55;color:var(--ink)}
+.mem-row .fx .ty{display:block;font-size:11.5px;color:var(--ink-3);margin-top:3px}
+.mem-row .ops{display:flex;gap:6px;flex:none}
+.mem-row .ops button{width:26px;height:26px;border-radius:8px;border:1px solid var(--rule-2);
+  background:oklch(1 0 0 / .7);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink-3)}
+.mem-row .ops button:hover{border-color:var(--coral);color:var(--coral-deep)}
+.mem-add{width:100%;border:1.5px dashed var(--rule-2);border-radius:14px;padding:11px;background:transparent;
+  font:inherit;font-size:13.5px;color:var(--ink-3);cursor:pointer;margin-top:12px}
+.mem-add:hover{border-color:var(--amber-line);color:var(--amber-deep)}
+.mem-cap{font-size:12px;color:var(--ink-3);line-height:1.65;margin-top:10px;background:var(--sky-soft);
+  border-radius:10px;padding:9px 11px}
+
+/* 诚实提示条（原型没做的功能） */
+.toast{position:absolute;left:20px;right:20px;bottom:96px;background:var(--ink);color:#fff;
+  border-radius:14px;padding:11px 14px;font-size:13px;line-height:1.55;z-index:40;
+  opacity:0;transform:translateY(6px);transition:.2s;pointer-events:none}
+.toast.show{opacity:.96;transform:translateY(0)}
+
+.empty-il{display:block;width:100%;height:150px;border-radius:16px;margin-bottom:18px}
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <div class="kicker">PROTOTYPE · 方向 B</div>
+  <h1>STEAM 教案助手 · 可点击原型</h1>
+  <p>能真的打字、选答案、一题题走完三轮引导、看着教案生成出来。
+     <b>屏幕里的问题、推荐答案和两份教案正文，都是后端接 DeepSeek 真实跑出来的</b>，不是占位文案。</p>
+  <div class="note">
+    这份原型<b>不连后端</b>——GitHub Pages 是静态的，后端跑在作者本机。所有交互走内置的真实数据快照；
+    点「生成」不会真的调模型，进度动画按真实耗时（小班 14 秒 / 大班 20 秒）配的时长。
+    没做的功能（配图、导出 Word、中班数据）都<b>如实标注</b>，不假装完整。
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="side">
+    <h2>直接跳到某一屏</h2>
+    <div id="nav"></div>
+    <div class="tip">
+      建议按顺序走一遍：首页输入想法 → 第 1 题<b>选小班</b>走完 → 看生成 → 看成稿。<br><br>
+      然后用左边跳回引导，<b>第 1 题改选大班</b>，对比同一套代码给两个年龄班写出的东西差多少。
+    </div>
+    <button class="rst" id="reset">重来一遍</button>
+  </div>
+
+  <div class="ios-wrapper">
+    <div class="ios-island"></div>
+    <div class="ios-screen">
+      <div class="ios-statusbar">
+        <span>9:41</span>
+        <span class="ios-icons">
+          <span class="ios-signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:12px"></i></span>
+          <svg width="15" height="12" viewBox="0 0 15 12" fill="none"><path d="M7.5 10.5 L9.8 8.1 A3.3 3.3 0 0 0 5.2 8.1 Z" fill="currentColor"/><path d="M2.6 5.5 A7 7 0 0 1 12.4 5.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M4.8 7.7 A4 4 0 0 1 10.2 7.7" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+          <span class="ios-batt"><span></span></span>
+        </span>
+      </div>
+      <div class="ios-content"><div class="app" id="app"></div></div>
+      <div class="ios-home"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   真实数据快照 —— 由 backend 跑通后从 stem_app 库导出，见 prototype/README 段落
+   QUESTIONS: { '小班': [...11题], '大班': [...11题] }  每题含模型生成的推荐答案
+   PLANS:     { '小班': {...}, '大班': {...} }          两份完整教案
+   ══════════════════════════════════════════════════════════════ */
+const RAW = {"questions":{"小班":[{"id":"q1","title":"这次活动是给哪个年龄班的？","hint":"选一个最接近的就好","multi":false,"allow_custom":false,"required":true,"options":[{"k":"A","l":"小班","s":"3-4岁"},{"k":"B","l":"中班","s":"4-5岁"},{"k":"C","l":"大班","s":"5-6岁"}]},{"id":"q2","title":"你希望孩子在这次活动里主要收获什么？","hint":"可以多选，也可以自己说","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"感受物体沉浮现象","s":"体验不同物体在水中的状态"},{"k":"B","l":"尝试观察和比较","s":"用眼睛看，用手摸，简单比较"},{"k":"C","l":"乐于动手玩水","s":"在玩中激发探索兴趣"},{"k":"D","l":"初步了解材料特性","s":"知道有的东西会浮，有的会沉"}]},{"id":"q3","title":"活动大概安排多长时间？","hint":"按这个年龄班的注意力时长推荐的","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"15 分钟","s":"偏短，注意力容易保持"},{"k":"B","l":"20 分钟","s":"小班最常用的时长"},{"k":"C","l":"25 分钟","s":"已经是小班的上限了"}]},{"id":"q4","title":"有什么现实条件要考虑吗？","hint":"场地、器材、人手都算","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"材料要安全，尺寸大","s":"避免误食，用大物件"},{"k":"B","l":"分组进行，4-6人","s":"便于观察和指导"},{"k":"C","l":"场地有水池或大盆","s":"方便操作和清理"},{"k":"D","l":"时间灵活，可延长","s":"不超25分钟即可"}]},{"id":"q5","title":"打算用什么材料？","hint":"不确定的话选个大方向就行","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"积木、石头、树叶","s":"材料常见易收集"},{"k":"B","l":"塑料玩具、铁勺","s":"对比明显，易观察"},{"k":"C","l":"海绵、木块、石子","s":"软硬不同，探索性强"},{"k":"D","l":"苹果、瓶盖、橡皮","s":"生活物品，有亲切感"}]},{"id":"q6","title":"活动流程你想怎么安排？","hint":"选一个接近你想法的","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"先自由玩，再一起比较","s":"先让幼儿随便玩，再引导观察"},{"k":"B","l":"分两组，一组一种材料","s":"按材料分组，减少干扰"},{"k":"C","l":"老师示范，幼儿跟着做","s":"安全稳妥，适合小班"}]},{"id":"q7","title":"你想在活动里问孩子什么？","hint":"好问题决定了孩子能想多深","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"哪个东西会浮起来？","s":"直接指向沉浮现象"},{"k":"B","l":"它们在水里都一样吗？","s":"引导观察比较差异"},{"k":"C","l":"石头和树叶一样吗？","s":"对比不同材料特性"},{"k":"D","l":"你觉得它会怎么样？","s":"鼓励孩子大胆猜想"}]},{"id":"q8","title":"这次活动要注意哪些安全事项？","hint":"这题一定要答，安全是底线","multi":true,"allow_custom":true,"required":true,"options":[{"k":"A","l":"材料尺寸大于口腔","s":"防止误吞，安全第一"},{"k":"B","l":"分组轮流玩水","s":"控制人数，避免混乱"},{"k":"C","l":"地面铺防滑垫","s":"防止滑倒摔伤"},{"k":"D","l":"提醒不泼水不喝","s":"保持常规，卫生安全"}]},{"id":"q9","title":"你打算怎么看出孩子学到了？","hint":"这一轮都可以跳过","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"看孩子玩水时指认","s":"孩子能指出浮和沉的东西"},{"k":"B","l":"用贴纸记录结果","s":"孩子把浮沉结果贴出来"},{"k":"C","l":"观察孩子再玩一次","s":"看孩子能否记得浮沉现象"},{"k":"D","l":"问孩子哪个会浮","s":"孩子能说出浮的东西"}]},{"id":"q10","title":"活动之后有想过怎么延伸吗？","hint":"没想好就跳过","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"阅读浮沉绘本","s":"延伸阅读，巩固概念"},{"k":"B","l":"户外水池再探索","s":"自然情境继续玩水"},{"k":"C","l":"制作浮沉小书","s":"用贴纸回顾记录"}]},{"id":"q11","title":"还有什么想让我注意的？","hint":"最后一题了","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"水的温度有差别","s":"试试温水凉水，感受不同"},{"k":"B","l":"不同容器装水","s":"用杯子瓶子舀水玩"},{"k":"C","l":"加点颜色进去","s":"色素让水变好看，观察变化"}]}],"大班":[{"id":"q1","title":"这次活动是给哪个年龄班的？","hint":"选一个最接近的就好","multi":false,"allow_custom":false,"required":true,"options":[{"k":"A","l":"小班","s":"3-4岁"},{"k":"B","l":"中班","s":"4-5岁"},{"k":"C","l":"大班","s":"5-6岁"}]},{"id":"q2","title":"你希望孩子在这次活动里主要收获什么？","hint":"可以多选，也可以自己说","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"体验科学探究全过程","s":"预测、实验、记录、改进"},{"k":"B","l":"学习合作分工与沟通","s":"小组协作搭建，互相商量"},{"k":"C","l":"理解结构与稳定关系","s":"探索怎么搭更稳更高"},{"k":"D","l":"培养坚持与抗挫力","s":"倒了再试，不轻易放弃"}]},{"id":"q3","title":"活动大概安排多长时间？","hint":"按这个年龄班的注意力时长推荐的","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"30 分钟","s":"偏短，注意力容易保持"},{"k":"B","l":"40 分钟","s":"大班最常用的时长"},{"k":"C","l":"45 分钟","s":"已经是大班的上限了"}]},{"id":"q4","title":"有什么现实条件要考虑吗？","hint":"场地、器材、人手都算","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"活动场地在哪里","s":"室内还是户外影响材料"},{"k":"B","l":"材料安全要特别注意","s":"您一贯重视安全，需列出"},{"k":"C","l":"是否需要分组进行","s":"您倾向分组，便于合作"},{"k":"D","l":"材料尺寸要大于口腔","s":"防止误吞，安全第一"}]},{"id":"q5","title":"打算用什么材料？","hint":"不确定的话选个大方向就行","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"纸杯和纸板","s":"轻便安全，易于搭建"},{"k":"B","l":"木质积木","s":"稳定，可重复使用"},{"k":"C","l":"塑料拼插玩具","s":"连接牢固，创意拼搭"},{"k":"D","l":"废旧纸盒和胶带","s":"环保，需注意胶带使用"}]},{"id":"q6","title":"活动流程你想怎么安排？","hint":"选一个接近你想法的","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"先预测再搭，比谁塔最高","s":"带理由预测，测量比较"},{"k":"B","l":"分组合作，轮流搭高塔","s":"5-6人分工，轮流操作"},{"k":"C","l":"搭了再改，不断加高塔","s":"多轮循环，改进再挑战"}]},{"id":"q7","title":"你想在活动里问孩子什么？","hint":"好问题决定了孩子能想多深","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"怎么搭才能又高又稳？","s":"引导思考稳定结构"},{"k":"B","l":"哪种材料最结实？","s":"比较材料特性"},{"k":"C","l":"塔倒了怎么办？","s":"鼓励从失败中学习"},{"k":"D","l":"怎么分工合作搭得快？","s":"强调团队协作"}]},{"id":"q8","title":"这次活动要注意哪些安全事项？","hint":"这题一定要答，安全是底线","multi":true,"allow_custom":true,"required":true,"options":[{"k":"A","l":"材料安全，防止划伤","s":"检查纸板边缘，无尖锐"},{"k":"B","l":"搭高时防倒塌砸到","s":"提醒幼儿不靠近塔身"},{"k":"C","l":"小组内轮流搭建","s":"避免争抢，有序操作"},{"k":"D","l":"使用木质积木更安全","s":"比纸杯更稳且无锐角"}]},{"id":"q9","title":"你打算怎么看出孩子学到了？","hint":"这一轮都可以跳过","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"看孩子能否说出搭高窍门","s":"检验经验总结能力"},{"k":"B","l":"看小组合作是否顺畅","s":"观察分工与沟通"},{"k":"C","l":"看孩子能否记录测量结果","s":"检验数字记录能力"},{"k":"D","l":"看孩子能否改进方案","s":"考察反思与调整"}]},{"id":"q10","title":"活动之后有想过怎么延伸吗？","hint":"没想好就跳过","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"探究不同材质稳定性","s":"用积木对比纸杯搭高"},{"k":"B","l":"设计防风防震高塔","s":"用风扇或震动台测试"},{"k":"C","l":"挑战更高难度任务","s":"限定材料或增加高度"}]},{"id":"q11","title":"还有什么想让我注意的？","hint":"最后一题了","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"注意材料大小防吞咽","s":"确保安全，大班适用"},{"k":"B","l":"提醒孩子轻拿轻放","s":"避免材料损坏或伤人"},{"k":"C","l":"关注小组分工与协作","s":"强化合作，提升效率"}]}]},"plans":{"小班":{"id":1,"title":"浮起来沉下去","age_group":"小班","duration_min":15,"content_json":{"flow":[{"stage":"引起动机","detail":"老师出示一盆水，拿出一个积木，问：“积木放到水里会怎么样？”孩子们自由回答。老师把积木轻轻放进水里，请孩子们观察。然后老师拿出石头，问：“石头呢？”再放进去，引导孩子注意沉浮现象。","minutes":3},{"stage":"发展活动","detail":"孩子们分成4-6人一组，轮流到水盆边。老师提供材料，让孩子自由选择物品放进水里，观察它是浮还是沉。老师巡回观察，用提问引导：“你拿的是什么？它浮起来了吗？”孩子们用动作或短句回答。玩过一轮后，老师请孩子再玩一次，这次尝试把不同的东西一起放，看看有什么不同。最后，老师请每个孩子把结果用贴纸记录在板上：浮的贴红色贴纸，沉的贴蓝色贴纸。","minutes":9},{"stage":"综合活动","detail":"老师请孩子们坐回座位，展示记录板，问：“哪个东西会浮起来？”孩子们指认或说出名称。老师再问：“它们在水里都一样吗？”引导孩子发现有的浮、有的沉。最后，老师总结：“今天我们发现，有的东西会浮起来，有的会沉下去。”并表扬孩子们的观察。","minutes":3}],"steam":{"A":"艺术：用贴纸装饰记录板，进行简单的美工活动。","E":"本次未涉及","M":"数学：比较物体的沉与浮，感知“多”和“少”的概念，例如“浮起来的多还是沉下去的多？”","S":"科学：物体在水中的沉浮现象，通过观察不同材料的物体在水中的表现，感知沉浮特性。","T":"技术：使用贴纸进行记录，学习简单的记录方法。"},"title":"浮起来沉下去","safety":["所有材料尺寸必须大于幼儿口腔，防止误食。","分组轮流玩水，每组4-6人，确保每位幼儿在成人视线内。","提醒幼儿不将水泼洒，保持地面干燥，防止滑倒。","活动前检查材料是否有尖锐边缘，确保安全。"],"dialogue":[{"text":"小朋友们，看！这是什么？","speaker":"T"},{"text":"积木！","speaker":"C"},{"text":"我们把积木放到水里，看看会怎么样？","speaker":"T"},{"text":"（积木浮起来）看，积木浮起来了！","speaker":"T"},{"text":"浮！","speaker":"C"},{"text":"再试试石头。","speaker":"T"},{"text":"沉！","speaker":"C"},{"text":"（一个孩子把铁勺放进水里，铁勺沉下去了）哎呀，铁勺沉下去了。我们能不能让它浮起来？","speaker":"T"},{"text":"（摇头）","speaker":"C"},{"text":"试试把铁勺放在积木上？","speaker":"T"},{"text":"（把铁勺放在积木上，积木浮着，铁勺也浮起来了）浮！","speaker":"C"}],"features":{"problem_source":"幼儿在洗手或玩水时经常对物体的沉浮产生好奇，老师观察到孩子们喜欢把东西丢进水里看它是浮还是沉，因此设计了这次活动，让幼儿在自由玩耍中探索沉浮现象。","learning_experiences":["通过动手操作，感受物体在水中的沉浮现象。","尝试用简单的语言或动作表达物体的沉浮。","学习用贴纸记录物体的沉浮结果。","体验与同伴一起玩水的乐趣。"]},"age_group":"小班","extension":"活动后，在阅读区投放关于沉浮的绘本，如《浮与沉》，引导幼儿进一步探索。还可以在科学区提供更多材料，让幼儿自由探索沉浮。","materials":["大塑料盆（装水，深度约10厘米）2个","积木（大号，大于幼儿口腔）5块","石头（光滑，大于幼儿口腔）5块","树叶（大片的）5片","塑料玩具（如小鸭子，大于口腔）5个","铁勺（大号）5个","贴纸（红色和蓝色）若干","记录板（每人一块，上面画有物品简笔画）5块","毛巾（擦手用）若干"],"indicators":["能观察并说出物体的沉浮现象（如“浮”、“沉”）。","能用贴纸记录物体的沉浮结果。"],"reflection":"预期幼儿可能对沉浮概念不理解，但实际通过操作和贴纸记录，幼儿能初步感知。重点观察幼儿是否能区分浮和沉，以及能否正确使用贴纸。下次可以增加更多材料，如海绵、泡沫，让幼儿探索更多可能性，并引导幼儿用语言描述。","duration_min":15}},"大班":{"id":2,"title":"搭建高塔挑战","age_group":"大班","duration_min":30,"content_json":{"flow":[{"stage":"引起动机","detail":"教师展示一座用纸杯搭成的小塔，并故意推倒，引发幼儿讨论。提问：\"你们想不想搭一座又高又稳的塔？用什么材料好呢？\" 幼儿自由发表想法，教师引导幼儿关注\"高\"和\"稳\"两个关键词。","minutes":5},{"stage":"发展活动","detail":"教师介绍材料和任务：\"每组分到纸杯、纸板和积木，请你们先预测哪种材料能搭得最高？为什么？\" 幼儿分组讨论并记录预测。然后开始搭建，教师巡回观察，鼓励幼儿尝试不同方法。搭建过程中，教师引导幼儿测量塔高（用直尺），并记录在表格中。提醒幼儿注意安全，不要碰倒别人的塔。","minutes":15},{"stage":"综合活动","detail":"各组展示自己的塔，教师引导比较：\"哪组最高？哪组最稳？\" 请幼儿分享搭建过程中的困难和解决办法。教师提问：\"怎么搭才能又高又稳？\" 幼儿讨论总结出\"底部要大、要对称、轻的材料放上面\"等经验。教师引导幼儿思考：\"如果重新搭一次，你们会怎么改进？\"","minutes":8},{"stage":"延伸活动","detail":"教师总结今天的探究，并布置延伸任务：\"回家后可以试试用其他材料（如书本、易拉罐）搭塔，看看哪种材料最结实。\" 鼓励幼儿在科学区继续探索不同材质的稳定性。","minutes":2}],"steam":{"A":"艺术：在搭建中感受对称美，鼓励幼儿创造独特造型，装饰塔身。","E":"工程：设计和改进塔的结构，经历\"预测-搭建-倒塌-改进\"的工程循环。","M":"数学：比较塔的高度，用数字记录，理解数量与高度的关系，尝试简单统计。","S":"科学：探索物体稳定性与底部面积、重心位置的关系，理解\"上轻下重\"\"底部宽大\"更稳的原理。","T":"技术：学习使用直尺测量高度，掌握搭建技巧如交错堆叠、使用纸板作为平台。"},"title":"搭建高塔挑战","safety":["使用直尺和记号笔时注意不要划伤，剪刀由教师保管，使用时需教师指导","搭建时提醒幼儿不要将材料放入口中，防止吞咽","搭高时注意塔的稳定性，防止倒塌砸到幼儿，要求幼儿在搭建区不奔跑打闹","小组活动时保持秩序，不争抢材料，轮流使用工具"],"dialogue":[{"text":"你们觉得用哪种材料搭塔最高？为什么？","speaker":"T"},{"text":"我觉得纸杯最高，因为纸杯很轻，可以叠很多层。","speaker":"C"},{"text":"那你们试试看吧。记住，要一边搭一边量一量，把高度记在表格上。","speaker":"T"},{"text":"哎呀，倒了！我们搭到第5层就倒了。","speaker":"C"},{"text":"没关系，想想为什么倒了？怎么改进才能更稳？","speaker":"T"},{"text":"我知道了，因为底部太小了，我们把纸杯摆得大一点，像金字塔一样。","speaker":"C"},{"text":"你们这个想法真好！那再试试看，看能不能搭得更高更稳。","speaker":"T"}],"features":{"problem_source":"幼儿在建构区常自发用积木、纸杯等搭高，但倒塌后容易放弃或争吵。教师借此设计活动，引导幼儿探究如何搭得又高又稳，体验科学探究过程。","learning_experiences":["体验预测、实验、观察、讨论、改进的完整探究过程","学习与同伴分工合作，沟通协商解决问题","了解不同材料的特点及其在搭建中的作用","尝试用数字和符号记录塔的高度与搭建方法","感受工程设计的乐趣，培养坚持与改进的态度"]},"age_group":"大班","extension":"延伸活动：在科学区投放不同材质（如书本、易拉罐、塑料瓶等），让幼儿继续探究哪种材料搭得最稳，并尝试设计不同的塔形。同时鼓励幼儿回家与家长一起用废旧材料搭建，拍照分享。","materials":["纸杯（每组30个）","纸板（每组5块，A4大小）","木质积木（每组20块）","直尺（每组1把，带刻度）","记录表（每组1张，含塔高、搭建方法、成功与否）","记号笔（每组2支）","安全剪刀（每组1把，备用）"],"indicators":["能带理由地预测哪种材料搭得高，并验证自己的预测","能使用直尺测量塔高并记录数字，比较高低","能与同伴分工合作，协商解决搭建中的问题","能描述搭建过程中的失败与改进，说出\"怎么搭又高又稳\"的简单规律"],"reflection":"预期幼儿能顺利搭出高塔，但实际可能会因材料特性（如纸杯易滑、积木表面平）而频繁倒塌，导致幼儿挫败。教师需重点观察幼儿是否能坚持改进，能否与同伴沟通合作。下次活动可提供更多样化的材料（如胶带、黏土）以增加稳定性，并引导幼儿更系统地记录每次尝试的高度和失败原因。","duration_min":30}}}};
+const QUESTIONS = RAW.questions;
+const PLANS = RAW.plans;
+
+/* ============ 图标（全部 inline SVG，无 emoji —— 设计约束） ============ */
+const IC = {
+  back: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M10 3 L5 8 L10 13" stroke="#6B655C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  check: '<svg class="tick-svg" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5 L6.5 11.5 L12.5 4.5" stroke="#8A6410" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  checkWhite: '<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5 L6.5 11.5 L12.5 4.5" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  arrow: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3 8 H12 M8.5 4.5 L12 8 L8.5 11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  chev: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M6 3.5 L10.5 8 L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  edit: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M11.2 2.4 L13.6 4.8 L5.4 13 L2.4 13.6 L3 10.6 Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>',
+  del: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 4.5 H13 M6.2 4.5 V3 H9.8 V4.5 M4.5 4.5 L5.1 13.2 H10.9 L11.5 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  plus: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 3.5 V12.5 M3.5 8 H12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
+  home: (on) => `<svg width="21" height="21" viewBox="0 0 22 22" fill="none"><path d="M3.6 9.4 L11 3.6 L18.4 9.4 V18 a1 1 0 0 1-1 1 H4.6 a1 1 0 0 1-1-1 Z" stroke="currentColor" stroke-width="${on?2:1.6}" stroke-linejoin="round"/></svg>`,
+  lib:  (on) => `<svg width="21" height="21" viewBox="0 0 22 22" fill="none"><rect x="3.4" y="3.6" width="15.2" height="14.8" rx="2.4" stroke="currentColor" stroke-width="${on?2:1.6}"/><path d="M8.4 3.6 V18.4" stroke="currentColor" stroke-width="${on?2:1.6}"/></svg>`,
+  me:   (on) => `<svg width="21" height="21" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="7.6" r="3.5" stroke="currentColor" stroke-width="${on?2:1.6}"/><path d="M4.4 18.4 c0-3.6 2.9-5.6 6.6-5.6 s6.6 2 6.6 5.6" stroke="currentColor" stroke-width="${on?2:1.6}" stroke-linecap="round"/></svg>`,
+};
+const HERO = `<svg class="hero-illo" viewBox="0 0 326 126" role="img" aria-label="扁平几何风景：太阳、云、小山、树和房子" style="margin-bottom:16px">
+  <rect x="0" y="0" width="326" height="126" fill="var(--sky-soft)"/>
+  <circle cx="266" cy="36" r="19" fill="var(--amber)"/>
+  <g fill="#FFFFFF"><rect x="44" y="32" width="66" height="20" rx="10"/><circle cx="66" cy="32" r="13"/><circle cx="89" cy="29" r="16"/></g>
+  <g fill="#FFFFFF"><rect x="166" y="20" width="46" height="14" rx="7"/><circle cx="181" cy="20" r="10"/><circle cx="197" cy="18" r="12"/></g>
+  <g fill="var(--mint-soft)" stroke="var(--mint)" stroke-width="2"><circle cx="52" cy="126" r="48"/><circle cx="150" cy="132" r="58"/><circle cx="268" cy="128" r="44"/></g>
+  <rect x="0" y="98" width="326" height="28" fill="var(--mint)"/>
+  <rect x="140" y="70" width="52" height="28" rx="4" fill="var(--paper)"/>
+  <path d="M166 47 L200 72 L132 72 Z" fill="var(--coral)"/>
+  <rect x="159" y="82" width="14" height="16" rx="3" fill="var(--amber)"/>
+  <rect x="145" y="78" width="10" height="10" rx="2" fill="var(--sky)"/>
+  <g fill="var(--amber-deep)"><rect x="41.5" y="90" width="5" height="14" rx="2"/><rect x="245.5" y="92" width="5" height="12" rx="2"/><rect x="286" y="94" width="4" height="10" rx="2"/></g>
+  <g fill="var(--mint-deep)"><path d="M44 58 L60 98 L28 98 Z"/><path d="M248 68 L261 98 L235 98 Z"/><path d="M288 76 L298 98 L278 98 Z"/></g>
+</svg>`;
+
+/* ============ 状态 ============ */
+const S = {
+  screen: 'home',
+  seed: '',
+  age: null,          // 小班 | 大班
+  qi: 0,              // 当前第几题（0 起）
+  answers: [],        // [{id,title,labels:[],custom}]
+  ownOpen: false,     // 「我自己说」输入框展开
+  ownText: '',
+  sel: [],            // 当前题选中的 key
+  libState: 'all', libAge: 'all',
+  genStep: 0,
+  memories: [
+    { fact:'该老师主要带小班', type:'年龄班专长', pinned:false },
+    { fact:'该老师注重活动材料的安全性', type:'教学风格', pinned:false },
+    { fact:'该老师倾向分组进行活动', type:'教学风格', pinned:false },
+    { fact:'该老师会考虑材料尺寸需大于口腔', type:'约束条件', pinned:false },
+    { fact:'该老师会考虑水温差异', type:'约束条件', pinned:false },
+  ],
+  done: [],           // 已完成的教案（年龄班名数组）
+};
+const TOTAL_Q = 11;
+const ROUND_OF = (i) => i < 4 ? 1 : i < 8 ? 2 : 3;
+const IN_ROUND = { 1:4, 2:4, 3:3 };
+const IDX_IN_ROUND = (i) => i < 4 ? i+1 : i < 8 ? i-3 : i-7;
+
+const app = document.getElementById('app');
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg;
+  app.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('show'));
+  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 250); }, 2600);
+}
+
+/* 当前用哪套题：还没选年龄班时先用小班那套（第 1 题三个班的选项两套是一样的） */
+const qset = () => QUESTIONS[S.age || '小班'];
+const curQ = () => qset()[S.qi];
+
+function capsule() {
+  return '<div class="wx-capsule"><span class="d"></span><span class="sep"></span><span class="o"></span></div>';
+}
+function tabbar(active) {
+  const t = [['home','首页',IC.home],['library','教案库',IC.lib],['me','我的',IC.me]];
+  return `<div class="tabbar">${t.map(([k,label,ic]) =>
+    `<button class="tab ${active===k?'on':''}" onclick="go('${k}')">${ic(active===k)}<span>${label}</span></button>`
+  ).join('')}</div>`;
+}
+function topbar(title, backTo) {
+  return `<div class="topbar"><div class="back" onclick="go('${backTo}')">${IC.back}</div>
+    <div class="ttl">${esc(title)}</div></div>`;
+}
+
+/* ============ 路由 ============ */
+const SCREENS = {
+  home:       { label:'① 首页',      sub:'只是一个对话框' },
+  guide:      { label:'② 引导对话',   sub:'一次只问一题 · 可点选' },
+  generating: { label:'③ 生成中',     sub:'异步 · 可以离开' },
+  plan:       { label:'④ 教案成稿',   sub:'年龄班差异最明显' },
+  library:    { label:'⑤ 教案库',     sub:'草稿与已完成' },
+  me:         { label:'⑥ 我的',       sub:'记忆最多 10 条' },
+};
+function go(s) {
+  if (s === 'plan' && !S.age) { S.age = '小班'; if (!S.done.includes('小班')) S.done.push('小班'); }
+  if (s === 'generating') { S.genStep = 0; }
+  S.screen = s; render();
+  if (s === 'generating') runGeneration();
+}
+window.go = go;
+
+function renderNav() {
+  document.getElementById('nav').innerHTML = Object.entries(SCREENS).map(([k,v]) =>
+    `<button class="navb ${S.screen===k?'on':''}" onclick="go('${k}')">${v.label}<small>${v.sub}</small></button>`
+  ).join('');
+}
+
+function render() {
+  renderNav();
+  app.innerHTML = ({
+    home: scHome, guide: scGuide, generating: scGenerating,
+    plan: scPlan, library: scLibrary, me: scMe,
+  })[S.screen]();
+  const ta = app.querySelector('#seedInput');
+  if (ta) { ta.value = S.seed; ta.oninput = e => { S.seed = e.target.value; syncStart(); }; }
+  const oi = app.querySelector('#ownInput');
+  if (oi) { oi.value = S.ownText; oi.focus(); oi.oninput = e => { S.ownText = e.target.value; syncNext(); }; }
+}
+
+/* ============ ① 首页 —— 只是一个对话框，不放任何历史入口 ============ */
+function scHome() {
+  const seeds = ['浮与沉','影子','磁铁','植物'];
+  return `${capsule()}
+  <div class="scroll"><div class="grid" style="padding:44px 0 26px">
+    <div class="rail"><div class="tick on" style="top:104px">01</div></div>
+    <div class="col">
+      ${HERO}
+      <div class="focus-kicker" style="margin-bottom:7px">开始新教案</div>
+      <div class="focus-q" style="font-size:23px;line-height:1.45;margin-bottom:17px">李老师，<br>今天想做个什么活动？</div>
+      <div class="ask">
+        <textarea id="seedInput" rows="2" placeholder="例：我想做个浮与沉的活动"></textarea>
+        <div class="seeds"><span class="lb">试试</span>
+          ${seeds.map(s => `<button class="chip" onclick="pickSeed('${s}')">${s}</button>`).join('')}
+        </div>
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn btn-p" id="startBtn" onclick="startGuide()" ${S.seed.trim()?'':'disabled'}>开始 ${IC.arrow}</button>
+      </div>
+      <div class="meta" style="margin-top:11px;text-align:center">
+        我会分 2–3 轮问你几个问题，每题都给好备选答案，点一下就行。
+      </div>
+    </div>
+  </div></div>
+  ${tabbar('home')}`;
+}
+function pickSeed(s) { S.seed = '我想做个' + s + '的活动'; render(); }
+function syncStart() {
+  const b = document.getElementById('startBtn');
+  if (b) b.disabled = !S.seed.trim();
+}
+function startGuide() {
+  if (!S.seed.trim()) return;
+  S.qi = 0; S.answers = []; S.sel = []; S.ownOpen = false; S.ownText = '';
+  go('guide');
+}
+window.pickSeed = pickSeed; window.startGuide = startGuide;
+
+/* ============ ② 引导对话 ============ */
+function scGuide() {
+  const q = curQ();
+  if (!q) return scPlan();
+  const round = ROUND_OF(S.qi), idx = IDX_IN_ROUND(S.qi), inR = IN_ROUND[round];
+  const last = S.answers[S.answers.length - 1];
+
+  // 左侧刻度轨：11 个点，走到哪亮到哪（form 的种子，在各屏换含义）
+  const ticks = Array.from({length: TOTAL_Q}, (_, i) =>
+    `<div class="tick dot ${i <= S.qi ? 'on':''}" style="top:${86 + i*30}px"></div>`).join('');
+
+  const bars = Array.from({length: inR}, (_, i) =>
+    `<i class="${i+1 < idx ? 'done' : i+1 === idx ? 'now' : ''}"></i>`).join('');
+
+  return `${capsule()}
+  ${topbar(S.seed.replace(/^我想做个/,'').replace(/活动$/,'') + '的活动', 'home')}
+  <div style="padding:0 20px 9px;display:flex;align-items:center;justify-content:space-between">
+    <div class="prog"><div class="bars">${bars}</div>
+      <div class="lb">第 <b>${round}</b> 轮 · 第 <b>${idx}/${inR}</b> 题</div></div>
+    <div class="meta">共 3 轮</div>
+  </div>
+  <div class="scroll"><div class="grid" style="padding:10px 0 24px">
+    <div class="rail">${ticks}</div>
+    <div class="col">
+      ${last ? `<div class="answered">
+        <div class="q">${esc(last.title)}</div>
+        <div class="chips">${last.labels.concat(last.custom?[last.custom]:[]).map(l=>`<span class="chip on">${esc(l)}</span>`).join('')}</div>
+      </div>` : ''}
+
+      <div class="focus-kicker" style="margin-bottom:6px">正在问你</div>
+      <div class="focus-q" style="font-size:20px;line-height:1.5;margin-bottom:6px">${esc(q.title)}</div>
+      <div class="meta" style="margin-bottom:14px">${esc(q.hint || '')}</div>
+
+      ${q.options.map(o => {
+        const na = o.l === '中班';
+        const sel = S.sel.includes(o.k);
+        return `<button class="opt ${sel?'sel':''} ${na?'na':''}" ${na?'':`onclick="pick('${o.k}')"`}>
+          <span class="key">${o.k}</span>
+          <span class="txt">${esc(o.l)}${o.s || na ? `<span class="sub">${na ? '原型没带中班数据 · 正式版三个班齐全' : esc(o.s)}</span>`:''}</span>
+          ${IC.check}
+        </button>`;
+      }).join('')}
+
+      ${q.allow_custom ? (S.ownOpen
+        ? `<textarea id="ownInput" class="own-input" rows="2" placeholder="说说你的想法…"></textarea>`
+        : `<button class="opt own" onclick="openOwn()"><span class="key">${String.fromCharCode(65+q.options.length)}</span>
+             <span class="txt">我自己说 —— 点这里打字</span></button>`) : ''}
+
+      ${q.multi ? `<div style="background:var(--mint-soft);border-radius:10px;padding:8px 11px;font-size:12.5px;color:var(--ink-2);margin-top:3px">
+        可以多选，也可以一个都不选</div>` : ''}
+      ${q.id === 'q3' ? `<div style="background:var(--sky-soft);border-radius:10px;padding:8px 11px;font-size:12.5px;color:var(--ink-2);margin-top:8px;line-height:1.6">
+        这三个时长是<b>代码按${S.age||'小班'}参数表算出来的</b>，不是模型给的 —— 选${S.age||'小班'}，界面上就不会出现更长的选项。</div>` : ''}
+    </div>
+  </div></div>
+  <div class="dock">
+    <button class="btn btn-p" id="nextBtn" onclick="nextQ()" ${canNext()?'':'disabled'}>
+      ${S.qi === TOTAL_Q-1 ? '答完了 · 生成教案' : '选好了 · 下一题'} ${IC.arrow}</button>
+    <button class="btn btn-ghost" onclick="skipToGen()">跳过引导，直接生成</button>
+  </div>`;
+}
+
+function canNext() {
+  const q = curQ(); if (!q) return false;
+  const has = S.sel.length > 0 || (S.ownOpen && S.ownText.trim());
+  return q.required ? has : true;
+}
+function syncNext() {
+  const b = document.getElementById('nextBtn');
+  if (b) b.disabled = !canNext();
+}
+function pick(k) {
+  const q = curQ();
+  if (q.multi) S.sel = S.sel.includes(k) ? S.sel.filter(x => x !== k) : [...S.sel, k];
+  else S.sel = S.sel.includes(k) ? [] : [k];
+  // 第 1 题决定整套年龄班规则：换了班，后面的题库和时长选项跟着换
+  if (q.id === 'q1' && S.sel.length) {
+    const label = q.options.find(o => o.k === S.sel[0]).l;
+    S.age = label;
+    const m = S.memories.find(x => x.type === '年龄班专长');
+    if (m) m.fact = '该老师主要带' + label;   // 一个老师只带一个班，这条永远只有一条
+  }
+  render();
+}
+function openOwn() { S.ownOpen = true; render(); }
+function nextQ() {
+  if (!canNext()) return;
+  const q = curQ();
+  S.answers.push({
+    id: q.id, title: q.title,
+    labels: S.sel.map(k => q.options.find(o => o.k === k).l),
+    custom: S.ownOpen && S.ownText.trim() ? S.ownText.trim() : null,
+  });
+  S.sel = []; S.ownOpen = false; S.ownText = '';
+  if (S.qi >= TOTAL_Q - 1) { go('generating'); return; }
+  S.qi += 1; render();
+}
+function skipToGen() {
+  if (!S.age) { toast('先告诉我这是给哪个年龄班的 —— 没有年龄班，生成出来的一定是错的'); return; }
+  go('generating');
+}
+window.pick = pick; window.openOwn = openOwn; window.nextQ = nextQ; window.skipToGen = skipToGen;
+
+/* ============ ③ 生成中 —— 异步，随时可以离开 ============ */
+const GEN_STEPS = ['读懂你说的那句话', '按年龄班的能力水平调参数', '设计教学流程', '标注 STEAM 五个领域', '配齐材料清单与安全提示'];
+let genTimer = null;
+
+function scGenerating() {
+  const age = S.age || '小班';
+  const secs = age === '小班' ? 14 : 20;
+  const done = S.genStep >= GEN_STEPS.length;
+  return `${capsule()}
+  ${topbar('正在生成教案', 'guide')}
+  <div class="scroll"><div class="grid" style="padding:12px 0 24px">
+    <div class="rail">${GEN_STEPS.map((_,i)=>`<div class="tick ${i<=S.genStep?'on':''}" style="top:${150+i*34}px">0${i+1}</div>`).join('')}</div>
+    <div class="col">
+      <div class="focus-kicker" style="margin-bottom:6px">第 ${Math.min(S.genStep+1, GEN_STEPS.length)} 步 / 共 ${GEN_STEPS.length} 步</div>
+      <div class="focus-q" style="font-size:20px;line-height:1.45;margin-bottom:12px">
+        ${done ? '写好了' : esc(GEN_STEPS[S.genStep]) + '…'}</div>
+      <div class="meta" style="margin-bottom:5px">真实耗时 ${secs} 秒 · ${age}这份实测就是这个数</div>
+      <div style="display:flex;gap:6px;margin:12px 0 18px">
+        <span class="chip static on">${age}</span>
+        <span class="chip static">${PLANS[age].duration_min} 分钟</span>
+        <span class="chip static">${esc(S.seed.replace(/^我想做个/,'').replace(/活动$/,''))}</span>
+      </div>
+      <div class="sec-h"><span class="h">我正在做的事</span><span class="m">做完一步走一步</span></div>
+      ${GEN_STEPS.map((t,i) => {
+        const st = i < S.genStep ? 'done' : i === S.genStep ? 'now' : '';
+        return `<div class="gen-step ${i===S.genStep?'act':''} ${i<S.genStep?'fin':''}">
+          <span class="ic ${st}">${i < S.genStep ? IC.checkWhite : ''}</span>
+          <span class="tx">${esc(t)}</span>
+          <span class="st">${i < S.genStep ? '完成' : i === S.genStep ? '正在做' : '还没开始'}</span>
+        </div>`;
+      }).join('')}
+      <div style="background:var(--sky-soft);border-radius:12px;padding:10px 12px;font-size:12.5px;
+                  color:var(--ink-2);line-height:1.65;margin-top:14px">
+        这份小教案已经存成草稿了。退出、锁屏、被叫走都不影响，生成在后台接着跑。
+      </div>
+      <div class="leave-card" onclick="go('library')">
+        <div class="t">先去忙，好了在教案库找我
+          <small>写好后它会出现在教案库，并给你发一条服务通知</small></div>
+        <span style="color:var(--mint-deep)">${IC.chev}</span>
+      </div>
+    </div>
+  </div></div>
+  <div class="dock"><button class="btn btn-ghost" onclick="go('guide')">不生成了，回去改答案</button></div>`;
+}
+
+function runGeneration() {
+  clearInterval(genTimer);
+  const age = S.age || '小班';
+  const per = (age === '小班' ? 14000 : 20000) / GEN_STEPS.length;
+  genTimer = setInterval(() => {
+    if (S.screen !== 'generating') { clearInterval(genTimer); return; }
+    S.genStep += 1;
+    if (S.genStep >= GEN_STEPS.length) {
+      clearInterval(genTimer);
+      if (!S.done.includes(age)) S.done.push(age);
+      render();
+      setTimeout(() => { if (S.screen === 'generating') go('plan'); }, 900);
+    } else render();
+  }, per);
+}
+
+/* ============ ④ 教案成稿 ============ */
+/* 小班 E 缺席时的理由文案（B-v5-states 的 B3 屏）。规则是宁可诚实标注缺席，不要虚假齐全。 */
+const SKIP_WHY = {
+  E: '「改变形状让它浮起来」要孩子先预测、再反复调整，超出 3–4 岁的能力，这一步放到中班。',
+};
+const STEAM_CN = { S:'科学', T:'技术', E:'工程', A:'艺术', M:'数学' };
+
+function scPlan() {
+  const age = S.age || '小班';
+  const p = PLANS[age], c = p.content_json;
+  const skipped = Object.entries(c.steam).filter(([k,v]) => /未涉及|不涉及/.test(String(v))).map(([k]) => k);
+
+  return `${capsule()}
+  ${topbar('教案成稿', 'library')}
+  <div class="scroll"><div class="grid" style="padding:8px 0 24px">
+    <div class="rail">${c.flow.map((_,i)=>`<div class="tick" style="top:${560+i*104}px">0${i+1}</div>`).join('')}
+      <div class="tick on" style="top:250px">S</div></div>
+    <div class="col">
+      <div class="focus-q" style="font-size:21px;line-height:1.4;margin-bottom:9px">${esc(c.title)}</div>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+        <span class="chip static on">${age}</span>
+        <span class="chip static">${p.duration_min} 分钟</span>
+        <span class="badge-done"><i></i>已保存</span>
+      </div>
+
+      <div class="sec-h"><span class="h">STEAM 五域标注</span>
+        <span class="m">${5 - skipped.length} 域有内容${skipped.length ? ' · ' + skipped.length + ' 域刻意不做' : ' · 五域齐全'}</span></div>
+      ${['S','T','E','A','M'].map(k => {
+        const v = String(c.steam[k] || '');
+        if (skipped.includes(k)) return `<div class="skip-box">
+          <div class="hd"><span class="steam-row" style="padding:0"><span class="bd ${k}">${k}</span></span>
+            <span style="font-size:13.5px;font-weight:600">${STEAM_CN[k]}</span>
+            <span class="skip-cap">刻意不做</span></div>
+          <div class="why">${esc(SKIP_WHY[k] || '这个年龄班还做不到，放到更大的班。')}</div>
+        </div>`;
+        return `<div class="steam-row"><span class="bd ${k}">${k}</span>
+          <span class="cn">${esc(v.replace(/^[科技工艺数][学术程]?：/,''))}</span></div>`;
+      }).join('')}
+
+      <div class="hr" style="margin:16px 0"></div>
+      <div class="sec-h"><span class="h">材料清单</span><span class="m">${c.materials.length} 样</span></div>
+      <div class="mat-chips">${c.materials.map(m=>`<span>${esc(String(m).replace(/（.*?）/g,'').split('，')[0])}</span>`).join('')}</div>
+
+      <div class="hr" style="margin:16px 0"></div>
+      <div class="sec-h"><span class="h">教学流程</span>
+        <span class="m">${c.flow.length} 环节 · ${p.duration_min} 分钟</span></div>
+      ${c.flow.map((f,i) => `<div class="flow-item">
+        <div class="fh"><b>${esc(f.stage)}</b><span>${f.minutes} 分钟</span></div>
+        <p>${esc(f.detail)}</p></div>`).join('')}
+
+      <div class="hr" style="margin:4px 0 16px"></div>
+      <div class="sec-h"><span class="h">幼儿学习指标</span>
+        <span class="m">${c.indicators.length} 条 · ${age}${age==='小班'?'最多 2 条':'4–5 条'}</span></div>
+      ${c.indicators.map(x=>`<div class="list-dot">${esc(x)}</div>`).join('')}
+
+      <div class="hr" style="margin:16px 0"></div>
+      <div class="sec-h"><span class="h">安全事项</span><span class="m">${c.safety.length} 条</span></div>
+      ${c.safety.map(x=>`<div class="list-dot safe-dot">${esc(x)}</div>`).join('')}
+
+      ${c.dialogue?.length ? `<div class="hr" style="margin:16px 0"></div>
+      <div class="sec-h"><span class="h">教学实例（师生对话）</span><span class="m">${c.dialogue.length} 句</span></div>
+      ${c.dialogue.slice(0,6).map(d=>`<div class="dlg ${d.speaker==='C'?'c':''}">
+        <b>${d.speaker==='T'?'老师':'幼儿'}</b>${esc(d.text)}</div>`).join('')}` : ''}
+
+      <div class="hr" style="margin:16px 0"></div>
+      <div class="sec-h"><span class="h">延伸活动</span></div>
+      <p style="font-size:13.5px;line-height:1.7;color:var(--ink-2)">${esc(c.extension)}</p>
+
+      <div class="ph-img" style="height:74px;margin-top:18px">配图待生成</div>
+    </div>
+  </div></div>
+  <div class="dock">
+    <div class="btn-row">
+      <button class="btn btn-mint" style="flex:1.25" onclick="notDone('配图')">生成配图</button>
+      <button class="btn btn-sm" onclick="notDone('导出 Word')">导出</button>
+      <button class="btn btn-sm" onclick="notDone('分享')">分享</button>
+      <button class="btn btn-sm" onclick="toast('已经存好了 —— 每答一题就存一次，不用手动保存')">保存</button>
+    </div>
+  </div>`;
+}
+function notDone(what) {
+  const why = {
+    '配图': '配图还没开通：豆包的火山引擎签名还没做完（doubao.js 里标着 TODO）。后端现在会明确返回 501，不会静默失败。',
+    '导出 Word': '导出 Word 后端也还没做，返回 NOT_IMPLEMENTED / 501 且标了不可重试 —— 先用「复制全文」把教案带走。',
+    '分享': '分享要小程序的转发能力，浏览器里没有。',
+  };
+  toast(why[what] || what + '还没做');
+}
+window.notDone = notDone; window.toast = toast;
+
+/* ============ ⑤ 教案库 —— 草稿与已完成都在这里 ============ */
+function scLibrary() {
+  const all = [
+    S.done.includes('小班') && { age:'小班', title:PLANS['小班'].content_json.title, state:'completed', date:'8 月 16 日' },
+    S.done.includes('大班') && { age:'大班', title:PLANS['大班'].content_json.title, state:'completed', date:'8 月 16 日' },
+    S.age && !S.done.includes(S.age) && S.answers.length > 0 &&
+      { age:S.age, title:S.seed.replace(/^我想做个/,'').replace(/活动$/,'')+'的活动', state:'draft',
+        prog:`进行到第 ${ROUND_OF(S.qi)} 轮第 ${IDX_IN_ROUND(S.qi)} 题，还剩 ${TOTAL_Q-S.qi-1} 题`, date:'刚刚' },
+  ].filter(Boolean);
+
+  const items = all.filter(x =>
+    (S.libState === 'all' || S.libState === x.state) &&
+    (S.libAge === 'all' || S.libAge === x.age));
+
+  const counts = { all: all.length,
+    draft: all.filter(x=>x.state==='draft').length,
+    completed: all.filter(x=>x.state==='completed').length };
+
+  return `${capsule()}
+  <div class="scroll"><div class="grid" style="padding:44px 0 24px">
+    <div class="rail">${items.map((_,i)=>`<div class="tick ${i===0?'on':''}" style="top:${186+i*116}px">${16-i*4}</div>`).join('')}</div>
+    <div class="col">
+      <div class="focus-kicker" style="margin-bottom:5px">我写过的，都在这儿</div>
+      <div class="focus-q" style="font-size:23px;margin-bottom:14px">教案库</div>
+      <div style="display:flex;gap:6px;margin-bottom:8px" data-group="lib-state">
+        ${[['all','全部'],['draft','草稿'],['completed','已完成']].map(([k,l])=>
+          `<button class="chip ${S.libState===k?'on':''}" onclick="setLib('state','${k}')">${l}</button>`).join('')}
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:18px" data-group="lib-age">
+        ${[['all','不限'],['小班','小班'],['中班','中班'],['大班','大班']].map(([k,l])=>
+          `<button class="chip ${S.libAge===k?'on':''}" onclick="setLib('age','${k}')">${l}</button>`).join('')}
+      </div>
+
+      ${items.length ? items.map(x => `
+        <div class="lib-card ${x.state==='draft'?'draft':''}" onclick="openFromLib('${x.age}','${x.state}')">
+          <div class="b">
+            ${x.state==='draft' ? `<span class="badge-draft">草稿</span>` : `<span class="badge-done"><i></i>已完成</span>`}
+            <span class="meta">${x.date} · ${x.age}</span>
+          </div>
+          <div class="t">${esc(x.title)}</div>
+          ${x.state==='draft' ? `<div class="meta">${esc(x.prog)}</div>
+            <div class="go"><span>接着写</span>${IC.chev}</div>`
+            : `<div class="go" style="color:var(--mint-deep)"><span>打开看看</span>${IC.chev}</div>`}
+        </div>`).join('')
+      : `<div style="text-align:center;padding:30px 0">
+          <svg class="empty-il" viewBox="0 0 300 150"><rect width="300" height="150" rx="16" fill="var(--mint-soft)"/>
+            <rect x="96" y="46" width="108" height="72" rx="6" fill="var(--paper)" stroke="var(--mint)" stroke-width="2"/>
+            <path d="M150 46 V118" stroke="var(--mint)" stroke-width="2"/>
+            <g stroke="var(--rule-2)" stroke-width="3" stroke-linecap="round">
+              <path d="M110 64 H138"/><path d="M110 78 H138"/><path d="M110 92 H130"/>
+              <path d="M162 64 H190"/><path d="M162 78 H190"/><path d="M162 92 H182"/></g>
+            <circle cx="238" cy="42" r="15" fill="var(--amber)"/>
+            <path d="M52 118 L64 92 L76 118 Z" fill="var(--mint-deep)"/></svg>
+          <div class="focus-q" style="font-size:19px;line-height:1.5;margin-bottom:7px">还没有教案，<br>从今天这一节开始吧</div>
+          <div class="meta" style="margin-bottom:18px">写完的、没写完的，以后都会留在这一页。</div>
+          <button class="btn btn-p" onclick="go('home')">写第一份教案 ${IC.arrow}</button>
+        </div>`}
+
+      ${items.length ? `<div class="meta" style="text-align:center;margin-top:14px">
+        到底了 · 当前 ${items.length} 份${S.libState!=='all'||S.libAge!=='all' ? `（共 ${counts.all} 份）`:''}</div>` : ''}
+    </div>
+  </div></div>
+  ${tabbar('library')}`;
+}
+function setLib(kind, v) { if (kind==='state') S.libState = v; else S.libAge = v; render(); }
+function openFromLib(age, state) {
+  S.age = age;
+  if (state === 'draft') go('guide'); else go('plan');
+}
+window.setLib = setLib; window.openFromLib = openFromLib;
+
+/* ============ ⑥ 我的 —— 记忆一条条编号，最多 10 条 ============ */
+function scMe() {
+  const age = S.age || '小班';
+  return `${capsule()}
+  <div class="scroll"><div class="grid" style="padding:44px 0 24px">
+    <div class="rail">${S.memories.map((_,i)=>`<div class="tick ${i===0?'on':''}" style="top:${262+i*62}px">0${i+1}</div>`).join('')}</div>
+    <div class="col">
+      <div class="focus-kicker" style="margin-bottom:5px">我的档案</div>
+      <div class="focus-q" style="font-size:23px;margin-bottom:5px">李老师</div>
+      <div class="meta" style="margin-bottom:20px">阳光幼儿园 · ${age} · 教龄 5 年</div>
+
+      <div class="sec-h"><span class="h">我的记忆</span><span class="m">写教案时会自动带上</span></div>
+      <div class="meta" style="margin-bottom:6px">这些是我从你以前的教案里记下来的，随时可以改掉或删掉。</div>
+      ${S.memories.map((m,i) => `<div class="mem-row">
+        <span class="tick" style="position:static;transform:none;background:none;padding:0;width:20px;flex:none;margin-top:2px">${String(i+1).padStart(2,'0')}</span>
+        <span class="fx">${esc(m.fact)}<span class="ty">${esc(m.type)}</span></span>
+        <span class="ops"><button onclick="toast('编辑记忆：原型里只展示交互位置')">${IC.edit}</button>
+          <button onclick="delMem(${i})">${IC.del}</button></span>
+      </div>`).join('')}
+      <button class="mem-add" onclick="addMem()">${IC.plus} 再记一条</button>
+      <div class="mem-cap">
+        最多留 <b>10 条</b>。这个工具不贯穿你整个学期，只在需要时打开找协助 ——
+        记这些是为了少问你几遍，不是为了把你的画像绑死。超过 10 条会自动淘汰最不重要的，
+        你手动置顶的和「所带班级」那条永远留着。
+      </div>
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--rule)">
+        <div style="display:flex;align-items:center;justify-content:space-between;font-size:14px;color:var(--ink-2);cursor:pointer"
+             onclick="toast('设置页原型没做')"><span>设置</span>${IC.chev}</div>
+      </div>
+    </div>
+  </div></div>
+  ${tabbar('me')}`;
+}
+function delMem(i) { S.memories.splice(i,1); render(); }
+function addMem() {
+  if (S.memories.length >= 10) { toast('已经 10 条了 —— 想加新的，先删掉一条不要的'); return; }
+  const t = prompt('记一条什么？（例：我们班没有投影仪）');
+  if (t && t.trim()) { S.memories.push({ fact: t.trim().slice(0,60), type:'约束条件', pinned:true }); render(); }
+}
+window.delMem = delMem; window.addMem = addMem;
+
+/* ============ 启动 ============ */
+document.getElementById('reset').onclick = () => {
+  clearInterval(genTimer);
+  Object.assign(S, { screen:'home', seed:'', age:null, qi:0, answers:[], ownOpen:false, ownText:'',
+    sel:[], libState:'all', libAge:'all', genStep:0, done:[] });
+  S.memories = [
+    { fact:'该老师主要带小班', type:'年龄班专长', pinned:false },
+    { fact:'该老师注重活动材料的安全性', type:'教学风格', pinned:false },
+    { fact:'该老师倾向分组进行活动', type:'教学风格', pinned:false },
+    { fact:'该老师会考虑材料尺寸需大于口腔', type:'约束条件', pinned:false },
+    { fact:'该老师会考虑水温差异', type:'约束条件', pinned:false },
+  ];
+  render();
+};
+render();
+</script>
+</body>
+</html>
