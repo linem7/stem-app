@@ -35,6 +35,8 @@
 | `MODEL_FAILED` | 502 | 生成没成功，换个说法再试试 | 是 |
 | `IMAGE_FAILED` | 502 | 配图没生成出来，可以重试 | 是 |
 | `NOT_IMPLEMENTED` | 501 | 这个功能还在做，先用别的方式吧 | 否 |
+| `QUOTA_EXCEEDED` | 403 | 这个月的额度用完了，完成任务可以再拿一些 | 否 |
+| `NOT_ACTIVATED` | 403 | 需要兑换码才能使用 | 否 |
 | `INTERNAL` | 500 | 出了点问题，我们已经记录下来了 | 是 |
 
 `NOT_IMPLEMENTED` 与 `INTERNAL` 的区别在 `retryable`：功能没做完的接口重试多少次都不会成功，
@@ -63,6 +65,82 @@
 ```
 
 后端拿 code 去微信换 openid。`profile_completed` 为 false 时前端跳档案引导页。
+
+---
+
+## 1.5 激活与额度
+
+> 完整运营模型见 `operations.md`。这不是公开产品：**没有兑换码进不来，没有任务没有额度**。
+
+### `POST /auth/login` 响应新增两个状态位
+
+```json
+{ "teacher": { "activated": false, "agreed": false, "...": "" } }
+```
+
+前端据此决定落在哪个页：`activated=false` → 待激活页；`agreed=false` → 协议页；都为 true 才进主流程。
+
+**响应里永远没有 phone 和 real_name**，包括老师自己的。手机号和姓名只活在服务端与管理后台。
+
+### `POST /auth/redeem` · 兑换码激活
+
+```json
+{ "code": "stem 4k7p qx3m" }
+// → { "ok": true, "data": { "teacher": {...}, "quota": {...}, "granted": { "text": 20, "image": 10 } } }
+```
+
+- 输入**宽容**：大小写、空格、下划线、各种横线都认。认不出来是我们的问题，不是老师的
+- 码只用于**首次激活**；之后的任务奖励不发新码，后台按手机号直接加额度
+- 一个手机号只能激活一个账号（换微信重登不能白拿一份额度）
+- 激活是一个事务：绑身份 + 标记码已用 + 发首笔额度，三件事同生共死
+
+### `POST /me/agree` · 同意协议
+
+激活后、进主流程前必须调一次。协议内容见 operations.md 第 2 节，其中这句要加粗：
+**「你的幼儿园和园长看不到这里的任何东西。」**
+
+### `GET /me/quota` · 余额与台账
+
+```json
+// → { "quota": { "text": {"granted":20,"used":3,"left":17}, "image": {...} },
+//     "grants": [ { "text": 20, "image": 10, "reason": "完成8月问卷·首次", "at": "..." } ],
+//     "free_revisions": 2 }
+```
+
+`grants` 是给老师自己看的台账 —— 能对账，额度就不是黑箱。
+
+### 额度闸门装在哪
+
+| 接口 | 查什么 | 为什么在这 |
+|---|---|---|
+| `POST /conversations` | 文案 ≥ 1 | **在最前面**。让老师答完 4 题、等 20 秒生成，最后才说额度不够，是最糟的时机 |
+| `POST /lesson-plans/:id/revise` | version ≥ 3 时查文案 | 前两次改稿免费。查在提问之前 —— 问完三个问题再说没额度等于白问 |
+| `POST /lesson-plans/:id/images` | 配图 ≥ 1 | 与每日 10 张的防刷上限**并存**，两道闸管的是两件事 |
+
+额度不足返回 `QUOTA_EXCEEDED`，文案里**必须带出路**（怎么才能再拿到），只说"用完了"是死胡同。
+
+---
+
+## 1.6 反馈
+
+### `POST /lesson-plans/:id/rate` · 教案评价
+
+```json
+{ "rating": "usable | needs_edit | unusable", "text": "材料太多了" }
+```
+
+**绑 lesson_plan_id + version**。后台看到的是「大班搭高塔的 v2 被标了用不了，原文在这」，
+而不是一句无从查起的抱怨。同一份教案同一版本重复提交是**覆盖**（老师改主意很正常）。
+
+这是「教案是否真的适龄可用」这个最大未知数的持续数据源。
+
+### `POST /feedback` · 产品建议
+
+```json
+{ "category": "quality | feature | usability | other", "text": "…" }
+```
+
+两者的正文都过 `msgSecCheck`，都不进日志（只记分类和长度）。
 
 ---
 

@@ -11,9 +11,14 @@ import { ok, asyncRoute, badRequest, notFound, AppError, ErrorCode } from '../ut
 import { renderMarkdown } from '../services/lessonGenerator.js';
 import { buildImageUrl } from '../services/minimax.js';
 import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
+import { rateHandler } from './feedback.js';
 import { logger } from '../utils/logger.js';
 
 export const lessonPlansRouter = Router();
+
+// 教案评价。实现在 feedback.js（跟产品建议共用一张表和一套内容安全），
+// 但路径归 lesson-plans 管，所以挂在这里。
+lessonPlansRouter.post('/:id/rate', rateHandler);
 
 async function loadPlan(id, teacherId) {
   const n = Number(id);

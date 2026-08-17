@@ -18,6 +18,7 @@ import { ok, asyncRoute, badRequest, notFound } from '../utils/errors.js';
 import { limitNewConversation } from '../middleware/rateLimit.js';
 import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
 import { listMemories } from '../services/memoryExtractor.js';
+import { assertQuota } from '../services/quota.js';
 import { fallbackTitle } from '../services/lessonGenerator.js';
 import {
   TOTAL_QUESTIONS,
@@ -80,6 +81,10 @@ conversationsRouter.post(
   '/',
   limitNewConversation,
   asyncRoute(async (req, res) => {
+    // 额度闸门放在最前面：让老师答完 4 题、等了 20 秒生成，
+    // 最后才告诉她「额度不够」—— 那是最糟的时机
+    await assertQuota(req.teacherId, 'text');
+
     const seedInput = String(req.body?.seed_input || '').trim();
     if (!seedInput) throw badRequest('先说说你想做个什么活动吧');
     if (seedInput.length > 500) throw badRequest('说得有点长了，精简到 500 字以内');

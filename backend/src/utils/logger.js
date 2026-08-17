@@ -25,7 +25,7 @@ const SENSITIVE_KEYS = new Set([
   'prompt_cn',
   'prompt_sent',
   'messages',
-  'text',
+  'text',   // ⚠️ 撞名注意：任何叫 text 的字段都只记长度。记数量用 delta_text 这类名字
   'answer',
   'title',
 ]);

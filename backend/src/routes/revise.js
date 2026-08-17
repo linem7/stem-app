@@ -22,6 +22,7 @@ import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
 import { QUESTION_PLAN } from '../services/guideFlow.js';
 import { enqueueLessonGeneration, loadQaHistory, taskIdOf } from './generate.js';
 import { taskQueue } from '../services/taskQueue.js';
+import { assertReviseQuota } from '../services/quota.js';
 import { logger } from '../utils/logger.js';
 
 export const reviseRouter = Router();
@@ -77,6 +78,10 @@ reviseRouter.post(
       stage: 'teacher_input',
     });
     if (!check.pass) throw contentBlockedError('teacher_input');
+
+    // 前两次改稿免费（初稿 v1 → 改到 v3）。第三次起才查额度，
+    // 而且要在**提问之前**查 —— 问完三个问题再说没额度，等于白问
+    await assertReviseQuota(req.teacherId, plan.version);
 
     const revisions = Array.isArray(conv.collected?.revisions) ? conv.collected.revisions : [];
     const round = revisions.length + 1;

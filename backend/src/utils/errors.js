@@ -17,6 +17,11 @@ export const ERROR_CATALOG = {
   // 功能还没做完的接口用这个，关键在 retryable: false ——
   // 用 INTERNAL 的话前端会照着 retryable 一直重试一个永远不会成功的接口。
   NOT_IMPLEMENTED: { http: 501, message: '这个功能还在做，先用别的方式吧', retryable: false },
+  // 额度用完 —— 不可重试，但也不是错误：她做点任务就能继续。
+  // 文案里一定要带出路，只说「用完了」是个死胡同。
+  QUOTA_EXCEEDED: { http: 403, message: '这个月的额度用完了，完成任务可以再拿一些', retryable: false },
+  // 还没兑换码激活 / 还没同意协议，前端据此跳对应的页
+  NOT_ACTIVATED: { http: 403, message: '这个小程序目前只开放给合作园的老师，需要兑换码才能使用', retryable: false },
   INTERNAL: { http: 500, message: '出了点问题，我们已经记录下来了', retryable: true },
 };
 

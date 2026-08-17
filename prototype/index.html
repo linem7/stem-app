@@ -392,6 +392,40 @@ body{background:var(--canvas);font-family:var(--f-body);color:var(--ink);
 
 /* 成稿页的真实配图 */
 .lesson-img{display:block;width:100%;border-radius:14px;border:1px solid var(--rule-2);background:var(--paper-2)}
+
+/* ============ 激活 / 协议 ============ */
+.code-input{width:100%;border:none;outline:none;font:inherit;font-size:19px;letter-spacing:.08em;
+  color:var(--ink);background:transparent;text-align:center;padding:6px 0;font-weight:600}
+.code-input::placeholder{color:var(--rule-2);letter-spacing:.08em;font-weight:400}
+/* 协议里最要紧的那句：老师最怕的是园长看到，不是开发者看到 */
+.agree-hero{background:var(--mint-soft);border:1px solid var(--mint);border-radius:14px;
+  padding:13px 15px;font-size:14px;line-height:1.75;color:var(--ink)}
+.agree-hero b{color:var(--mint-deep);font-weight:700}
+
+/* ============ 额度 ============ */
+.quota-card{display:flex;align-items:center;gap:14px;background:var(--amber-soft);
+  border:1px solid var(--amber-line);border-radius:16px;padding:13px 15px;margin-bottom:12px}
+.quota-card .qz{display:flex;align-items:baseline;gap:4px}
+.quota-card .n{font-size:23px;font-weight:700;color:var(--amber-deep);letter-spacing:-.02em}
+.quota-card .u{font-size:12.5px;color:var(--ink-2)}
+.quota-card .qmore{margin-left:auto;background:none;border:none;font:inherit;font-size:12.5px;
+  color:var(--amber-deep);cursor:pointer;display:flex;align-items:center;gap:2px}
+.grant-row{display:flex;align-items:baseline;gap:8px;padding:8px 0;border-bottom:1px dashed var(--rule);font-size:12.5px}
+.grant-row .gr-r{flex:1;color:var(--ink-2)}
+.grant-row .gr-d{flex:none;color:var(--mint-deep);font-weight:600}
+.grant-row .gr-t{flex:none;color:var(--ink-3);width:56px;text-align:right}
+
+/* ============ 评价 ============ */
+.rate-box{background:var(--paper-2);border:1px solid var(--rule-2);border-radius:14px;
+  padding:12px 14px;margin-top:18px}
+.rate-box .rt{font-size:14px;font-weight:600;margin-bottom:10px}
+.rops{display:flex;gap:7px}
+.rop{flex:1;padding:9px 4px;border-radius:12px;border:1px solid var(--rule-2);background:oklch(1 0 0 / .8);
+  font:inherit;font-size:13px;color:var(--ink-2);cursor:pointer;transition:.14s}
+.rop:hover{border-color:var(--amber-line);color:var(--amber-deep)}
+.rop.on{background:var(--amber);border-color:var(--amber-line);color:var(--ink);font-weight:600}
+.rate-box .rdone{font-size:12px;color:var(--mint-deep);margin-top:9px}
+.sent-ok{background:var(--mint-soft);border-radius:12px;padding:11px 13px;font-size:13px;color:var(--mint-deep)}
 .img-cap{font-size:12px;color:var(--ink-3);line-height:1.65;margin-top:7px}
 </style>
 </head>
@@ -405,7 +439,8 @@ body{background:var(--canvas);font-family:var(--f-body);color:var(--ink);
   <div class="note">
     这份原型<b>不连后端</b>——GitHub Pages 是静态的，后端跑在作者本机。所有交互走内置的真实数据快照；
     点「生成」不会真的调模型，进度动画按实测耗时（小班 16 秒 / 中班 20 秒 / 大班 16 秒）配的时长。
-    没做的功能（配图出图、导出 Word）都<b>如实标注</b>，不假装完整。
+    没做的功能（配图出图、导出 Word）都<b>如实标注</b>，不假装完整。<br>
+    ⑨⑩ 两屏是<b>运营体系</b>：这不是公开产品，老师要有兑换码才能进，额度靠完成问卷任务获得。
   </div>
 </div>
 
@@ -497,6 +532,15 @@ const S = {
   revAnswers: [], revDone: false, revStarted: false,
   // 设置（真的能点，状态存在这里）
   settings: { defaultAge: '小班', tplFormat: '表格式', autoImage: false, notify: true },
+  // 账号状态。真实产品里来自 /auth/login 的 activated / agreed
+  activated: true, agreed: true,      // 原型默认让你直接看主流程；从左边导航能进那两个页
+  codeInput: '',
+  quota: { text: { granted: 20, used: 3, left: 17 }, image: { granted: 10, used: 1, left: 9 } },
+  grants: [
+    { text: 20, image: 10, reason: '完成 8 月问卷 · 首次', at: '8 月 10 日' },
+  ],
+  ratings: {},        // { 教案标题: 'usable' | 'needs_edit' | 'unusable' }
+  suggestion: '', suggestCat: 'feature', suggestSent: false,
   memories: [
     { fact:'该老师主要带小班', type:'年龄班专长', pinned:false },
     { fact:'该老师注重活动材料的安全性', type:'教学风格', pinned:false },
@@ -551,6 +595,8 @@ const SCREENS = {
   library:    { label:'⑥ 教案库',     sub:'草稿与已完成' },
   me:         { label:'⑦ 我的',       sub:'记忆最多 10 条' },
   settings:   { label:'⑧ 设置',       sub:'默认值 · 配图 · 隐私' },
+  redeem:     { label:'⑨ 待激活',     sub:'输兑换码才能进' },
+  agreement:  { label:'⑩ 协议',       sub:'园长看不到你的东西' },
 };
 function go(s) {
   if ((s === 'plan' || s === 'revise') && !S.age) {
@@ -594,6 +640,7 @@ function render() {
   app.innerHTML = ({
     home: scHome, guide: scGuide, generating: scGenerating,
     plan: scPlan, revise: scRevise, library: scLibrary, me: scMe, settings: scSettings,
+    redeem: scRedeem, agreement: scAgreement,
   })[S.screen]();
   lastRendered = S.screen;
 
@@ -603,6 +650,10 @@ function render() {
     if (next) next.scrollTop = keepTop;
   }
 
+  const ci = app.querySelector('#codeInput');
+  if (ci) { ci.value = S.codeInput; ci.oninput = e => { S.codeInput = e.target.value; syncCode(); }; }
+  const sg = app.querySelector('#sugInput');
+  if (sg) { sg.value = S.suggestion; sg.oninput = e => { S.suggestion = e.target.value; syncSug(); }; }
   const fb = app.querySelector('#fbInput');
   if (fb) { fb.value = S.revFeedback; fb.oninput = e => { S.revFeedback = e.target.value; syncFb(); }; }
   const ro = app.querySelector('#revOwnInput');
@@ -931,6 +982,15 @@ function scPlan() {
       <div class="sec-h"><span class="h">延伸活动</span></div>
       <p style="font-size:13.5px;line-height:1.7;color:var(--ink-2)">${esc(c.extension)}</p>
 
+      <div class="rate-box">
+        <div class="rt">这份教案能直接用吗？</div>
+        <div class="rops">
+          ${[['usable','直接能用'],['needs_edit','改改能用'],['unusable','用不了']].map(([k,l])=>
+            `<button class="rop ${S.ratings[age]===k?'on':''}" onclick="rate('${k}')">${l}</button>`).join('')}
+        </div>
+        ${S.ratings[age] ? `<div class="rdone">记下了 —— 这条会跟着这一版存下来。</div>` : ''}
+      </div>
+
       ${DEMO_IMG[age] ? `<div style="margin-top:18px">
         <div class="sec-h"><span class="h">配图</span><span class="m">MiniMax image-01 · 真实生成</span></div>
         <img class="lesson-img" src="./images/${DEMO_IMG[age]}" alt="${esc(c.title)}的活动配图" loading="lazy">
@@ -1224,6 +1284,15 @@ function scMe() {
       <div class="focus-q" style="font-size:23px;margin-bottom:5px">李老师</div>
       <div class="meta" style="margin-bottom:20px">阳光幼儿园 · ${age} · 教龄 5 年</div>
 
+      <div class="quota-card">
+        <div class="qz"><span class="n">${S.quota.text.left}</span><span class="u">次教案</span></div>
+        <div class="qz"><span class="n">${S.quota.image.left}</span><span class="u">张配图</span></div>
+        <button class="qmore" onclick="go('settings')">看台账 ${IC.chev}</button>
+      </div>
+      <div class="meta" style="margin:-6px 0 20px">
+        完成问卷任务可以再拿额度。每份教案还送 2 次免费修改。
+      </div>
+
       <div class="sec-h"><span class="h">我的记忆</span><span class="m">写教案时会自动带上</span></div>
       <div class="meta" style="margin-bottom:6px">这些是我从你以前的教案里记下来的，随时可以改掉或删掉。</div>
       ${S.memories.map((m,i) => `<div class="mem-row">
@@ -1233,14 +1302,41 @@ function scMe() {
           <button onclick="delMem(${i})">${IC.del}</button></span>
       </div>`).join('')}
       <button class="mem-add" onclick="addMem()">${IC.plus} 再记一条</button>
-      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--rule)">
-        <div style="display:flex;align-items:center;justify-content:space-between;font-size:14px;color:var(--ink-2);cursor:pointer"
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--rule)">
+        <div class="sec-h"><span class="h">提个建议</span><span class="m">我会挨条看</span></div>
+        ${S.suggestSent
+          ? `<div class="sent-ok">收到了，谢谢 —— 有用的建议会给你加额度。</div>`
+          : `<div class="ask">
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+                ${[['quality','教案质量'],['feature','想要新功能'],['usability','用着别扭'],['other','其他']].map(([k,l])=>
+                  `<button class="chip ${S.suggestCat===k?'on':''}" onclick="setSugCat('${k}')">${l}</button>`).join('')}
+              </div>
+              <textarea id="sugInput" rows="2" placeholder="哪里不好用、想要什么，直接说"></textarea>
+             </div>
+             <button class="btn btn-p" id="sugBtn" style="margin-top:10px" onclick="sendSug()"
+               ${S.suggestion.trim()?'':'disabled'}>提交</button>`}
+
+        <div style="display:flex;align-items:center;justify-content:space-between;font-size:14px;
+                    color:var(--ink-2);cursor:pointer;margin-top:20px;padding-top:14px;border-top:1px solid var(--rule)"
              onclick="go('settings')"><span>设置</span>${IC.chev}</div>
       </div>
     </div>
   </div></div>
   ${tabbar('me')}`;
 }
+function rate(k) {
+  const age = S.age || '小班';
+  S.ratings[age] = S.ratings[age] === k ? null : k;
+  render();
+}
+function setSugCat(k) { S.suggestCat = k; render(); }
+function syncSug() { const b = document.getElementById('sugBtn'); if (b) b.disabled = !S.suggestion.trim(); }
+function sendSug() {
+  if (!S.suggestion.trim()) return;
+  S.suggestSent = true; S.suggestion = ''; render();
+}
+window.rate = rate; window.setSugCat = setSugCat; window.sendSug = sendSug;
+
 function delMem(i) { S.memories.splice(i,1); render(); }
 function addMem() {
   if (S.memories.length >= 10) { toast('已经 10 条了 —— 想加新的，先删掉一条不要的'); return; }
@@ -1283,12 +1379,29 @@ function scSettings() {
       ${row('我的记忆', S.memories.length + ' / 10 条', "go('me')", '写教案时会自动带上')}
 
       <div class="hr" style="margin:18px 0"></div>
+      <div class="sec-h"><span class="h">我的额度</span><span class="m">完成任务可以再拿</span></div>
+      <div class="set-row" style="cursor:default">
+        <span class="sl">剩余<small>每份教案还送 2 次免费修改</small></span>
+        <span class="sv" style="color:var(--amber-deep);font-weight:600">${S.quota.text.left} 次教案 · ${S.quota.image.left} 张配图</span>
+      </div>
+      ${S.grants.map(g => `<div class="grant-row">
+        <span class="gr-r">${esc(g.reason)}</span>
+        <span class="gr-d">+${g.text} 教案 · +${g.image} 配图</span>
+        <span class="gr-t">${esc(g.at)}</span>
+      </div>`).join('')}
+
+      <div class="hr" style="margin:18px 0"></div>
       <div class="sec-h"><span class="h">隐私</span></div>
+      <div class="agree-hero" style="margin-bottom:12px">
+        你的幼儿园和园长<b>看不到</b>这里的任何东西。<br>
+        你写了什么、用了多少次，只有开发者本人可见，不会提供给园方。
+      </div>
       <div class="priv">
-        <div class="pi"><b>不存孩子的任何信息。</b>姓名、照片、观察记录、发展评估，一概不收。
+        <div class="pi"><b>不收集孩子的任何信息。</b>姓名、照片、观察记录、发展评估，一概不收。
           你在教案里写的班级情况（比如「12个孩子」）只作为这次生成的上下文，不会存成孩子的档案。</div>
-        <div class="pi"><b>不存你的手机号和真实姓名。</b>登录只拿微信给的匿名标识，换台手机也认得出是你。</div>
-        <div class="pi"><b>对话正文不进日志。</b>服务器日志只记「谁在什么时候调了哪个接口、花了多久」，不记你说了什么。</div>
+        <div class="pi"><b>会记录你的手机号和姓名</b>（来自你填的问卷），用来确认身份、把额度发给你。
+          它们不会出现在这个小程序的任何页面上，也不会进服务器日志。</div>
+        <div class="pi"><b>会记录你的对话和生成的教案</b>，用于研究和改进这个工具。</div>
         <div class="pi"><b>你输入的和 AI 写的都会过微信内容安全检查。</b>这是小程序上架的硬性要求。</div>
       </div>
       ${row('删除我的全部数据', '', "toast('原型没做真的删除。正式版会连教案、记忆、配图一起清掉，不可恢复')", '教案、记忆、配图一起清掉')}
@@ -1318,6 +1431,92 @@ function toggleSet(k) {
 }
 window.cycleSet = cycleSet; window.toggleSet = toggleSet;
 
+/* ============ ⑨ 待激活 ============
+   没有兑换码进不来 —— 这既是权限门槛，也是把「问卷里的那个人」和「微信里这个 openid」
+   连起来的唯一方式（个人主体小程序用不了微信的手机号接口，而手机号本来就在问卷里）。 */
+function scRedeem() {
+  return `${capsule()}
+  <div class="scroll"><div class="grid" style="padding:52px 0 24px"><div class="col">
+    <svg class="empty-il" viewBox="0 0 300 150" style="height:132px">
+      <rect width="300" height="150" rx="16" fill="var(--amber-soft)"/>
+      <rect x="86" y="52" width="128" height="58" rx="9" fill="var(--paper)" stroke="var(--amber-line)" stroke-width="2"/>
+      <g stroke="var(--amber-line)" stroke-width="3" stroke-linecap="round">
+        <path d="M104 74 H126"/><path d="M138 74 H160"/><path d="M172 74 H194"/>
+        <path d="M104 92 H150"/></g>
+      <circle cx="240" cy="44" r="14" fill="var(--amber)"/>
+      <path d="M52 110 L64 84 L76 110 Z" fill="var(--mint-deep)"/>
+    </svg>
+    <div class="focus-q" style="font-size:21px;line-height:1.45;margin:18px 0 8px">
+      输入兑换码就能开始</div>
+    <div class="meta" style="margin-bottom:18px;line-height:1.7">
+      这个小程序目前只开放给合作园的老师。填过问卷之后，你会收到一个兑换码。</div>
+
+    <div class="ask">
+      <input id="codeInput" class="code-input" placeholder="STEM-XXXX-XXXX" autocomplete="off">
+      <div class="meta" style="margin-top:9px">大小写、空格都不影响，照着微信里发你的敲就行。</div>
+    </div>
+
+    <div style="margin-top:18px">
+      <button class="btn btn-p" id="codeBtn" onclick="doRedeem()" ${S.codeInput.trim()?'':'disabled'}>
+        激活 ${IC.arrow}</button>
+    </div>
+    <div class="meta" style="margin-top:14px;text-align:center;line-height:1.7">
+      还没有码？找发问卷给你的那位老师要。
+    </div>
+  </div></div></div>`;
+}
+function syncCode(){ const b=document.getElementById('codeBtn'); if(b) b.disabled=!S.codeInput.trim(); }
+function doRedeem() {
+  const c = S.codeInput.trim().toUpperCase().replace(/[\s_]+/g,'-');
+  if (!c) return;
+  // 原型里只认这一个码；真实产品是查库
+  if (!/^STEM-?/.test(c)) { toast('这个兑换码不存在，检查一下有没有敲错'); return; }
+  S.activated = true;
+  toast('激活成功，到账 20 次教案 + 10 张配图');
+  setTimeout(() => go('agreement'), 700);
+}
+window.doRedeem = doRedeem;
+
+/* ============ ⑩ 协议 ============
+   这一页最重要的不是法律条文，是那句加粗的话 ——
+   老师最大的顾虑不是「开发者看到我」，而是「园长看到我用 AI 写教案、写得差」。
+   这个顾虑不卸掉，没人敢真用。 */
+function scAgreement() {
+  return `${capsule()}
+  <div class="scroll"><div class="grid" style="padding:44px 0 24px"><div class="col">
+    <div class="focus-kicker" style="margin-bottom:6px">开始之前</div>
+    <div class="focus-q" style="font-size:21px;line-height:1.45;margin-bottom:16px">
+      先说清楚我们会记录什么</div>
+
+    <div class="agree-hero">
+      你的幼儿园和园长<b>看不到</b>这里的任何东西。<br>
+      你写了什么、用了多少次，只有开发者本人可见，不会提供给园方。
+    </div>
+
+    <div class="sec-h" style="margin-top:18px"><span class="h">会记录的</span></div>
+    <div class="list-dot">你填问卷时留的手机号、姓名、幼儿园、班级、岗位</div>
+    <div class="list-dot">你在这里的对话、生成的教案和配图、用了多少次</div>
+
+    <div class="sec-h" style="margin-top:14px"><span class="h">用来做什么</span></div>
+    <div class="list-dot">确认你是谁、把额度发给你</div>
+    <div class="list-dot">研究和改进这个工具</div>
+
+    <div class="sec-h" style="margin-top:14px"><span class="h">不会做的</span></div>
+    <div class="list-dot safe-dot"><b>不收集孩子的任何信息</b> —— 姓名、照片、观察记录、发展评估，一概不收</div>
+    <div class="list-dot safe-dot">不把你的数据给幼儿园、园长或任何第三方</div>
+    <div class="list-dot safe-dot">你的手机号和姓名不会出现在这个小程序的任何页面上</div>
+
+    <div class="meta" style="margin-top:16px;line-height:1.7">
+      你输入的内容和 AI 写的内容会经过微信的内容安全检查，这是小程序平台的要求。
+    </div>
+  </div></div></div>
+  <div class="dock">
+    <button class="btn btn-p" onclick="doAgree()">知道了，开始用 ${IC.arrow}</button>
+  </div>`;
+}
+function doAgree() { S.agreed = true; go('home'); }
+window.doAgree = doAgree;
+
 /* ============ 启动 ============ */
 document.getElementById('reset').onclick = () => {
   clearInterval(genTimer);
@@ -1325,7 +1524,11 @@ document.getElementById('reset').onclick = () => {
     libState:'all', libAge:'all', genStep:0, done:[],
     revFeedback:'', revQi:0, revSel:[], revOwnOpen:false, revOwnText:'',
     revAnswers:[], revDone:false, revStarted:false,
-    settings:{ defaultAge:'小班', tplFormat:'表格式', autoImage:false, notify:true } });
+    settings:{ defaultAge:'小班', tplFormat:'表格式', autoImage:false, notify:true },
+    activated:true, agreed:true, codeInput:'',
+    quota:{ text:{granted:20,used:3,left:17}, image:{granted:10,used:1,left:9} },
+    grants:[{ text:20, image:10, reason:'完成 8 月问卷 · 首次', at:'8 月 10 日' }],
+    ratings:{}, suggestion:'', suggestCat:'feature', suggestSent:false });
   S.memories = [
     { fact:'该老师主要带小班', type:'年龄班专长', pinned:false },
     { fact:'该老师注重活动材料的安全性', type:'教学风格', pinned:false },

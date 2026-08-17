@@ -70,7 +70,41 @@ export function toTeacherDTO(row) {
     age_group: row.age_group,
     teaching_years: row.teaching_years,
     preferences: row.preferences || {},
+    class_name: row.class_name,
+    position: row.position,
     // 档案引导页的判定条件：这两项齐了才算填过档案
     profile_completed: Boolean(row.kindergarten_name && row.age_group),
+    // 前端靠这两位决定落在哪个页：没激活 → 待激活页，没同意 → 协议页，都齐了才进主流程
+    activated: Boolean(row.activated_at),
+    agreed: Boolean(row.agreed_at),
   };
+  // 注意这里**没有** phone 和 real_name。
+  // 它们永不下发到小程序前端 —— operations.md 的三条铁律之一。
+  // 前端任何地方都不该出现老师的手机号，包括她自己的。
+}
+
+/**
+ * 激活守卫。挂在需要「已激活 + 已同意协议」的业务接口前面。
+ *
+ * 为什么单独一层而不是并进 requireAuth：登录本身必须对所有人放行 ——
+ * 没激活的老师也要能登进来看到「待激活」页并输码，
+ * 挂在一起就成了「要激活才能激活」的死循环。
+ *
+ * 返回的错误码带 need 字段，前端据此跳页，不用自己猜。
+ */
+export function requireActivated(req, res, next) {
+  const t = req.teacher;
+  if (!t?.activated_at) {
+    return next(new AppError(ErrorCode.NOT_ACTIVATED, {
+      message: '这个小程序目前只开放给合作园的老师 —— 填一份问卷就能拿到兑换码',
+      detail: { need: 'redeem' },
+    }));
+  }
+  if (!t?.agreed_at) {
+    return next(new AppError(ErrorCode.NOT_ACTIVATED, {
+      message: '开始之前，先看一下我们会记录哪些东西',
+      detail: { need: 'agreement' },
+    }));
+  }
+  next();
 }

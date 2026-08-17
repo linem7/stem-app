@@ -10,7 +10,7 @@
 import express from 'express';
 import { config, assertConfigOrExit } from './config.js';
 import { pingDatabase, query, closePool } from './db/pool.js';
-import { requireAuth } from './middleware/auth.js';
+import { requireAuth, requireActivated } from './middleware/auth.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { recoverStuckTasks, taskQueue } from './services/taskQueue.js';
 import { logger, startTimer } from './utils/logger.js';
@@ -23,6 +23,8 @@ import { lessonPlansRouter } from './routes/lessonPlans.js';
 import { imagesRouter } from './routes/images.js';
 import { reviseRouter } from './routes/revise.js';
 import { memoriesRouter } from './routes/memories.js';
+import { accountRouter } from './routes/account.js';
+import { feedbackRouter } from './routes/feedback.js';
 
 // ---------------------------------------------------------------
 // 1. 环境变量
@@ -138,17 +140,23 @@ if (!config.storage.configured) {
 const v1 = express.Router();
 
 v1.use('/auth', authRouter); // 唯一不需要登录的
+// 兑换码激活和协议：要登录，但**不能**要求已激活 —— 否则是「要激活才能激活」的死循环。
+// accountRouter 同时挂在 /auth（redeem）和 /me（agree、quota）下。
+v1.use('/auth', requireAuth, accountRouter);
+v1.use('/me', requireAuth, accountRouter);
 v1.use('/me', requireAuth, meRouter);
 // conversations 和 generate 都挂在 /conversations 下。
 // 路径不冲突：generate 的是 /:id/generate 和 /:id/generate/status，比 /:id 多一段。
-v1.use('/conversations', requireAuth, conversationsRouter);
-v1.use('/conversations', requireAuth, generateRouter);
+// 以下全部要求「已激活 + 已同意协议」
+v1.use('/conversations', requireAuth, requireActivated, conversationsRouter);
+v1.use('/conversations', requireAuth, requireActivated, generateRouter);
 // lesson-plans 同理：images 的是 /:id/images[/...]
-v1.use('/lesson-plans', requireAuth, lessonPlansRouter);
-v1.use('/lesson-plans', requireAuth, imagesRouter);
+v1.use('/lesson-plans', requireAuth, requireActivated, lessonPlansRouter);
+v1.use('/lesson-plans', requireAuth, requireActivated, imagesRouter);
 // 改稿：/:id/revise 和 /:id/revise/answer，比 lessonPlansRouter 的 /:id 多一段，不冲突
-v1.use('/lesson-plans', requireAuth, reviseRouter);
-v1.use('/memories', requireAuth, memoriesRouter);
+v1.use('/lesson-plans', requireAuth, requireActivated, reviseRouter);
+v1.use('/memories', requireAuth, requireActivated, memoriesRouter);
+v1.use('/feedback', requireAuth, requireActivated, feedbackRouter);
 
 app.use('/v1', v1);
 app.use('/', v1);

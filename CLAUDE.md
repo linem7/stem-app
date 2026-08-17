@@ -18,7 +18,7 @@
 | `docs/design/age-band-adaptation.md` | 年龄班规则，产品核心差异化 |
 | `docs/design/framework-extraction.md` | 从台湾 STEAM 教材提炼的教学框架 |
 | `docs/design/system-prompts.md` | 系统提示词设计 |
-| `docs/design/operations.md` | **运营体系**：兑换码身份、额度台账、问卷星流程、反馈、管理后台。方案已拍板未动工 |
+| `docs/design/operations.md` | **运营体系**：兑换码身份、额度台账、问卷星流程、反馈、管理后台 |
 | `design-demos/direction-approved.md` | 设计方向为什么选 B |
 
 ---
@@ -84,6 +84,7 @@
 - 冒烟脚本 `npm run smoke [年龄班]`；`node scripts/export-prototype-data.mjs` 重新生成原型数据快照
 - **可点击原型**：`prototype/index.html`（单文件无依赖），线上 https://linem7.github.io/stem-app/
   八屏，用的是真实跑出来的三个班问答 + 三份教案 + 一轮真实改稿；改了设计或题目要重跑导出脚本同步它
+- **运营体系已落地**（2026-08-17）：002 迁移建了 kindergartens / redemption_codes / quota_grants / feedback 四表，teachers 增 6 列。兑换码激活、协议、额度闸门（开会话/改稿/配图三处）、两类反馈全部端到端跑通。额度**不存 balance 字段**，用「台账 Σ发放 − 事实表数消耗」算，避免两份事实对不上
 - 仓库 https://github.com/linem7/stem-app **已公开**。`.env` 和原书 PDF 被 gitignore 挡着，加新文件前留意别把密钥带进去
 
 **未完成**
@@ -94,7 +95,7 @@
 - ICP 备案未办、各平台账号未申请
 - 内容安全 `msgSecCheck` 因为没有真 AppID，**一次都没有真正调通过**（本地是 `CONTENT_CHECK_ENABLED=false` 绕过的）
 
-**下一个里程碑**：运营体系（operations.md，方案已拍板等用户说执行）；然后前端 uni-app。
+**下一个里程碑**：管理后台 `/admin`（operations.md 第 6 节）；然后前端 uni-app。
 
 产品最大的未知数——AI 生成的教案是否真的适龄可用——初步验证是**可用的**：三个班三档梯度稳定，从 11 题一路砍到 4 题，质量没有下降。但样本仍然只有三份，且**没经过真实幼儿园老师复核**。
 

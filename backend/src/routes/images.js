@@ -12,6 +12,7 @@ import { config } from '../config.js';
 import { query, queryOne } from '../db/pool.js';
 import { ok, asyncRoute, notFound, AppError, ErrorCode } from '../utils/errors.js';
 import { assertImageQuota } from '../middleware/rateLimit.js';
+import { assertQuota } from '../services/quota.js';
 import { taskQueue } from '../services/taskQueue.js';
 import { generateImage, uploadImage, buildImageUrl } from '../services/minimax.js';
 import { buildImagePrompt } from '../services/lessonGenerator.js';
@@ -67,7 +68,11 @@ imagesRouter.post(
       });
     }
 
+    // 两道闸并存，管的是两件事：
+    //   assertImageQuota —— 每天 10 张的防刷上限（成本保护）
+    //   assertQuota      —— 她这个月还剩几张的运营额度
     await assertImageQuota(req.teacherId);
+    await assertQuota(req.teacherId, 'image');
 
     if (note) {
       const check = await msgSecCheck({
