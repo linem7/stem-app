@@ -302,7 +302,119 @@ export function buildLessonSystemPrompt({ teacher, memories, collected, seedInpu
     buildMemoryBlock(memories),
     seedInput ? `【老师最初的想法】\n${seedInput}` : '',
     buildCollectedBlock(collected),
+    buildRevisionBlock(collected?.revisions),
     structure,
+    AUTONOMY,
+  ]);
+}
+
+/**
+ * 改稿意见块。老师每提一轮意见就追加一段，重新生成时全部带上。
+ *
+ * 为什么要带**历史**每一轮，而不只是最新那轮：
+ * 教案是整份重新生成的，模型看不到上一版。只给最新意见的话，
+ * 它会把第一轮已经改好的地方按自己的默认写法又改回去 ——
+ * 老师会看到「我明明说过了」的东西反复出现，第三轮就不会再提意见了。
+ */
+function buildRevisionBlock(revisions) {
+  if (!Array.isArray(revisions) || !revisions.length) return '';
+  const blocks = revisions.map((r) => {
+    const answers = (r.answers || []).map((a) => `   · ${a.title} → ${a.text}`).join('\n');
+    return `第 ${r.round} 轮，她说：「${r.feedback}」${answers ? `\n   追问的答案：\n${answers}` : ''}`;
+  });
+  return `【老师对前一版提出的修改意见 —— 每一条都必须在新版里落实】
+${blocks.join('\n')}
+
+注意：这些是她**已经指出过**的问题。新版里不要再犯，也不要把改好的地方改回默认写法。
+如果某条意见和你的教学判断冲突，听她的 —— 她知道自己班上的情况。`;
+}
+
+/**
+ * 引导只问 5 题（她带哪个班、想要什么、有什么限制、时长、额外叮嘱），
+ * 剩下的全部由模型自己定。这一段就是告诉它「自己定」是本分，不是越权。
+ *
+ * 不加这段的后果很具体：模型会把没问过的部分写成「根据教师安排」「教师可自行选择」
+ * 这类空话交差 —— 那等于把活儿又推回给老师，而她来用这个工具就是因为没时间。
+ */
+const AUTONOMY = `【老师没被问到的部分，你自己定】
+这次只问了老师 5 个问题。材料清单、教学流程、要问孩子什么、安全事项、怎么评估、怎么延伸 ——
+这些**一律不要留空、不要写"根据实际情况""教师自行安排"**，按教学框架和年龄班规则直接给出具体方案：
+
+- 材料：写清数量或规格，优先选幼儿园常见、便宜、好找的东西；老师说了现实限制就必须遵守
+- 流程：按上面规定的环节数写，每环节标注分钟数，加起来等于总时长
+- 提问：写进师生对话里，问题要开放、能引出观察和比较，符合这个年龄班的语言水平
+- 安全：按年龄班的必查项逐条写具体，不要写"注意安全"这种没法执行的话
+- 评估与延伸：具体到老师明天就能照做
+
+老师的原话优先级最高：她明确说过的（比如"园里没有投影仪"）一定遵守，与你的默认方案冲突时听她的。`
+
+/**
+ * 改稿追问用的 system prompt。
+ *
+ * 老师在成稿页说了哪里不对，这里让模型据此提 3 个**新**问题。
+ *
+ * 最要紧的一条约束是「不许重复问」：她已经答过一轮 5 题了，
+ * 再把同样的问题端回她面前，等于告诉她「你的反馈我没读懂」——提意见这件事会立刻变得不值得做。
+ * 唯一的例外是她自己指向了旧答案（"时长还是改回 20 分钟吧"），那时重新确认才是对的。
+ *
+ * @param {object} o
+ * @param {string} o.feedback       老师的原话
+ * @param {object} o.plan           当前教案的 content_json
+ * @param {string[]} o.askedTitles  引导阶段已经问过的题目（含往轮改稿的）
+ * @param {Array} o.pastRevisions   往轮反馈，避免把上次改好的地方又改回去
+ */
+export function buildReviseSystemPrompt({ teacher, memories, collected, seedInput, feedback, plan, askedTitles = [], pastRevisions = [] }) {
+  const ageGroup = collected?.age_group || plan?.age_group || teacher?.age_group || '中班';
+
+  const asked = askedTitles.length
+    ? `【已经问过她的问题 —— 一律不要再问】\n${askedTitles.map((t, i) => `${i + 1}. ${t}`).join('\n')}`
+    : '';
+
+  const past = pastRevisions.length
+    ? `【她之前提过的修改意见 —— 这些地方已经改过了，不要改回去】\n${pastRevisions
+        .map((r, i) => `${i + 1}. ${r.feedback}`)
+        .join('\n')}`
+    : '';
+
+  const current = plan
+    ? `【当前这份教案】
+标题：${plan.title || ''}
+时长：${plan.duration_min || ''} 分钟 · ${plan.flow?.length || 0} 个环节
+流程：${(plan.flow || []).map((f) => `${f.stage}(${f.minutes}分)`).join(' → ')}
+材料：${(plan.materials || []).slice(0, 12).join('、')}
+安全：${(plan.safety || []).join('；')}`
+    : '';
+
+  return join([
+    CORE_ROLE,
+    buildAgeBandRules(ageGroup),
+    LANGUAGE_RULES,
+    buildProfileBlock(teacher),
+    buildMemoryBlock(memories),
+    seedInput ? `【老师最初的想法】\n${seedInput}` : '',
+    buildCollectedBlock(collected),
+    current,
+    asked,
+    past,
+    `【老师刚刚说哪里不对】
+${feedback}
+
+【你要做的】
+读懂她这句话，然后提 **正好 3 个** 问题，问清楚改稿需要但你还不知道的信息。要求：
+
+1. **必须是上面「已经问过她的问题」里没有的**。唯一例外：她这句话明确指向了某个旧答案
+   （例如"时长还是改回 20 分钟"），这时可以就那一项重新确认。
+2. 每个问题都要**直接服务于她提的这件事**。她说人数不对，就问分组、材料够不够、要不要拆场次；
+   不要借机问一些泛泛的教学偏好。
+3. 每题给 3 个推荐答案，label 不超过 14 字，是能直接点选的具体答案；
+   sub 不超过 12 字，说明这个选项意味着什么。
+4. 符合${ageGroup}的能力水平和上面的年龄班规则。
+5. 如果她的话已经足够清楚、其实不需要再问什么，也仍然给 3 个问题，
+   但要问得更细（比如让她在两种具体改法之间选一个），不要问废话凑数。
+
+只输出 JSON：
+{"ack":"一句话回应她说的，不超过 25 字，要具体承接，不要客套",
+ "questions":[{"title":"…","hint":"…","multi":false,"options":[{"label":"…","sub":"…"}]}]}`,
   ]);
 }
 
@@ -332,7 +444,7 @@ ${existingMemories.map((m) => `- ${m.fact}`).join('\n')}`
 export const IMAGE_PROMPT_SYSTEM = `请为幼儿园STEAM教案的某个环节生成一个图片描述提示词，用于AI图像生成。
 
 要求：
-1. 用英文描述（豆包的英文提示词效果更好）
+1. 用英文描述（MiniMax image-01 对英文提示词的响应明显更准）
 2. 包含：活动场景、幼儿动作、材料、颜色、光线、情感氛围
 3. 避免：文字、具体数字、复杂细节、可辨认的人脸特写
 4. 风格：温暖、安全、适龄的幼儿教育场景

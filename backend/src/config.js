@@ -61,15 +61,15 @@ export const config = {
     maxRetries: num('DEEPSEEK_MAX_RETRIES', 2),
   },
 
-  doubao: {
-    accessKeyId: str('DOUBAO_ACCESS_KEY_ID'),
-    secretAccessKey: str('DOUBAO_SECRET_ACCESS_KEY'),
-    region: str('DOUBAO_REGION', 'cn-beijing'),
-    endpoint: str('DOUBAO_ENDPOINT', 'https://visual.volcengineapi.com'),
-    model: str('DOUBAO_MODEL', 'high_aes_general_v21_L'),
+  minimax: {
+    apiKey: str('MINIMAX_API_KEY'),
+    // 大陆走 api.minimaxi.com，海外是 api.minimax.io。老师都在大陆，默认前者。
+    baseURL: str('MINIMAX_BASE_URL', 'https://api.minimaxi.com'),
+    model: str('MINIMAX_MODEL', 'image-01'),
+    timeoutMs: num('MINIMAX_TIMEOUT_MS', 60000),
     dailyLimit: num('IMAGE_DAILY_LIMIT', 10),
     get configured() {
-      return Boolean(this.accessKeyId && this.secretAccessKey);
+      return Boolean(this.apiKey);
     },
   },
 
@@ -89,6 +89,12 @@ export const config = {
   devFakeLogin: nodeEnv !== 'production' && bool('DEV_FAKE_LOGIN', false),
 
   taskConcurrency: num('TASK_CONCURRENCY', 2),
+
+  // 没配对象存储时，图片存这个本地目录，由 server.js 挂静态路由提供访问。
+  // 只在单机开发时成立，见 minimax.js 的 uploadImage 注释。
+  localImageDir: str('LOCAL_IMAGE_DIR', './.local-images'),
+  // 拼本地图片 URL 用。部署到公网后改成真实域名。
+  publicBaseUrl: str('PUBLIC_BASE_URL', `http://localhost:${num('PORT', 3000)}`),
 };
 
 /**

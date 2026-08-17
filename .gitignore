@@ -38,3 +38,7 @@ research/*.pdf
 # 原型数据导出的临时目录
 .tmpdata/
 *.stackdump
+
+# 开发期本地图片落地目录（没配对象存储时用）
+backend/.local-images/
+.local-images/

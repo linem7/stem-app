@@ -94,7 +94,7 @@ export const limitGenerate = rateLimit({
  * @throws {AppError} 超限时抛 RATE_LIMITED
  */
 export async function assertImageQuota(teacherId) {
-  const limit = config.doubao.dailyLimit;
+  const limit = config.minimax.dailyLimit;
   const res = await query(
     `SELECT COUNT(*)::int AS used
        FROM lesson_images i

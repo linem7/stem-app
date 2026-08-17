@@ -193,6 +193,37 @@
 ```
 导出链接有效期 1 小时。
 
+### `POST /lesson-plans/:id/revise` · 老师说哪里不对，拿到追问
+
+```json
+{ "feedback": "孩子人数写多了，我们班只有 15 个；而且没有那么多水盆" }
+// → {
+//   "ok": true,
+//   "data": {
+//     "revise_round": 1,
+//     "ack": "明白，15 个孩子、水盆不够，我重新安排分组。",
+//     "questions": [ { "id":"r1_1", "title":"…", "options":[…], "multi":false, "allow_custom":true }, … ]
+//   }
+// }
+```
+
+固定返回 **3 道**追问，且**必须是引导阶段没问过的**——老师已经答过一遍的问题再问一遍，
+是在惩罚她提意见。唯一的例外是她的反馈明确指向之前某个答案（"时长还是改成 20 分钟吧"），
+这时才允许重新问那一题。
+
+`feedback` 上限 300 字，走 `msgSecCheck`。
+
+### `POST /lesson-plans/:id/revise/answer` · 答完追问，重新生成
+
+```json
+{ "revise_round": 1, "answers": [ { "question_id":"r1_1", "selected":["A"], "custom_text":null }, … ] }
+// → { "ok": true, "data": { "task_id": "gen_1024", "status": "generating" } }
+```
+
+之后仍然轮询 `GET /conversations/:id/generate/status`——改稿和首次生成走同一条异步链路，
+前端不用写两套轮询。重新生成会覆盖原教案并把 `version + 1`，历史反馈全部保留在
+`conversations.collected.revisions` 里，下次改稿时一并喂给模型，避免它把上次已经改好的地方又改回去。
+
 ---
 
 ## 6. 配图

@@ -21,6 +21,7 @@ import { conversationsRouter } from './routes/conversations.js';
 import { generateRouter } from './routes/generate.js';
 import { lessonPlansRouter } from './routes/lessonPlans.js';
 import { imagesRouter } from './routes/images.js';
+import { reviseRouter } from './routes/revise.js';
 import { memoriesRouter } from './routes/memories.js';
 
 // ---------------------------------------------------------------
@@ -126,6 +127,12 @@ app.get('/healthz', async (req, res) => {
   });
 });
 
+// 没配对象存储时，配图存在本地磁盘，靠这条静态路由提供访问（见 minimax.js 的 uploadImage）。
+// 只在开发期成立：多实例部署时各存各的，必须配上 OBJECT_STORAGE_*。
+if (!config.storage.configured) {
+  app.use('/local-images', express.static(config.localImageDir, { maxAge: '7d', fallthrough: true }));
+}
+
 // api-spec 里 Base URL 带 /v1。同时挂 /v1 和根路径：
 // 前端按文档用 /v1，你自己用 curl 调试时懒得敲 /v1 也能通。
 const v1 = express.Router();
@@ -139,6 +146,8 @@ v1.use('/conversations', requireAuth, generateRouter);
 // lesson-plans 同理：images 的是 /:id/images[/...]
 v1.use('/lesson-plans', requireAuth, lessonPlansRouter);
 v1.use('/lesson-plans', requireAuth, imagesRouter);
+// 改稿：/:id/revise 和 /:id/revise/answer，比 lessonPlansRouter 的 /:id 多一段，不冲突
+v1.use('/lesson-plans', requireAuth, reviseRouter);
 v1.use('/memories', requireAuth, memoriesRouter);
 
 app.use('/v1', v1);
@@ -157,7 +166,7 @@ const server = app.listen(config.port, () => {
       `  地址：      http://localhost:${config.port}`,
       `  环境：      ${config.nodeEnv}`,
       `  文本模型：  ${config.deepseek.model}`,
-      `  配图：      ${config.doubao.configured ? '已配置' : '未配置（不影响其他功能）'}`,
+      `  配图：      ${config.minimax.configured ? '已配置' : '未配置（不影响其他功能）'}`,
       `  内容安全：  ${config.wechat.contentCheckEnabled ? '开' : '关（上线前必须开）'}`,
       '',
       '  验证一下：',

@@ -32,21 +32,28 @@ import { logger } from '../utils/logger.js';
 export const QUESTION_PLAN = [
   { id: 'q1', key: 'age_group', round: 1, title: '这次活动是给哪个年龄班的？', hint: '选一个最接近的就好', multi: false, source: 'fixed', required: true, allowCustom: false },
   { id: 'q2', key: 'focus', round: 1, title: '你希望孩子在这次活动里主要收获什么？', hint: '可以多选，也可以自己说', multi: true, source: 'model', required: false, allowCustom: true },
-  { id: 'q3', key: 'duration', round: 1, title: '活动大概安排多长时间？', hint: '按这个年龄班的注意力时长推荐的', multi: false, source: 'age_band', required: false, allowCustom: true },
-  { id: 'q4', key: 'constraints', round: 1, title: '有什么现实条件要考虑吗？', hint: '场地、器材、人手都算', multi: true, source: 'model', required: false, allowCustom: true },
 
-  { id: 'q5', key: 'materials', round: 2, title: '打算用什么材料？', hint: '不确定的话选个大方向就行', multi: true, source: 'model', required: false, allowCustom: true },
-  { id: 'q6', key: 'flow_pref', round: 2, title: '活动流程你想怎么安排？', hint: '选一个接近你想法的', multi: false, source: 'model', required: false, allowCustom: true },
-  { id: 'q7', key: 'key_questions', round: 2, title: '你想在活动里问孩子什么？', hint: '好问题决定了孩子能想多深', multi: true, source: 'model', required: false, allowCustom: true },
-  { id: 'q8', key: 'safety', round: 2, title: '这次活动要注意哪些安全事项？', hint: '这题一定要答，安全是底线', multi: true, source: 'model', required: true, allowCustom: true },
+  { id: 'q3', key: 'constraints', round: 2, title: '有什么现实条件要考虑吗？', hint: '场地、材料、人手都算', multi: true, source: 'model', required: false, allowCustom: true },
+  { id: 'q4', key: 'duration', round: 2, title: '活动大概安排多长时间？', hint: '按这个年龄班的注意力时长推荐的', multi: false, source: 'age_band', required: false, allowCustom: true },
 
-  { id: 'q9', key: 'assessment', round: 3, title: '你打算怎么看出孩子学到了？', hint: '这一轮都可以跳过', multi: true, source: 'model', required: false, allowCustom: true },
-  { id: 'q10', key: 'extension', round: 3, title: '活动之后有想过怎么延伸吗？', hint: '没想好就跳过', multi: false, source: 'model', required: false, allowCustom: true },
-  { id: 'q11', key: 'adjustments', round: 3, title: '还有什么想让我注意的？', hint: '最后一题了', multi: false, source: 'model', required: false, allowCustom: true },
+  { id: 'q5', key: 'adjustments', round: 3, title: '还有什么想让我注意的？', hint: '没有就跳过，剩下的我来定', multi: false, source: 'model', required: false, allowCustom: true },
 ];
 
+/**
+ * 从 11 题砍到 5 题（2026-08-17）。
+ *
+ * 砍掉的是：材料、流程安排、关键提问、安全事项、评估方式、延伸活动。
+ * 判断标准只有一条 —— **只问 AI 猜不到的，不问 AI 本来就该会的**：
+ *   留下的四类信息（她带哪个班、她想要什么、她有什么限制、她额外想说的）
+ *   只有老师知道，模型再聪明也猜不出来；
+ *   砍掉的六项是教学专业知识，模型按教学框架 + 年龄班规则本来就该产出得比老师随手选的更好，
+ *   问了反而是把活儿推回给老师 —— 而她来用这个工具就是因为没时间。
+ *
+ * 这几项并没有从教案里消失：它们本来就是 lessonGenerator 里模型输出的字段，
+ * 不是从 collected 读的。老师要改，在成稿页直接改，或者走「改一改」重新追问。
+ */
 export const TOTAL_ROUNDS = 3;
-/** 每轮题数：4 / 4 / 3 */
+/** 每轮题数：2 / 2 / 1 —— 一共 5 题，对应首页那句「分 2–3 轮问你几个问题」 */
 export const QUESTIONS_IN_ROUND = QUESTION_PLAN.reduce((acc, q) => {
   acc[q.round] = (acc[q.round] || 0) + 1;
   return acc;
@@ -125,14 +132,9 @@ function fallbackOptions(spec, collected) {
   const map = {
     focus: ['体验和感受这个现象', '弄懂一个简单的道理', '学会用某样工具', '敢说出自己的发现'],
     constraints: ['就在教室里做', '没有大的活动场地', '材料要便宜好找', '只能安排一次活动'],
-    materials: ['生活里的废旧物品', '自然材料（树叶、石头、水）', '班里现成的教具', '需要另外买一点'],
-    flow_pref: ['引入 → 探索 → 讨论 → 总结', '先让孩子玩，再一起说', '分组轮流体验', '老师先示范，孩子再动手'],
-    key_questions: ['你觉得会发生什么？', '你发现了什么不一样？', '怎么样才能让它…？', '还在哪里见过这个？'],
-    safety: band.safety_focus.concat(['地面防滑、避免奔跑', '活动后洗手清洁']),
-    assessment: ['观察并记录孩子的表现', '拍照片或视频', '看孩子的作品/记录纸', '听孩子说一说'],
-    extension: ['放到区角继续玩', '带回家和爸爸妈妈试', '下一次活动接着做', '暂时不用延伸'],
     adjustments: ['再简单一点', '再有挑战一点', '时间再短一点', '不用调整'],
   };
+  void band; // 安全事项已改为模型按年龄班规则自己产出，这里不再需要 band.safety_focus
   const labels = (map[spec.key] || ['我自己说']).slice(0, 4);
   return labels.map((label, i) => ({ key: OPTION_KEYS[i], label }));
 }

@@ -335,6 +335,41 @@ body{background:var(--canvas);font-family:var(--f-body);color:var(--ink);
 .toast.show{opacity:.96;transform:translateY(0)}
 
 .empty-il{display:block;width:100%;height:150px;border-radius:16px;margin-bottom:18px}
+
+/* ============ 改一改 ============ */
+/* 成稿页顶部的「已按你说的改过」条 —— 老师提了意见，得让她一眼看到确实动了 */
+.rev-note{background:var(--sky-soft);border:1px solid oklch(0.90 0.02 235);border-radius:14px;
+  padding:11px 13px;margin-bottom:16px}
+.rev-note .hd{font-size:12.5px;font-weight:700;color:var(--sky-deep);margin-bottom:5px}
+.rev-note .fb{font-size:13px;color:var(--ink);line-height:1.6;margin-bottom:5px}
+.rev-note .dl{font-size:12.5px;color:var(--ink-2);line-height:1.65}
+/* 改稿前后对照 */
+.diff-row{display:flex;align-items:baseline;gap:8px;padding:6px 0;border-bottom:1px dashed var(--rule);font-size:13px}
+.diff-row .dk{flex:none;width:34px;color:var(--ink-3);font-size:12.5px}
+.diff-row .dv{flex:1;color:var(--ink);line-height:1.5}
+.diff-row .dv.same{color:var(--ink-3)}
+.diff-row .dv.new{font-weight:600;color:var(--mint-deep)}
+.diff-row .da{flex:none;color:var(--ink-3);font-size:12px}
+
+/* ============ 设置 ============ */
+.set-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;
+  border-bottom:1px solid var(--rule);cursor:pointer}
+.set-row:hover .sv{color:var(--amber-deep)}
+.set-row .sl{flex:1;font-size:14.5px;color:var(--ink);line-height:1.45}
+.set-row .sl small{display:block;font-size:12px;color:var(--ink-3);margin-top:2px;line-height:1.5}
+.set-row .sv{flex:none;display:flex;align-items:center;gap:3px;font-size:13.5px;color:var(--ink-2)}
+.switch{flex:none;width:42px;height:24px;border-radius:999px;background:oklch(0.90 0.012 92);
+  position:relative;transition:background .18s;box-shadow:inset 0 0 0 1px var(--rule-2)}
+.switch i{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:999px;background:#fff;
+  transition:transform .18s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+/* 开关的「开」用薄荷绿 —— 令牌规则 4：次级行动/已完成绑薄荷 */
+.switch.on{background:var(--mint)}
+.switch.on i{transform:translateX(18px)}
+.set-note{font-size:12px;color:var(--ink-3);line-height:1.7;background:var(--paper-2);
+  border-radius:10px;padding:9px 11px;margin-top:10px}
+.priv .pi{font-size:12.5px;color:var(--ink-2);line-height:1.75;padding-left:14px;position:relative;margin-bottom:9px}
+.priv .pi::before{content:"";position:absolute;left:2px;top:9px;width:5px;height:5px;border-radius:999px;background:var(--sky)}
+.priv .pi b{color:var(--ink)}
 </style>
 </head>
 <body>
@@ -342,12 +377,13 @@ body{background:var(--canvas);font-family:var(--f-body);color:var(--ink);
 <div class="page-head">
   <div class="kicker">PROTOTYPE · 方向 B</div>
   <h1>STEAM 教案助手 · 可点击原型</h1>
-  <p>能真的打字、选答案、一题题走完三轮引导、看着教案生成出来。
-     <b>屏幕里的问题、推荐答案和两份教案正文，都是后端接 DeepSeek 真实跑出来的</b>，不是占位文案。</p>
+  <p>能真的打字、选答案、走完三轮引导（<b>一共 5 题</b>）、看着教案生成出来，
+     再对着成稿说「哪里不对」让它重写。
+     <b>屏幕里的问题、推荐答案、三份教案正文和那一轮改稿，都是后端接 DeepSeek 真实跑出来的</b>，不是占位文案。</p>
   <div class="note">
     这份原型<b>不连后端</b>——GitHub Pages 是静态的，后端跑在作者本机。所有交互走内置的真实数据快照；
-    点「生成」不会真的调模型，进度动画按真实耗时（小班 14 秒 / 大班 20 秒）配的时长。
-    没做的功能（配图、导出 Word、中班数据）都<b>如实标注</b>，不假装完整。
+    点「生成」不会真的调模型，进度动画按实测耗时（小班 16 秒 / 中班 20 秒 / 大班 16 秒）配的时长。
+    没做的功能（配图出图、导出 Word）都<b>如实标注</b>，不假装完整。
   </div>
 </div>
 
@@ -356,8 +392,9 @@ body{background:var(--canvas);font-family:var(--f-body);color:var(--ink);
     <h2>直接跳到某一屏</h2>
     <div id="nav"></div>
     <div class="tip">
-      建议按顺序走一遍：首页输入想法 → 第 1 题<b>选小班</b>走完 → 看生成 → 看成稿。<br><br>
-      然后用左边跳回引导，<b>第 1 题改选大班</b>，对比同一套代码给两个年龄班写出的东西差多少。
+      建议这么走：首页输入想法 → 第 1 题<b>选小班</b> → 5 题走完 → 看生成 → 看成稿
+      → 点<b>「哪里不对？改一改」</b>提一句意见，看它再问你三个新问题。<br><br>
+      然后跳回引导，第 1 题<b>改选中班或大班</b>，对比同一套代码给三个年龄班写出的东西差多少。
     </div>
     <button class="rst" id="reset">重来一遍</button>
   </div>
@@ -385,9 +422,11 @@ body{background:var(--canvas);font-family:var(--f-body);color:var(--ink);
    QUESTIONS: { '小班': [...11题], '大班': [...11题] }  每题含模型生成的推荐答案
    PLANS:     { '小班': {...}, '大班': {...} }          两份完整教案
    ══════════════════════════════════════════════════════════════ */
-const RAW = {"questions":{"小班":[{"id":"q1","title":"这次活动是给哪个年龄班的？","hint":"选一个最接近的就好","multi":false,"allow_custom":false,"required":true,"options":[{"k":"A","l":"小班","s":"3-4岁"},{"k":"B","l":"中班","s":"4-5岁"},{"k":"C","l":"大班","s":"5-6岁"}]},{"id":"q2","title":"你希望孩子在这次活动里主要收获什么？","hint":"可以多选，也可以自己说","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"感受物体沉浮现象","s":"体验不同物体在水中的状态"},{"k":"B","l":"尝试观察和比较","s":"用眼睛看，用手摸，简单比较"},{"k":"C","l":"乐于动手玩水","s":"在玩中激发探索兴趣"},{"k":"D","l":"初步了解材料特性","s":"知道有的东西会浮，有的会沉"}]},{"id":"q3","title":"活动大概安排多长时间？","hint":"按这个年龄班的注意力时长推荐的","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"15 分钟","s":"偏短，注意力容易保持"},{"k":"B","l":"20 分钟","s":"小班最常用的时长"},{"k":"C","l":"25 分钟","s":"已经是小班的上限了"}]},{"id":"q4","title":"有什么现实条件要考虑吗？","hint":"场地、器材、人手都算","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"材料要安全，尺寸大","s":"避免误食，用大物件"},{"k":"B","l":"分组进行，4-6人","s":"便于观察和指导"},{"k":"C","l":"场地有水池或大盆","s":"方便操作和清理"},{"k":"D","l":"时间灵活，可延长","s":"不超25分钟即可"}]},{"id":"q5","title":"打算用什么材料？","hint":"不确定的话选个大方向就行","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"积木、石头、树叶","s":"材料常见易收集"},{"k":"B","l":"塑料玩具、铁勺","s":"对比明显，易观察"},{"k":"C","l":"海绵、木块、石子","s":"软硬不同，探索性强"},{"k":"D","l":"苹果、瓶盖、橡皮","s":"生活物品，有亲切感"}]},{"id":"q6","title":"活动流程你想怎么安排？","hint":"选一个接近你想法的","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"先自由玩，再一起比较","s":"先让幼儿随便玩，再引导观察"},{"k":"B","l":"分两组，一组一种材料","s":"按材料分组，减少干扰"},{"k":"C","l":"老师示范，幼儿跟着做","s":"安全稳妥，适合小班"}]},{"id":"q7","title":"你想在活动里问孩子什么？","hint":"好问题决定了孩子能想多深","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"哪个东西会浮起来？","s":"直接指向沉浮现象"},{"k":"B","l":"它们在水里都一样吗？","s":"引导观察比较差异"},{"k":"C","l":"石头和树叶一样吗？","s":"对比不同材料特性"},{"k":"D","l":"你觉得它会怎么样？","s":"鼓励孩子大胆猜想"}]},{"id":"q8","title":"这次活动要注意哪些安全事项？","hint":"这题一定要答，安全是底线","multi":true,"allow_custom":true,"required":true,"options":[{"k":"A","l":"材料尺寸大于口腔","s":"防止误吞，安全第一"},{"k":"B","l":"分组轮流玩水","s":"控制人数，避免混乱"},{"k":"C","l":"地面铺防滑垫","s":"防止滑倒摔伤"},{"k":"D","l":"提醒不泼水不喝","s":"保持常规，卫生安全"}]},{"id":"q9","title":"你打算怎么看出孩子学到了？","hint":"这一轮都可以跳过","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"看孩子玩水时指认","s":"孩子能指出浮和沉的东西"},{"k":"B","l":"用贴纸记录结果","s":"孩子把浮沉结果贴出来"},{"k":"C","l":"观察孩子再玩一次","s":"看孩子能否记得浮沉现象"},{"k":"D","l":"问孩子哪个会浮","s":"孩子能说出浮的东西"}]},{"id":"q10","title":"活动之后有想过怎么延伸吗？","hint":"没想好就跳过","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"阅读浮沉绘本","s":"延伸阅读，巩固概念"},{"k":"B","l":"户外水池再探索","s":"自然情境继续玩水"},{"k":"C","l":"制作浮沉小书","s":"用贴纸回顾记录"}]},{"id":"q11","title":"还有什么想让我注意的？","hint":"最后一题了","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"水的温度有差别","s":"试试温水凉水，感受不同"},{"k":"B","l":"不同容器装水","s":"用杯子瓶子舀水玩"},{"k":"C","l":"加点颜色进去","s":"色素让水变好看，观察变化"}]}],"大班":[{"id":"q1","title":"这次活动是给哪个年龄班的？","hint":"选一个最接近的就好","multi":false,"allow_custom":false,"required":true,"options":[{"k":"A","l":"小班","s":"3-4岁"},{"k":"B","l":"中班","s":"4-5岁"},{"k":"C","l":"大班","s":"5-6岁"}]},{"id":"q2","title":"你希望孩子在这次活动里主要收获什么？","hint":"可以多选，也可以自己说","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"体验科学探究全过程","s":"预测、实验、记录、改进"},{"k":"B","l":"学习合作分工与沟通","s":"小组协作搭建，互相商量"},{"k":"C","l":"理解结构与稳定关系","s":"探索怎么搭更稳更高"},{"k":"D","l":"培养坚持与抗挫力","s":"倒了再试，不轻易放弃"}]},{"id":"q3","title":"活动大概安排多长时间？","hint":"按这个年龄班的注意力时长推荐的","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"30 分钟","s":"偏短，注意力容易保持"},{"k":"B","l":"40 分钟","s":"大班最常用的时长"},{"k":"C","l":"45 分钟","s":"已经是大班的上限了"}]},{"id":"q4","title":"有什么现实条件要考虑吗？","hint":"场地、器材、人手都算","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"活动场地在哪里","s":"室内还是户外影响材料"},{"k":"B","l":"材料安全要特别注意","s":"您一贯重视安全，需列出"},{"k":"C","l":"是否需要分组进行","s":"您倾向分组，便于合作"},{"k":"D","l":"材料尺寸要大于口腔","s":"防止误吞，安全第一"}]},{"id":"q5","title":"打算用什么材料？","hint":"不确定的话选个大方向就行","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"纸杯和纸板","s":"轻便安全，易于搭建"},{"k":"B","l":"木质积木","s":"稳定，可重复使用"},{"k":"C","l":"塑料拼插玩具","s":"连接牢固，创意拼搭"},{"k":"D","l":"废旧纸盒和胶带","s":"环保，需注意胶带使用"}]},{"id":"q6","title":"活动流程你想怎么安排？","hint":"选一个接近你想法的","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"先预测再搭，比谁塔最高","s":"带理由预测，测量比较"},{"k":"B","l":"分组合作，轮流搭高塔","s":"5-6人分工，轮流操作"},{"k":"C","l":"搭了再改，不断加高塔","s":"多轮循环，改进再挑战"}]},{"id":"q7","title":"你想在活动里问孩子什么？","hint":"好问题决定了孩子能想多深","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"怎么搭才能又高又稳？","s":"引导思考稳定结构"},{"k":"B","l":"哪种材料最结实？","s":"比较材料特性"},{"k":"C","l":"塔倒了怎么办？","s":"鼓励从失败中学习"},{"k":"D","l":"怎么分工合作搭得快？","s":"强调团队协作"}]},{"id":"q8","title":"这次活动要注意哪些安全事项？","hint":"这题一定要答，安全是底线","multi":true,"allow_custom":true,"required":true,"options":[{"k":"A","l":"材料安全，防止划伤","s":"检查纸板边缘，无尖锐"},{"k":"B","l":"搭高时防倒塌砸到","s":"提醒幼儿不靠近塔身"},{"k":"C","l":"小组内轮流搭建","s":"避免争抢，有序操作"},{"k":"D","l":"使用木质积木更安全","s":"比纸杯更稳且无锐角"}]},{"id":"q9","title":"你打算怎么看出孩子学到了？","hint":"这一轮都可以跳过","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"看孩子能否说出搭高窍门","s":"检验经验总结能力"},{"k":"B","l":"看小组合作是否顺畅","s":"观察分工与沟通"},{"k":"C","l":"看孩子能否记录测量结果","s":"检验数字记录能力"},{"k":"D","l":"看孩子能否改进方案","s":"考察反思与调整"}]},{"id":"q10","title":"活动之后有想过怎么延伸吗？","hint":"没想好就跳过","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"探究不同材质稳定性","s":"用积木对比纸杯搭高"},{"k":"B","l":"设计防风防震高塔","s":"用风扇或震动台测试"},{"k":"C","l":"挑战更高难度任务","s":"限定材料或增加高度"}]},{"id":"q11","title":"还有什么想让我注意的？","hint":"最后一题了","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"注意材料大小防吞咽","s":"确保安全，大班适用"},{"k":"B","l":"提醒孩子轻拿轻放","s":"避免材料损坏或伤人"},{"k":"C","l":"关注小组分工与协作","s":"强化合作，提升效率"}]}]},"plans":{"小班":{"id":1,"title":"浮起来沉下去","age_group":"小班","duration_min":15,"content_json":{"flow":[{"stage":"引起动机","detail":"老师出示一盆水，拿出一个积木，问：“积木放到水里会怎么样？”孩子们自由回答。老师把积木轻轻放进水里，请孩子们观察。然后老师拿出石头，问：“石头呢？”再放进去，引导孩子注意沉浮现象。","minutes":3},{"stage":"发展活动","detail":"孩子们分成4-6人一组，轮流到水盆边。老师提供材料，让孩子自由选择物品放进水里，观察它是浮还是沉。老师巡回观察，用提问引导：“你拿的是什么？它浮起来了吗？”孩子们用动作或短句回答。玩过一轮后，老师请孩子再玩一次，这次尝试把不同的东西一起放，看看有什么不同。最后，老师请每个孩子把结果用贴纸记录在板上：浮的贴红色贴纸，沉的贴蓝色贴纸。","minutes":9},{"stage":"综合活动","detail":"老师请孩子们坐回座位，展示记录板，问：“哪个东西会浮起来？”孩子们指认或说出名称。老师再问：“它们在水里都一样吗？”引导孩子发现有的浮、有的沉。最后，老师总结：“今天我们发现，有的东西会浮起来，有的会沉下去。”并表扬孩子们的观察。","minutes":3}],"steam":{"A":"艺术：用贴纸装饰记录板，进行简单的美工活动。","E":"本次未涉及","M":"数学：比较物体的沉与浮，感知“多”和“少”的概念，例如“浮起来的多还是沉下去的多？”","S":"科学：物体在水中的沉浮现象，通过观察不同材料的物体在水中的表现，感知沉浮特性。","T":"技术：使用贴纸进行记录，学习简单的记录方法。"},"title":"浮起来沉下去","safety":["所有材料尺寸必须大于幼儿口腔，防止误食。","分组轮流玩水，每组4-6人，确保每位幼儿在成人视线内。","提醒幼儿不将水泼洒，保持地面干燥，防止滑倒。","活动前检查材料是否有尖锐边缘，确保安全。"],"dialogue":[{"text":"小朋友们，看！这是什么？","speaker":"T"},{"text":"积木！","speaker":"C"},{"text":"我们把积木放到水里，看看会怎么样？","speaker":"T"},{"text":"（积木浮起来）看，积木浮起来了！","speaker":"T"},{"text":"浮！","speaker":"C"},{"text":"再试试石头。","speaker":"T"},{"text":"沉！","speaker":"C"},{"text":"（一个孩子把铁勺放进水里，铁勺沉下去了）哎呀，铁勺沉下去了。我们能不能让它浮起来？","speaker":"T"},{"text":"（摇头）","speaker":"C"},{"text":"试试把铁勺放在积木上？","speaker":"T"},{"text":"（把铁勺放在积木上，积木浮着，铁勺也浮起来了）浮！","speaker":"C"}],"features":{"problem_source":"幼儿在洗手或玩水时经常对物体的沉浮产生好奇，老师观察到孩子们喜欢把东西丢进水里看它是浮还是沉，因此设计了这次活动，让幼儿在自由玩耍中探索沉浮现象。","learning_experiences":["通过动手操作，感受物体在水中的沉浮现象。","尝试用简单的语言或动作表达物体的沉浮。","学习用贴纸记录物体的沉浮结果。","体验与同伴一起玩水的乐趣。"]},"age_group":"小班","extension":"活动后，在阅读区投放关于沉浮的绘本，如《浮与沉》，引导幼儿进一步探索。还可以在科学区提供更多材料，让幼儿自由探索沉浮。","materials":["大塑料盆（装水，深度约10厘米）2个","积木（大号，大于幼儿口腔）5块","石头（光滑，大于幼儿口腔）5块","树叶（大片的）5片","塑料玩具（如小鸭子，大于口腔）5个","铁勺（大号）5个","贴纸（红色和蓝色）若干","记录板（每人一块，上面画有物品简笔画）5块","毛巾（擦手用）若干"],"indicators":["能观察并说出物体的沉浮现象（如“浮”、“沉”）。","能用贴纸记录物体的沉浮结果。"],"reflection":"预期幼儿可能对沉浮概念不理解，但实际通过操作和贴纸记录，幼儿能初步感知。重点观察幼儿是否能区分浮和沉，以及能否正确使用贴纸。下次可以增加更多材料，如海绵、泡沫，让幼儿探索更多可能性，并引导幼儿用语言描述。","duration_min":15}},"大班":{"id":2,"title":"搭建高塔挑战","age_group":"大班","duration_min":30,"content_json":{"flow":[{"stage":"引起动机","detail":"教师展示一座用纸杯搭成的小塔，并故意推倒，引发幼儿讨论。提问：\"你们想不想搭一座又高又稳的塔？用什么材料好呢？\" 幼儿自由发表想法，教师引导幼儿关注\"高\"和\"稳\"两个关键词。","minutes":5},{"stage":"发展活动","detail":"教师介绍材料和任务：\"每组分到纸杯、纸板和积木，请你们先预测哪种材料能搭得最高？为什么？\" 幼儿分组讨论并记录预测。然后开始搭建，教师巡回观察，鼓励幼儿尝试不同方法。搭建过程中，教师引导幼儿测量塔高（用直尺），并记录在表格中。提醒幼儿注意安全，不要碰倒别人的塔。","minutes":15},{"stage":"综合活动","detail":"各组展示自己的塔，教师引导比较：\"哪组最高？哪组最稳？\" 请幼儿分享搭建过程中的困难和解决办法。教师提问：\"怎么搭才能又高又稳？\" 幼儿讨论总结出\"底部要大、要对称、轻的材料放上面\"等经验。教师引导幼儿思考：\"如果重新搭一次，你们会怎么改进？\"","minutes":8},{"stage":"延伸活动","detail":"教师总结今天的探究，并布置延伸任务：\"回家后可以试试用其他材料（如书本、易拉罐）搭塔，看看哪种材料最结实。\" 鼓励幼儿在科学区继续探索不同材质的稳定性。","minutes":2}],"steam":{"A":"艺术：在搭建中感受对称美，鼓励幼儿创造独特造型，装饰塔身。","E":"工程：设计和改进塔的结构，经历\"预测-搭建-倒塌-改进\"的工程循环。","M":"数学：比较塔的高度，用数字记录，理解数量与高度的关系，尝试简单统计。","S":"科学：探索物体稳定性与底部面积、重心位置的关系，理解\"上轻下重\"\"底部宽大\"更稳的原理。","T":"技术：学习使用直尺测量高度，掌握搭建技巧如交错堆叠、使用纸板作为平台。"},"title":"搭建高塔挑战","safety":["使用直尺和记号笔时注意不要划伤，剪刀由教师保管，使用时需教师指导","搭建时提醒幼儿不要将材料放入口中，防止吞咽","搭高时注意塔的稳定性，防止倒塌砸到幼儿，要求幼儿在搭建区不奔跑打闹","小组活动时保持秩序，不争抢材料，轮流使用工具"],"dialogue":[{"text":"你们觉得用哪种材料搭塔最高？为什么？","speaker":"T"},{"text":"我觉得纸杯最高，因为纸杯很轻，可以叠很多层。","speaker":"C"},{"text":"那你们试试看吧。记住，要一边搭一边量一量，把高度记在表格上。","speaker":"T"},{"text":"哎呀，倒了！我们搭到第5层就倒了。","speaker":"C"},{"text":"没关系，想想为什么倒了？怎么改进才能更稳？","speaker":"T"},{"text":"我知道了，因为底部太小了，我们把纸杯摆得大一点，像金字塔一样。","speaker":"C"},{"text":"你们这个想法真好！那再试试看，看能不能搭得更高更稳。","speaker":"T"}],"features":{"problem_source":"幼儿在建构区常自发用积木、纸杯等搭高，但倒塌后容易放弃或争吵。教师借此设计活动，引导幼儿探究如何搭得又高又稳，体验科学探究过程。","learning_experiences":["体验预测、实验、观察、讨论、改进的完整探究过程","学习与同伴分工合作，沟通协商解决问题","了解不同材料的特点及其在搭建中的作用","尝试用数字和符号记录塔的高度与搭建方法","感受工程设计的乐趣，培养坚持与改进的态度"]},"age_group":"大班","extension":"延伸活动：在科学区投放不同材质（如书本、易拉罐、塑料瓶等），让幼儿继续探究哪种材料搭得最稳，并尝试设计不同的塔形。同时鼓励幼儿回家与家长一起用废旧材料搭建，拍照分享。","materials":["纸杯（每组30个）","纸板（每组5块，A4大小）","木质积木（每组20块）","直尺（每组1把，带刻度）","记录表（每组1张，含塔高、搭建方法、成功与否）","记号笔（每组2支）","安全剪刀（每组1把，备用）"],"indicators":["能带理由地预测哪种材料搭得高，并验证自己的预测","能使用直尺测量塔高并记录数字，比较高低","能与同伴分工合作，协商解决搭建中的问题","能描述搭建过程中的失败与改进，说出\"怎么搭又高又稳\"的简单规律"],"reflection":"预期幼儿能顺利搭出高塔，但实际可能会因材料特性（如纸杯易滑、积木表面平）而频繁倒塌，导致幼儿挫败。教师需重点观察幼儿是否能坚持改进，能否与同伴沟通合作。下次活动可提供更多样化的材料（如胶带、黏土）以增加稳定性，并引导幼儿更系统地记录每次尝试的高度和失败原因。","duration_min":30}}}};
-const QUESTIONS = RAW.questions;
-const PLANS = RAW.plans;
+const RAW = {"questions":{"小班":[{"id":"q1","title":"这次活动是给哪个年龄班的？","hint":"选一个最接近的就好","multi":false,"allow_custom":false,"required":true,"options":[{"k":"A","l":"小班","s":"3-4岁"},{"k":"B","l":"中班","s":"4-5岁"},{"k":"C","l":"大班","s":"5-6岁"}]},{"id":"q2","title":"你希望孩子在这次活动里主要收获什么？","hint":"可以多选，也可以自己说","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"感受物体浮沉现象","s":"玩水时自然发现"},{"k":"B","l":"愿意动手试一试","s":"敢碰水敢放东西"},{"k":"C","l":"观察并说出浮或沉","s":"用词表达所见"},{"k":"D","l":"体验合作与分享","s":"和同伴一起玩水"}]},{"id":"q3","title":"有什么现实条件要考虑吗？","hint":"场地、材料、人手都算","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"教室水盆和积木","s":"材料简单，安全可控"},{"k":"B","l":"户外玩水池","s":"空间大，但注意安全"},{"k":"C","l":"分组轮流玩","s":"4-6人一组，便于指导"},{"k":"D","l":"家长助教帮忙","s":"人多手多，分组更细"}]},{"id":"q4","title":"活动大概安排多长时间？","hint":"按这个年龄班的注意力时长推荐的","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"15 分钟","s":"偏短，注意力容易保持"},{"k":"B","l":"20 分钟","s":"小班最常用的时长"},{"k":"C","l":"25 分钟","s":"已经是小班的上限了"}]},{"id":"q5","title":"还有什么想让我注意的？","hint":"没有就跳过，剩下的我来定","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"孩子玩水容易乱跑","s":"需要重点控场"},{"k":"B","l":"材料要够大防误吞","s":"安全第一"},{"k":"C","l":"想加涂色记录环节","s":"融艺术表达"}]}],"中班":[{"id":"q1","title":"这次活动是给哪个年龄班的？","hint":"选一个最接近的就好","multi":false,"allow_custom":false,"required":true,"options":[{"k":"A","l":"小班","s":"3-4岁"},{"k":"B","l":"中班","s":"4-5岁"},{"k":"C","l":"大班","s":"5-6岁"}]},{"id":"q2","title":"你希望孩子在这次活动里主要收获什么？","hint":"可以多选，也可以自己说","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"发现影子会变","s":"观察影子的变化规律"},{"k":"B","l":"动手让影子变","s":"尝试用工具改变影子"},{"k":"C","l":"合作探究影子","s":"小组合作玩影子游戏"},{"k":"D","l":"感受光影之美","s":"用影子创作有趣画面"}]},{"id":"q3","title":"有什么现实条件要考虑吗？","hint":"场地、材料、人手都算","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"晴天户外，有太阳","s":"自然光，影子清晰"},{"k":"B","l":"教室用手电筒","s":"可控光，需拉窗帘"},{"k":"C","l":"阴天，室内灯光","s":"影子较淡，需调整"},{"k":"D","l":"有投影仪可用","s":"光强，影子大而明显"}]},{"id":"q4","title":"活动大概安排多长时间？","hint":"按这个年龄班的注意力时长推荐的","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"25 分钟","s":"偏短，注意力容易保持"},{"k":"B","l":"30 分钟","s":"中班最常用的时长"},{"k":"C","l":"35 分钟","s":"已经是中班的上限了"}]},{"id":"q5","title":"还有什么想让我注意的？","hint":"没有就跳过，剩下的我来定","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"希望孩子能小组合作","s":"强调两两协作与分享"},{"k":"B","l":"孩子容易分心要控场","s":"我会多设计互动环节"},{"k":"C","l":"想加入手电筒探索","s":"户外和室内都能玩"}]}],"大班":[{"id":"q1","title":"这次活动是给哪个年龄班的？","hint":"选一个最接近的就好","multi":false,"allow_custom":false,"required":true,"options":[{"k":"A","l":"小班","s":"3-4岁"},{"k":"B","l":"中班","s":"4-5岁"},{"k":"C","l":"大班","s":"5-6岁"}]},{"id":"q2","title":"你希望孩子在这次活动里主要收获什么？","hint":"可以多选，也可以自己说","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"合作与分工","s":"培养团队协作能力"},{"k":"B","l":"结构与稳定","s":"探索搭建的科学原理"},{"k":"C","l":"测量与比较","s":"练习使用工具和记录"},{"k":"D","l":"问题解决能力","s":"面对失败和调整方案"}]},{"id":"q3","title":"有什么现实条件要考虑吗？","hint":"场地、材料、人手都算","multi":true,"allow_custom":true,"required":false,"options":[{"k":"A","l":"场地在室内，桌子拼组","s":"便于小组围坐，材料集中"},{"k":"B","l":"材料有限，需分组轮换","s":"可设计多轮循环，轮换操作"},{"k":"C","l":"时间紧张，仅40分钟","s":"需精简环节，保证完整探究"},{"k":"D","l":"有助教协助分组管理","s":"利于大班小组分工与指导"}]},{"id":"q4","title":"活动大概安排多长时间？","hint":"按这个年龄班的注意力时长推荐的","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"30 分钟","s":"偏短，注意力容易保持"},{"k":"B","l":"40 分钟","s":"大班最常用的时长"},{"k":"C","l":"45 分钟","s":"已经是大班的上限了"}]},{"id":"q5","title":"还有什么想让我注意的？","hint":"没有就跳过，剩下的我来定","multi":false,"allow_custom":true,"required":false,"options":[{"k":"A","l":"孩子容易分心","s":"需增加趣味和互动"},{"k":"B","l":"材料不够用","s":"需考虑分组轮换"},{"k":"C","l":"桌椅摆放有讲究","s":"需提前规划布局"}]}]},"plans":{"小班":{"id":1,"title":"浮起来沉下去","age_group":"小班","duration_min":15,"content_json":{"flow":[{"stage":"引起动机","detail":"老师出示一个装满水的透明盆，放入一块积木，积木浮在水上。老师问：‘你们看，积木怎么了？’引导幼儿观察。然后放入一块石头，石头沉下去了。老师问：‘石头呢？’幼儿会回答‘沉下去了’。老师总结：‘有的东西会浮起来，有的会沉下去，我们一起来试一试吧！’","minutes":3},{"stage":"发展活动","detail":"老师将幼儿分成4-6人一组，每组一个水盆，提供多种材料（积木、塑料鸭、石头、瓶盖、勺子）。老师先示范：拿起一个塑料鸭，轻轻放入水中，观察它是浮还是沉。然后请幼儿自由选择材料放入水中，观察现象。老师巡回指导，鼓励幼儿说出‘浮’或‘沉’，并引导他们比较不同材料。当幼儿发现有的材料浮、有的沉时，老师提议：‘我们把浮起来的东西放在这个盘子里，沉下去的东西放在另一个盘子里。’幼儿动手分类，老师用贴纸奖励。","minutes":9},{"stage":"综合活动","detail":"老师请幼儿围坐在一起，指着两个盘子问：‘这个盘子里都是什么？’幼儿回答‘浮起来的’。老师问：‘你最喜欢哪个？’幼儿自由发言。老师总结：‘今天我们发现，有的东西会浮起来，有的会沉下去，真有趣！’最后，老师提醒幼儿洗手，并表扬他们爱动手。","minutes":3}],"steam":{"A":"感受物体在水中的美感，用贴纸装饰分类盘","E":"本次未涉及","M":"比较物体的浮沉，并进行简单的分类（浮/沉）","S":"感知物体在水中的浮沉现象，了解不同材料的特性","T":"学习使用水盆、盘子等工具进行观察和分类"},"title":"浮起来沉下去","safety":["所有材料尺寸必须大于幼儿口腔，防止误食，如积木、石头等不得小于3厘米。","水盆深度不超过10厘米，防止幼儿溺水风险。","活动前明确规则：不能把水洒到地上，不能跑动，只能在指定区域玩水。","老师全程监护，确保幼儿不将材料放入口中。"],"dialogue":[{"text":"小朋友们，看，老师把积木放进水里，积木怎么了？","speaker":"T"},{"text":"浮起来了！","speaker":"C"},{"text":"那石头呢？","speaker":"T"},{"text":"沉下去了。","speaker":"C"},{"text":"你来试试这个塑料鸭，轻轻放进去。","speaker":"T"},{"text":"（放入水中）浮的！","speaker":"C"},{"text":"你试试这个勺子。","speaker":"T"},{"text":"（放入水中）沉了。","speaker":"C"},{"text":"我们把浮起来的放在这个盘子，沉下去的放在那个盘子。","speaker":"T"}],"features":{"problem_source":"孩子平时在洗手或玩水时，对物体在水中的现象充满好奇，经常把东西放进水里看它浮起来还是沉下去。老师抓住这个兴趣点，设计成集体探究活动，让孩子在安全的玩水情境中自由探索。","learning_experiences":["感受不同物体在水中的浮沉现象","愿意动手试一试，体验探究的乐趣","学习用简单的语言或动作表达自己的发现","尝试将物体按浮沉分类"]},"age_group":"小班","extension":"在户外玩水池中，提供更多自然材料（树叶、树枝、花瓣等），让幼儿继续探索浮沉现象，并尝试用不同材料组合，观察是否改变浮沉。","materials":["大塑料盆（装水，水深约10cm）2个","积木（木质，大于幼儿口腔）若干","塑料小鸭子（浮）若干","石头（光滑，大于幼儿口腔）若干","塑料瓶盖（浮）若干","金属勺子（沉）若干","贴纸（星星、花朵）若干","大盘子（用于分类）2个"],"indicators":["能观察并说出物体的浮沉现象（科学）","能按浮沉特征进行分类（数学）"],"reflection":"可能有些幼儿会一直玩水，不关注分类；或者有的幼儿不敢动手，需要老师鼓励。重点观察幼儿是否能说出‘浮’‘沉’，以及分类是否正确。如果幼儿兴趣浓厚，可以延长活动时间，但不超过25分钟。下次可以提供更多材料，如海绵、软木塞等，增加探索的多样性。","duration_min":15},"version":1},"中班":{"id":2,"title":"影子变变变","age_group":"中班","duration_min":25,"content_json":{"flow":[{"stage":"引起动机","detail":"教师带幼儿到户外，让幼儿观察自己的影子。提问：\"你们看，地上黑黑的是什么？\" \"影子会动吗？\" \"我们走一走，影子会怎么样？\" 引导幼儿发现影子会跟着自己动，并感到好奇。","minutes":5},{"stage":"发展活动","detail":"回到教室，教师出示手电筒，问：\"手电筒的光能不能照出影子？我们试试看吧！\" 幼儿两人一组，一人拿手电筒，一人用小手在墙上做影子。教师引导幼儿预测：\"如果手电筒离手很近，影子会变大还是变小？\" 幼儿进行操作，观察影子变化，并记录在勾选表上（用贴纸表示大或小）。教师引导幼儿尝试不同距离，发现影子大小变化。","minutes":10},{"stage":"综合活动","detail":"请几组幼儿分享自己的发现。教师总结：\"手电筒离得近，影子大；离得远，影子小。\" 然后挑战：\"你们能用手影做出小动物吗？\" 幼儿尝试用手做出不同形状，观察影子变化。教师引导幼儿讨论：\"为什么影子会变？\" 鼓励幼儿用简单语言描述。","minutes":5},{"stage":"延伸活动","detail":"教师提出：\"我们到户外去，看看太阳下的影子是不是也这样变？\" 幼儿到户外，观察太阳下自己的影子，尝试跳一跳，影子会变吗？跑一跑，影子会变吗？教师引导幼儿用简笔画记录影子的变化（画一个太阳，画自己的影子）。","minutes":5}],"steam":{"A":"用手影创造动物造型，表现美感","E":"改进手影造型，让影子更像某种动物","M":"比较影子的大小、长短，使用非标准单位（如用积木量影子长度）","S":"影子的形成：光被物体挡住形成影子","T":"使用手电筒，调整距离和角度"},"title":"影子变变变","safety":["使用手电筒时，提醒幼儿不要照眼睛","在户外活动时，注意防晒，避免长时间暴晒","若在教室使用手电筒，注意不要碰倒水杯，如有液体洒落及时清理"],"dialogue":[{"text":"你们看，墙上有影子！你们想不想自己做出影子？","speaker":"T"},{"text":"想！","speaker":"C"},{"text":"好，两个人一组，一个人拿手电筒，一个人用手做影子。试试看，手影会变吗？","speaker":"T"},{"text":"老师，我的手影变大了！","speaker":"C"},{"text":"哦？你是怎么让它变大的？","speaker":"T"},{"text":"我把手靠近手电筒了。","speaker":"C"},{"text":"那如果手离远一点呢？影子会不会变小？","speaker":"T"},{"text":"（尝试）变小了！","speaker":"C"},{"text":"你们发现了吗？手离手电筒近，影子大；离得远，影子小。那你们能用手做出小鸟的影子吗？","speaker":"T"},{"text":"我试试！可是不像小鸟。","speaker":"C"},{"text":"那怎么改一改，让它更像小鸟？","speaker":"T"},{"text":"手指分开一点，像翅膀。","speaker":"C"},{"text":"真棒！你们改一改，就做出小鸟了！","speaker":"T"}],"features":{"problem_source":"孩子们在户外活动时发现自己的影子会随着太阳位置变化，产生了好奇。老师抓住这个真实情境，引导幼儿探索影子的变化。","learning_experiences":["发现影子会变大变小、变长变短","尝试用手电筒和身体动作让影子发生变化","学习与同伴合作，共同完成影子造型","用简笔画或贴纸记录影子的变化"]},"age_group":"中班","extension":"在科学区投放手电筒和白色幕布，供幼儿自由探索手影；在美工区提供纸和笔，让幼儿画影子；在户外活动时继续观察不同时间影子的变化。","materials":["手电筒（4-5个）","白纸（每组一张大纸）","勾选表（每人一份）","贴纸（若干）","彩色笔（每组一盒）","户外场地（晴天）","教室（可遮光）"],"indicators":["能发现影子大小与光源距离有关","能运用简单工具（手电筒）进行探索","能在小组中合作完成任务"],"reflection":"幼儿可能一开始对手电筒的使用不熟练，需要教师示范。在探索过程中，幼儿可能只关注影子大小，而忽略形状变化，教师需引导。小组合作时，部分幼儿可能争抢手电筒，需要教师协调。下次可增加影子长度测量环节，引入非标准单位（如积木），加深数学经验。","duration_min":25},"version":1},"大班":{"id":3,"title":"搭高塔挑战","age_group":"大班","duration_min":30,"content_json":{"flow":[{"stage":"引起动机","detail":"老师展示两张图片：一张是比萨斜塔，一张是直立的塔。提问：\"你们见过塔吗？为什么比萨斜塔没有倒？\"引导幼儿观察塔的形状。然后老师拿出纸杯和硬纸板，说：\"今天我们要用这些材料来搭一座高塔，看看哪组搭得最高最稳！\"","minutes":5},{"stage":"发展活动","detail":"幼儿分成5-6人一组，每组一张桌子。老师示范如何用纸杯和硬纸板搭建：先放一个纸杯，再放一块纸板，再放纸杯……老师提问：\"怎样搭才能更稳？\"鼓励幼儿预测并说明理由。各组开始搭建，老师巡回观察，提醒幼儿注意安全。幼儿尝试搭建，记录每次的高度。","minutes":15},{"stage":"综合活动","detail":"各组分享搭建结果，展示最高的塔。老师引导讨论：\"你们组用了什么方法？有没有失败？怎么改进的？\"幼儿互相学习和借鉴。老师总结：\"底座要宽、要对称，才能更稳。\"","minutes":7},{"stage":"延伸活动","detail":"老师提出新问题：\"如果只能用纸杯，不用硬纸板，你们还能搭多高？\"鼓励幼儿在区角继续探索。幼儿将记录表收好，准备下次继续。","minutes":3}],"steam":{"A":"艺术：设计塔的造型，用彩笔装饰记录表。","E":"工程：通过调整底座大小和结构来优化塔的稳定性。","M":"数学：比较不同搭建方法的高度数字，学习记录数据。","S":"科学：探索物体稳定性的条件（重心、底座大小）。","T":"技术：使用直尺测量高度，学习正确读数。"},"title":"搭高塔挑战","safety":["提醒幼儿使用直尺时不要挥舞，避免戳到同伴。","搭建时注意纸杯和纸板不要扔向他人。","小组内轮流操作，避免拥挤和争抢。","如果塔倒塌，及时清理碎片，保持桌面整洁。"],"dialogue":[{"text":"你们组打算怎么搭？先搭底座还是先搭上面？","speaker":"T"},{"text":"我们要把纸杯放得密一点，这样底座就大了，塔就不会倒。","speaker":"C"},{"text":"你们搭到多高了？用直尺量一量，把数字记在表格上。","speaker":"T"},{"text":"我们搭了30厘米！但是刚才倒了，因为纸板没放平。","speaker":"C"},{"text":"那你们准备怎么改进？","speaker":"T"},{"text":"我们把纸板放正，再轻轻放纸杯，这次要小心一点。","speaker":"C"}],"features":{"problem_source":"幼儿在建构区常常用积木搭高，但搭到一定高度就会倒塌，他们会产生好奇：怎样才能搭得更高更稳？这个真实问题源于幼儿的日常游戏情境。","learning_experiences":["体验合作与分工，学会协商和互相帮助。","探索不同形状的材料对结构稳定性的影响。","学习使用直尺测量高度，并记录数字。","经历失败与改进的过程，培养坚持和反思的能力。","发展空间想象力和创造力。"]},"age_group":"大班","extension":"在建构区投放更多材料（如木块、纸盒），鼓励幼儿继续探索不同材料的搭建方法，并尝试用图画记录自己的搭建过程。","materials":["纸杯（50个）","硬纸板（20张，15cm×15cm）","直尺（5把）","记录表（每组1张，含表格）","彩笔（每组1盒）","小贴纸（用于标记高度）"],"indicators":["能主动参与小组活动，与同伴合作分工。","能使用直尺测量物体高度，并记录数字。","能在搭建过程中发现问题并尝试改进。","能用语言描述自己的搭建过程和结果。"],"reflection":"预期幼儿能搭出较高的塔，但实际可能因底座不稳而频繁倒塌。需要重点观察幼儿是否能合作分工、是否会用直尺测量。下次活动可提供更多不同形状的材料，引导幼儿进一步探索结构稳定性。","duration_min":30},"version":1}},"seeds":{"小班":"我想做个浮与沉的活动","中班":"我想做个影子的活动","大班":"我想做个搭高塔的活动"},"revise":{"feedback":"我们班只有12个孩子，而且只有一个水盆，分组轮流会等太久","ack":"明白，12个孩子一个盆确实会等太久。","questions":[{"id":"r1_1","title":"12个孩子怎么分组？","hint":"选择一个合适的分组方式","multi":false,"allow_custom":true,"options":[{"k":"A","l":"全班一起玩","s":"12人围一盆，老师引导"},{"k":"B","l":"分两组轮流","s":"每组6人，时间减半"},{"k":"C","l":"分三组轮流","s":"每组4人，等待时间短"}]},{"id":"r1_2","title":"材料数量够吗？","hint":"每个孩子需要能同时操作","multi":false,"allow_custom":true,"options":[{"k":"A","l":"材料够12人","s":"每人至少一个浮一个沉"},{"k":"B","l":"材料只够6人","s":"需要补充材料"},{"k":"C","l":"用现有材料","s":"可能需轮流操作"}]},{"id":"r1_3","title":"要不要拆成两场？","hint":"每场6人，时间更充裕","multi":false,"allow_custom":true,"options":[{"k":"A","l":"拆成两场","s":"每场6人，各7-8分钟"},{"k":"B","l":"不拆，一场搞定","s":"全班一起，时间紧凑"},{"k":"C","l":"看情况","s":"根据现场调整"}]}],"answered":["全班一起玩","材料够12人","拆成两场"],"before":{"title":"浮起来沉下去","duration_min":15,"content_json":{"flow":[{"stage":"引起动机","detail":"老师出示一个装满水的透明盆，放入一块积木，积木浮在水上。老师问：‘你们看，积木怎么了？’引导幼儿观察。然后放入一块石头，石头沉下去了。老师问：‘石头呢？’幼儿会回答‘沉下去了’。老师总结：‘有的东西会浮起来，有的会沉下去，我们一起来试一试吧！’","minutes":3},{"stage":"发展活动","detail":"老师将幼儿分成4-6人一组，每组一个水盆，提供多种材料（积木、塑料鸭、石头、瓶盖、勺子）。老师先示范：拿起一个塑料鸭，轻轻放入水中，观察它是浮还是沉。然后请幼儿自由选择材料放入水中，观察现象。老师巡回指导，鼓励幼儿说出‘浮’或‘沉’，并引导他们比较不同材料。当幼儿发现有的材料浮、有的沉时，老师提议：‘我们把浮起来的东西放在这个盘子里，沉下去的东西放在另一个盘子里。’幼儿动手分类，老师用贴纸奖励。","minutes":9},{"stage":"综合活动","detail":"老师请幼儿围坐在一起，指着两个盘子问：‘这个盘子里都是什么？’幼儿回答‘浮起来的’。老师问：‘你最喜欢哪个？’幼儿自由发言。老师总结：‘今天我们发现，有的东西会浮起来，有的会沉下去，真有趣！’最后，老师提醒幼儿洗手，并表扬他们爱动手。","minutes":3}],"steam":{"A":"感受物体在水中的美感，用贴纸装饰分类盘","E":"本次未涉及","M":"比较物体的浮沉，并进行简单的分类（浮/沉）","S":"感知物体在水中的浮沉现象，了解不同材料的特性","T":"学习使用水盆、盘子等工具进行观察和分类"},"title":"浮起来沉下去","safety":["所有材料尺寸必须大于幼儿口腔，防止误食，如积木、石头等不得小于3厘米。","水盆深度不超过10厘米，防止幼儿溺水风险。","活动前明确规则：不能把水洒到地上，不能跑动，只能在指定区域玩水。","老师全程监护，确保幼儿不将材料放入口中。"],"dialogue":[{"text":"小朋友们，看，老师把积木放进水里，积木怎么了？","speaker":"T"},{"text":"浮起来了！","speaker":"C"},{"text":"那石头呢？","speaker":"T"},{"text":"沉下去了。","speaker":"C"},{"text":"你来试试这个塑料鸭，轻轻放进去。","speaker":"T"},{"text":"（放入水中）浮的！","speaker":"C"},{"text":"你试试这个勺子。","speaker":"T"},{"text":"（放入水中）沉了。","speaker":"C"},{"text":"我们把浮起来的放在这个盘子，沉下去的放在那个盘子。","speaker":"T"}],"features":{"problem_source":"孩子平时在洗手或玩水时，对物体在水中的现象充满好奇，经常把东西放进水里看它浮起来还是沉下去。老师抓住这个兴趣点，设计成集体探究活动，让孩子在安全的玩水情境中自由探索。","learning_experiences":["感受不同物体在水中的浮沉现象","愿意动手试一试，体验探究的乐趣","学习用简单的语言或动作表达自己的发现","尝试将物体按浮沉分类"]},"age_group":"小班","extension":"在户外玩水池中，提供更多自然材料（树叶、树枝、花瓣等），让幼儿继续探索浮沉现象，并尝试用不同材料组合，观察是否改变浮沉。","materials":["大塑料盆（装水，水深约10cm）2个","积木（木质，大于幼儿口腔）若干","塑料小鸭子（浮）若干","石头（光滑，大于幼儿口腔）若干","塑料瓶盖（浮）若干","金属勺子（沉）若干","贴纸（星星、花朵）若干","大盘子（用于分类）2个"],"indicators":["能观察并说出物体的浮沉现象（科学）","能按浮沉特征进行分类（数学）"],"reflection":"可能有些幼儿会一直玩水，不关注分类；或者有的幼儿不敢动手，需要老师鼓励。重点观察幼儿是否能说出‘浮’‘沉’，以及分类是否正确。如果幼儿兴趣浓厚，可以延长活动时间，但不超过25分钟。下次可以提供更多材料，如海绵、软木塞等，增加探索的多样性。","duration_min":15},"version":1},"after":{"title":"浮起来沉下去","duration_min":15,"content_json":{"flow":[{"stage":"引起动机","detail":"老师出示积木和石头，问：'猜猜哪个会浮起来？' 幼儿自由回答。然后老师把积木放入水中，观察它浮起来，再放石头，观察沉下去。老师引导：'积木浮起来，石头沉下去。' 接着告诉幼儿：'我们来玩一玩，看看还有什么东西会浮起来，什么会沉下去。'","minutes":3},{"stage":"发展活动","detail":"老师把幼儿分成两组，每组6人，围在水盆周围。老师先示范：把一个塑料小碗放入水中，请幼儿观察并说'浮起来'或'沉下去'。然后让每个幼儿轮流拿一样材料（积木、石头、海绵、碗）放入水中，观察并说出浮沉。老师引导幼儿比较：'为什么积木浮起来，石头沉下去？'（不要求准确答案）。之后，老师再让幼儿再玩一次，这次鼓励幼儿尝试把浮起来的东西按下去，或把沉下去的东西放在浮的东西上面，看看会怎样。最后，幼儿用贴纸在记录纸上贴出结果（浮起来的贴笑脸，沉下去的贴星星）。","minutes":10},{"stage":"综合活动","detail":"老师请幼儿说一说自己刚才玩了什么，什么东西浮起来，什么东西沉下去。老师总结：'今天我们发现了，有的东西会浮起来，有的会沉下去。' 最后提醒幼儿洗手，擦干。","minutes":2}],"steam":{"A":"用贴纸装饰记录纸，表达观察结果。","E":"本次未涉及","M":"比较浮起来和沉下去物体的数量，感知多和少。","S":"物体在水中的浮沉现象，密度和浮力的初步感知。","T":"使用水盆、贴纸记录等工具。"},"title":"浮起来沉下去","safety":["所有材料尺寸均大于幼儿口腔（直径大于5cm），防止误食。","水盆放在地上或低矮桌上，水深不超过10cm，确保幼儿视线可及，避免俯身过度。","活动前和幼儿约定：'小手不推人，不把水泼到外面。' 若发现乱跑，及时提醒并引导回座位。","准备毛巾，活动后立即擦干手和桌面，防止滑倒。"],"dialogue":[{"text":"小朋友，看，老师把积木放进水里，积木怎么样了？","speaker":"T"},{"text":"浮起来！","speaker":"C"},{"text":"那石头放进水里呢？","speaker":"T"},{"text":"沉下去。","speaker":"C"},{"text":"现在你来试试这个海绵，轻轻放进去。","speaker":"T"},{"text":"（放海绵）浮起来。","speaker":"C"},{"text":"哎呀，我按了一下海绵，它沉下去了，再松开手，又浮起来了。你试试看。","speaker":"T"},{"text":"（按海绵）沉下去！（松开）浮起来！","speaker":"C"},{"text":"真棒！现在把贴纸贴到记录纸上，浮起来的贴笑脸，沉下去的贴星星。","speaker":"T"}],"features":{"problem_source":"老师提到孩子玩水容易乱跑，但幼儿天生喜欢玩水，因此设计一个能让他们专心探索浮沉现象的活动，通过有结构的材料投放和规则约定，既满足幼儿的好奇心，又控制常规。","learning_experiences":["能观察并说出物体在水中的浮沉现象。","愿意动手将不同物体放入水中试一试。","能尝试用积木等材料改变物体浮沉。","体验用贴纸记录实验结果，感受记录的有趣。"]},"age_group":"小班","extension":"在户外玩水池中，提供更多自然材料（树叶、树枝、石头等），让幼儿继续探索浮沉，并尝试用篮子捞取浮起来的物品。","materials":["大塑料盆1个（装水约半满）","积木（大块，边长大于5cm）12块","塑料小碗（直径大于5cm）12个","石头（每块大于5cm）12个","海绵（大块）12块","毛巾（大块）若干用于擦手","贴纸（笑脸和星星）若干","记录纸（每张画有物品轮廓）12张","防水围裙12件"],"indicators":["能观察并描述物体的浮沉现象（科-小-1）","能使用贴纸进行简单记录（认-小-2）"],"reflection":"预期幼儿能安静轮流操作，但可能由于兴奋出现争抢，需要老师反复提醒规则。重点观察幼儿是否能区分浮沉，能否用语言或动作表达。可能有些幼儿会反复将物体按入水中，这是正常探索，应给予时间。下次可增加不同形状的积木，引导观察形状是否影响浮沉。","duration_min":15},"version":2}}};
+const QUESTIONS = RAW.questions;   // { 小班:[5题], 中班:[...], 大班:[...] }
+const PLANS = RAW.plans;           // { 小班:{...}, 中班:{...}, 大班:{...} }
+const SEEDS = RAW.seeds;           // 每个班当初输入的那句想法
+const REVISE = RAW.revise;         // 真实跑出来的一轮「改一改」
 
 /* ============ 图标（全部 inline SVG，无 emoji —— 设计约束） ============ */
 const IC = {
@@ -430,6 +469,11 @@ const S = {
   sel: [],            // 当前题选中的 key
   libState: 'all', libAge: 'all',
   genStep: 0,
+  // 改一改
+  revFeedback: '', revQi: 0, revSel: [], revOwnOpen: false, revOwnText: '',
+  revAnswers: [], revDone: false, revStarted: false,
+  // 设置（真的能点，状态存在这里）
+  settings: { defaultAge: '小班', tplFormat: '表格式', autoImage: false, notify: true },
   memories: [
     { fact:'该老师主要带小班', type:'年龄班专长', pinned:false },
     { fact:'该老师注重活动材料的安全性', type:'教学风格', pinned:false },
@@ -439,10 +483,14 @@ const S = {
   ],
   done: [],           // 已完成的教案（年龄班名数组）
 };
-const TOTAL_Q = 11;
-const ROUND_OF = (i) => i < 4 ? 1 : i < 8 ? 2 : 3;
-const IN_ROUND = { 1:4, 2:4, 3:3 };
-const IDX_IN_ROUND = (i) => i < 4 ? i+1 : i < 8 ? i-3 : i-7;
+/* 5 题分三轮：2 / 2 / 1。
+   原先是 11 题（4/4/3）—— 首页写着「分 2–3 轮问你几个问题」，实际问 11 题，是骗人。
+   砍掉的六项（材料、流程、提问、安全、评估、延伸）改由 AI 按教学框架和年龄班规则自己出，
+   判断标准只有一条：只问 AI 猜不到的，不问 AI 本来就该会的。 */
+const TOTAL_Q = 5;
+const ROUND_OF = (i) => i < 2 ? 1 : i < 4 ? 2 : 3;
+const IN_ROUND = { 1:2, 2:2, 3:1 };
+const IDX_IN_ROUND = (i) => i < 2 ? i+1 : i < 4 ? i-1 : 1;
 
 const app = document.getElementById('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -476,14 +524,25 @@ function topbar(title, backTo) {
 /* ============ 路由 ============ */
 const SCREENS = {
   home:       { label:'① 首页',      sub:'只是一个对话框' },
-  guide:      { label:'② 引导对话',   sub:'一次只问一题 · 可点选' },
+  guide:      { label:'② 引导对话',   sub:'一共 5 题 · 分 3 轮' },
   generating: { label:'③ 生成中',     sub:'异步 · 可以离开' },
   plan:       { label:'④ 教案成稿',   sub:'年龄班差异最明显' },
-  library:    { label:'⑤ 教案库',     sub:'草稿与已完成' },
-  me:         { label:'⑥ 我的',       sub:'记忆最多 10 条' },
+  revise:     { label:'⑤ 改一改',     sub:'说哪里不对 · 再问 3 题' },
+  library:    { label:'⑥ 教案库',     sub:'草稿与已完成' },
+  me:         { label:'⑦ 我的',       sub:'记忆最多 10 条' },
+  settings:   { label:'⑧ 设置',       sub:'默认值 · 配图 · 隐私' },
 };
 function go(s) {
-  if (s === 'plan' && !S.age) { S.age = '小班'; if (!S.done.includes('小班')) S.done.push('小班'); }
+  if ((s === 'plan' || s === 'revise') && !S.age) {
+    S.age = '小班';
+    if (!S.done.includes('小班')) S.done.push('小班');
+  }
+  // 「改一改」只带了小班那份的真实数据（见页面顶部说明），从别的班点进来先切过去
+  if (s === 'revise' && S.age !== '小班') {
+    S.age = '小班';
+    if (!S.done.includes('小班')) S.done.push('小班');
+    setTimeout(() => toast('原型的「改一改」只跑了小班这一份真数据，已经帮你切过来了'), 300);
+  }
   if (s === 'generating') { S.genStep = 0; }
   S.screen = s; render();
   if (s === 'generating') runGeneration();
@@ -500,8 +559,12 @@ function render() {
   renderNav();
   app.innerHTML = ({
     home: scHome, guide: scGuide, generating: scGenerating,
-    plan: scPlan, library: scLibrary, me: scMe,
+    plan: scPlan, revise: scRevise, library: scLibrary, me: scMe, settings: scSettings,
   })[S.screen]();
+  const fb = app.querySelector('#fbInput');
+  if (fb) { fb.value = S.revFeedback; fb.oninput = e => { S.revFeedback = e.target.value; syncFb(); }; }
+  const ro = app.querySelector('#revOwnInput');
+  if (ro) { ro.value = S.revOwnText; ro.focus(); ro.oninput = e => { S.revOwnText = e.target.value; }; }
   const ta = app.querySelector('#seedInput');
   if (ta) { ta.value = S.seed; ta.oninput = e => { S.seed = e.target.value; syncStart(); }; }
   const oi = app.querySelector('#ownInput');
@@ -510,7 +573,8 @@ function render() {
 
 /* ============ ① 首页 —— 只是一个对话框，不放任何历史入口 ============ */
 function scHome() {
-  const seeds = ['浮与沉','影子','磁铁','植物'];
+  // 前三个是原型里真跑过的主题（小班/中班/大班各一），第四个用来说明其余主题同样能走
+  const seeds = ['浮与沉','影子','搭高塔','磁铁'];
   return `${capsule()}
   <div class="scroll"><div class="grid" style="padding:44px 0 26px">
     <div class="rail"><div class="tick on" style="top:104px">01</div></div>
@@ -580,11 +644,10 @@ function scGuide() {
       <div class="meta" style="margin-bottom:14px">${esc(q.hint || '')}</div>
 
       ${q.options.map(o => {
-        const na = o.l === '中班';
         const sel = S.sel.includes(o.k);
-        return `<button class="opt ${sel?'sel':''} ${na?'na':''}" ${na?'':`onclick="pick('${o.k}')"`}>
+        return `<button class="opt ${sel?'sel':''}" onclick="pick('${o.k}')">
           <span class="key">${o.k}</span>
-          <span class="txt">${esc(o.l)}${o.s || na ? `<span class="sub">${na ? '原型没带中班数据 · 正式版三个班齐全' : esc(o.s)}</span>`:''}</span>
+          <span class="txt">${esc(o.l)}${o.s ? `<span class="sub">${esc(o.s)}</span>`:''}</span>
           ${IC.check}
         </button>`;
       }).join('')}
@@ -596,8 +659,10 @@ function scGuide() {
 
       ${q.multi ? `<div style="background:var(--mint-soft);border-radius:10px;padding:8px 11px;font-size:12.5px;color:var(--ink-2);margin-top:3px">
         可以多选，也可以一个都不选</div>` : ''}
-      ${q.id === 'q3' ? `<div style="background:var(--sky-soft);border-radius:10px;padding:8px 11px;font-size:12.5px;color:var(--ink-2);margin-top:8px;line-height:1.6">
+      ${q.id === 'q4' ? `<div style="background:var(--sky-soft);border-radius:10px;padding:8px 11px;font-size:12.5px;color:var(--ink-2);margin-top:8px;line-height:1.6">
         这三个时长是<b>代码按${S.age||'小班'}参数表算出来的</b>，不是模型给的 —— 选${S.age||'小班'}，界面上就不会出现更长的选项。</div>` : ''}
+      ${q.id === 'q5' ? `<div style="background:var(--mint-soft);border-radius:10px;padding:8px 11px;font-size:12.5px;color:var(--ink-2);margin-top:8px;line-height:1.6">
+        最后一题。<b>材料、流程、要问孩子什么、安全、评估、延伸</b>都不问你了 —— 那些我按教学框架和${S.age||'小班'}的规则自己定，写好了你再改。</div>` : ''}
     </div>
   </div></div>
   <div class="dock">
@@ -654,10 +719,11 @@ let genTimer = null;
 
 function scGenerating() {
   const age = S.age || '小班';
-  const secs = age === '小班' ? 14 : 20;
+  const secs = GEN_SECS[age] || 16;
   const done = S.genStep >= GEN_STEPS.length;
+  const isRev = S.revDone && S.revQi >= (REVISE?.questions?.length || 3);
   return `${capsule()}
-  ${topbar('正在生成教案', 'guide')}
+  ${topbar(isRev ? '正在按你说的改' : '正在生成教案', isRev ? 'plan' : 'guide')}
   <div class="scroll"><div class="grid" style="padding:12px 0 24px">
     <div class="rail">${GEN_STEPS.map((_,i)=>`<div class="tick ${i<=S.genStep?'on':''}" style="top:${150+i*34}px">0${i+1}</div>`).join('')}</div>
     <div class="col">
@@ -693,10 +759,13 @@ function scGenerating() {
   <div class="dock"><button class="btn btn-ghost" onclick="go('guide')">不生成了，回去改答案</button></div>`;
 }
 
-function runGeneration() {
+/** 实测耗时（秒），照搬 npm run smoke 跑出来的数 */
+const GEN_SECS = { 小班: 16, 中班: 20, 大班: 16 };
+
+function runGeneration(isRevise = false) {
   clearInterval(genTimer);
   const age = S.age || '小班';
-  const per = (age === '小班' ? 14000 : 20000) / GEN_STEPS.length;
+  const per = (GEN_SECS[age] || 16) * 1000 / GEN_STEPS.length;
   genTimer = setInterval(() => {
     if (S.screen !== 'generating') { clearInterval(genTimer); return; }
     S.genStep += 1;
@@ -704,7 +773,10 @@ function runGeneration() {
       clearInterval(genTimer);
       if (!S.done.includes(age)) S.done.push(age);
       render();
-      setTimeout(() => { if (S.screen === 'generating') go('plan'); }, 900);
+      setTimeout(() => {
+        if (S.screen !== 'generating') return;
+        go(isRevise ? 'revise' : 'plan');
+      }, 900);
     } else render();
   }, per);
 }
@@ -718,7 +790,10 @@ const STEAM_CN = { S:'科学', T:'技术', E:'工程', A:'艺术', M:'数学' };
 
 function scPlan() {
   const age = S.age || '小班';
-  const p = PLANS[age], c = p.content_json;
+  // 小班这份改过稿之后，成稿页显示的是改后那版（v2）—— 跟真实产品一样，改完就地覆盖
+  const revised = age === '小班' && S.revDone;
+  const p = revised ? { ...PLANS[age], ...REVISE.after } : PLANS[age];
+  const c = p.content_json;
   const skipped = Object.entries(c.steam).filter(([k,v]) => /未涉及|不涉及/.test(String(v))).map(([k]) => k);
 
   return `${capsule()}
@@ -728,11 +803,18 @@ function scPlan() {
       <div class="tick on" style="top:250px">S</div></div>
     <div class="col">
       <div class="focus-q" style="font-size:21px;line-height:1.4;margin-bottom:9px">${esc(c.title)}</div>
-      <div style="display:flex;gap:6px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:${revised?10:16}px;flex-wrap:wrap">
         <span class="chip static on">${age}</span>
         <span class="chip static">${p.duration_min} 分钟</span>
         <span class="badge-done"><i></i>已保存</span>
+        ${revised ? `<span class="chip static" style="background:var(--sky-soft);border-color:var(--sky)">第 ${REVISE.after.version} 版</span>` : ''}
       </div>
+      ${revised ? `<div class="rev-note">
+        <div class="hd">已按你说的改过</div>
+        <div class="fb">「${esc(REVISE.feedback)}」</div>
+        <div class="dl">改动：材料从 ${REVISE.before.content_json.materials.length} 样调整为 ${REVISE.after.content_json.materials.length} 样，水盆按 1 个安排；
+          你选的「${esc(REVISE.answered.join('、'))}」都落进去了。</div>
+      </div>` : ''}
 
       <div class="sec-h"><span class="h">STEAM 五域标注</span>
         <span class="m">${5 - skipped.length} 域有内容${skipped.length ? ' · ' + skipped.length + ' 域刻意不做' : ' · 五域齐全'}</span></div>
@@ -782,10 +864,9 @@ function scPlan() {
   </div></div>
   <div class="dock">
     <div class="btn-row">
-      <button class="btn btn-mint" style="flex:1.25" onclick="notDone('配图')">生成配图</button>
+      <button class="btn btn-p" style="flex:1.5" onclick="go('revise')">哪里不对？改一改</button>
+      <button class="btn btn-mint" style="flex:1.2" onclick="notDone('配图')">生成配图</button>
       <button class="btn btn-sm" onclick="notDone('导出 Word')">导出</button>
-      <button class="btn btn-sm" onclick="notDone('分享')">分享</button>
-      <button class="btn btn-sm" onclick="toast('已经存好了 —— 每答一题就存一次，不用手动保存')">保存</button>
     </div>
   </div>`;
 }
@@ -799,11 +880,209 @@ function notDone(what) {
 }
 window.notDone = notDone; window.toast = toast;
 
-/* ============ ⑤ 教案库 —— 草稿与已完成都在这里 ============ */
+/* ============ ⑤ 改一改 ============
+   老师说哪里不对 → AI 提 3 个**新**问题 → 重新生成。
+   「新」是这里唯一不能破的规则：她已经答过一轮了，把同样的问题再端回她面前，
+   等于告诉她「你的反馈我没读懂」，提意见这件事会立刻变得不值得做。 */
+const GUIDE_TITLES = () => (QUESTIONS['小班'] || []).map(q => q.title);
+
+function scRevise() {
+  // 三段式：还没说 → 正在答追问 → 改完了
+  if (!S.revStarted) return reviseAsk();
+  if (S.revQi < REVISE.questions.length) return reviseQuestion();
+  return reviseDone();
+}
+
+/** 第一段：说哪里不对 */
+function reviseAsk() {
+  const p = PLANS['小班'];
+  return `${capsule()}
+  ${topbar('改一改', 'plan')}
+  <div class="scroll"><div class="grid" style="padding:14px 0 24px">
+    <div class="rail"><div class="tick on" style="top:120px">01</div></div>
+    <div class="col">
+      <div class="focus-kicker" style="margin-bottom:6px">《${esc(p.content_json.title)}》</div>
+      <div class="focus-q" style="font-size:20px;line-height:1.5;margin-bottom:8px">哪里不对？说给我听</div>
+      <div class="meta" style="margin-bottom:14px">不用写得工整，怎么想的就怎么说。我会再问你三个问题，然后整份重写。</div>
+
+      <div class="ask">
+        <textarea id="fbInput" rows="3" placeholder="例：我们班只有12个孩子，而且只有一个水盆，分组轮流会等太久"></textarea>
+        <div class="seeds"><span class="lb">常见</span>
+          ${['孩子人数对不上','材料我们没有','时间不够用','太难了'].map(t =>
+            `<button class="chip" onclick="fillFb('${t}')">${t}</button>`).join('')}
+        </div>
+      </div>
+
+      <div class="mem-cap" style="margin-top:14px">
+        接下来这三个问题<b>不会重复问你答过的那五题</b>——除非你这句话明确指向其中某一题
+        （比如「时长还是改回 20 分钟」），那才会重新确认。
+      </div>
+    </div>
+  </div></div>
+  <div class="dock">
+    <button class="btn btn-p" id="fbBtn" onclick="startRevise()" ${S.revFeedback.trim()?'':'disabled'}>
+      就这些，问我三个问题 ${IC.arrow}</button>
+    <button class="btn btn-ghost" onclick="go('plan')">算了，不改了</button>
+  </div>`;
+}
+
+/** 第二段：答 3 道追问 */
+function reviseQuestion() {
+  const q = REVISE.questions[S.revQi];
+  const n = REVISE.questions.length;
+  const last = S.revAnswers[S.revAnswers.length - 1];
+  const dup = GUIDE_TITLES().includes(q.title);
+
+  return `${capsule()}
+  ${topbar('改一改', 'plan')}
+  <div style="padding:0 20px 9px;display:flex;align-items:center;justify-content:space-between">
+    <div class="prog"><div class="bars">${Array.from({length:n},(_,i)=>
+      `<i class="${i<S.revQi?'done':i===S.revQi?'now':''}"></i>`).join('')}</div>
+      <div class="lb">追问 <b>${S.revQi+1}/${n}</b></div></div>
+    <div class="meta">改完直接重写</div>
+  </div>
+  <div class="scroll"><div class="grid" style="padding:8px 0 24px">
+    <div class="rail">${Array.from({length:n},(_,i)=>
+      `<div class="tick dot ${i<=S.revQi?'on':''}" style="top:${150+i*30}px"></div>`).join('')}</div>
+    <div class="col">
+      <div class="answered">
+        <div class="q">你说的是</div>
+        <div class="chips"><span class="chip on">${esc(S.revFeedback)}</span></div>
+      </div>
+      <div style="background:var(--mint-soft);border-radius:10px;padding:9px 12px;font-size:13px;
+                  color:var(--ink-2);margin-bottom:16px;line-height:1.6">${esc(REVISE.ack)}</div>
+
+      ${last ? `<div class="answered"><div class="q">${esc(last.title)}</div>
+        <div class="chips"><span class="chip on">${esc(last.text)}</span></div></div>` : ''}
+
+      <div class="focus-kicker" style="margin-bottom:6px">追问 ${S.revQi+1}</div>
+      <div class="focus-q" style="font-size:19px;line-height:1.5;margin-bottom:6px">${esc(q.title)}</div>
+      <div class="meta" style="margin-bottom:14px">${esc(q.hint||'')}</div>
+
+      ${q.options.map(o => `<button class="opt ${S.revSel.includes(o.k)?'sel':''}" onclick="revPick('${o.k}')">
+        <span class="key">${o.k}</span>
+        <span class="txt">${esc(o.l)}${o.s?`<span class="sub">${esc(o.s)}</span>`:''}</span>
+        ${IC.check}
+      </button>`).join('')}
+
+      ${S.revOwnOpen
+        ? `<textarea id="revOwnInput" class="own-input" rows="2" placeholder="说说你的想法…"></textarea>`
+        : `<button class="opt own" onclick="revOpenOwn()"><span class="key">${String.fromCharCode(65+q.options.length)}</span>
+             <span class="txt">我自己说 —— 点这里打字</span></button>`}
+
+      <div style="background:${dup?'var(--amber-soft)':'var(--sky-soft)'};border-radius:10px;padding:8px 11px;
+                  font-size:12.5px;color:var(--ink-2);margin-top:6px;line-height:1.6">
+        ${dup ? '这题引导阶段问过 —— 因为你的反馈直接指向了它，所以重新确认一次。'
+              : '这题引导阶段<b>没问过</b>你，是读了你刚才那句话之后才想到要问的。'}
+      </div>
+    </div>
+  </div></div>
+  <div class="dock">
+    <button class="btn btn-p" onclick="revNext()" ${S.revSel.length||S.revOwnText.trim()?'':'disabled'}>
+      ${S.revQi === n-1 ? '答完了 · 重新生成' : '下一题'} ${IC.arrow}</button>
+  </div>`;
+}
+
+/** 第三段：改完了 */
+function reviseDone() {
+  const b = REVISE.before, a = REVISE.after;
+  const diff = [
+    ['标题', b.title, a.title],
+    ['时长', b.duration_min + ' 分钟', a.duration_min + ' 分钟'],
+    ['环节', b.content_json.flow.length + ' 个', a.content_json.flow.length + ' 个'],
+    ['材料', b.content_json.materials.length + ' 样', a.content_json.materials.length + ' 样'],
+  ];
+  return `${capsule()}
+  ${topbar('改好了', 'plan')}
+  <div class="scroll"><div class="grid" style="padding:14px 0 24px">
+    <div class="rail"><div class="tick on" style="top:110px">✓</div></div>
+    <div class="col">
+      <div class="focus-q" style="font-size:20px;line-height:1.45;margin-bottom:8px">按你说的改好了</div>
+      <div class="meta" style="margin-bottom:16px">整份重写，版本号 v${b.version} → v${a.version}。原来那版不保留 —— 改稿是覆盖，不是分支。</div>
+
+      <div class="answered" style="margin-bottom:16px">
+        <div class="q">你提的</div>
+        <div class="chips"><span class="chip on">${esc(REVISE.feedback)}</span></div>
+      </div>
+
+      <div class="sec-h"><span class="h">你选的三个答案</span></div>
+      ${REVISE.questions.map((q,i)=>`<div class="list-dot">${esc(q.title)} → <b>${esc(REVISE.answered[i])}</b></div>`).join('')}
+
+      <div class="hr" style="margin:16px 0"></div>
+      <div class="sec-h"><span class="h">改了什么</span><span class="m">前 → 后</span></div>
+      ${diff.map(([k,x,y])=>`<div class="diff-row"><span class="dk">${k}</span>
+        <span class="dv ${x===y?'same':''}">${esc(x)}</span>
+        <span class="da">${x===y?'没动':'→'}</span>
+        <span class="dv ${x===y?'same':'new'}">${x===y?'':esc(y)}</span></div>`).join('')}
+
+      <div class="mem-cap" style="margin-top:14px">
+        改稿意见会一直留着。下次再改时它们也会一并交给模型 ——
+        不然整份重写时，它会把这次改好的地方按默认写法又改回去。
+      </div>
+    </div>
+  </div></div>
+  <div class="dock">
+    <button class="btn btn-p" onclick="go('plan')">看改后的教案 ${IC.arrow}</button>
+    <button class="btn btn-ghost" onclick="resetRevise()">再改一轮</button>
+  </div>`;
+}
+
+function fillFb(t) {
+  const map = {
+    '孩子人数对不上': '我们班只有12个孩子，而且只有一个水盆，分组轮流会等太久',
+    '材料我们没有': '园里没有那么多水盆，能不能换成孩子自己带的塑料瓶',
+    '时间不够用': '15分钟太紧了，光是把材料发下去就要5分钟',
+    '太难了': '让孩子说出为什么会浮，我们班小朋友还讲不清楚',
+  };
+  S.revFeedback = map[t] || t; render();
+}
+function syncFb() { const b = document.getElementById('fbBtn'); if (b) b.disabled = !S.revFeedback.trim(); }
+function startRevise() {
+  if (!S.revFeedback.trim()) return;
+  S.revStarted = true; S.revQi = 0; S.revSel = []; S.revAnswers = []; S.revOwnOpen = false; S.revOwnText = '';
+  render();
+}
+function revPick(k) {
+  const q = REVISE.questions[S.revQi];
+  if (q.multi) S.revSel = S.revSel.includes(k) ? S.revSel.filter(x=>x!==k) : [...S.revSel, k];
+  else S.revSel = S.revSel.includes(k) ? [] : [k];
+  render();
+}
+function revOpenOwn() { S.revOwnOpen = true; render(); }
+function revNext() {
+  const q = REVISE.questions[S.revQi];
+  const labels = S.revSel.map(k => q.options.find(o=>o.k===k).l);
+  if (S.revOwnText.trim()) labels.push(S.revOwnText.trim());
+  if (!labels.length) return;
+  S.revAnswers.push({ title: q.title, text: labels.join('；') });
+  S.revSel = []; S.revOwnOpen = false; S.revOwnText = '';
+  S.revQi += 1;
+  if (S.revQi >= REVISE.questions.length) {
+    // 重新生成走的是跟首次生成同一条异步链路，所以这里也放同一个进度屏
+    S.revDone = true;
+    S.genStep = 0; S.screen = 'generating'; render(); runGeneration(true);
+    return;
+  }
+  render();
+}
+function resetRevise() {
+  S.revStarted = false; S.revFeedback = ''; S.revQi = 0; S.revSel = [];
+  S.revAnswers = []; S.revOwnOpen = false; S.revOwnText = '';
+  render();
+}
+window.fillFb = fillFb; window.startRevise = startRevise; window.revPick = revPick;
+window.revOpenOwn = revOpenOwn; window.revNext = revNext; window.resetRevise = resetRevise;
+
+/* ============ ⑥ 教案库 —— 草稿与已完成都在这里 ============ */
 function scLibrary() {
   const all = [
-    S.done.includes('小班') && { age:'小班', title:PLANS['小班'].content_json.title, state:'completed', date:'8 月 16 日' },
-    S.done.includes('大班') && { age:'大班', title:PLANS['大班'].content_json.title, state:'completed', date:'8 月 16 日' },
+    ...['小班','中班','大班'].filter(a => S.done.includes(a)).map(a => ({
+      age: a,
+      title: (a === '小班' && S.revDone ? REVISE.after : PLANS[a]).content_json.title,
+      state: 'completed',
+      date: '今天',
+      revised: a === '小班' && S.revDone,
+    })),
     S.age && !S.done.includes(S.age) && S.answers.length > 0 &&
       { age:S.age, title:S.seed.replace(/^我想做个/,'').replace(/活动$/,'')+'的活动', state:'draft',
         prog:`进行到第 ${ROUND_OF(S.qi)} 轮第 ${IDX_IN_ROUND(S.qi)} 题，还剩 ${TOTAL_Q-S.qi-1} 题`, date:'刚刚' },
@@ -836,6 +1115,7 @@ function scLibrary() {
         <div class="lib-card ${x.state==='draft'?'draft':''}" onclick="openFromLib('${x.age}','${x.state}')">
           <div class="b">
             ${x.state==='draft' ? `<span class="badge-draft">草稿</span>` : `<span class="badge-done"><i></i>已完成</span>`}
+            ${x.revised ? `<span class="chip static" style="background:var(--sky-soft);border-color:var(--sky);font-size:11.5px;padding:2px 8px">改过 1 次</span>` : ''}
             <span class="meta">${x.date} · ${x.age}</span>
           </div>
           <div class="t">${esc(x.title)}</div>
@@ -897,7 +1177,7 @@ function scMe() {
       </div>
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--rule)">
         <div style="display:flex;align-items:center;justify-content:space-between;font-size:14px;color:var(--ink-2);cursor:pointer"
-             onclick="toast('设置页原型没做')"><span>设置</span>${IC.chev}</div>
+             onclick="go('settings')"><span>设置</span>${IC.chev}</div>
       </div>
     </div>
   </div></div>
@@ -911,11 +1191,98 @@ function addMem() {
 }
 window.delMem = delMem; window.addMem = addMem;
 
+/* ============ ⑧ 设置 ============
+   只放老师真会改的东西。每一项都写清楚「改了会怎样」——
+   设置项最常见的失败是老师看不懂它影响什么，于是谁也不敢动。 */
+function scSettings() {
+  const st = S.settings;
+  const row = (label, val, onclick, sub) => `
+    <div class="set-row" onclick="${onclick}">
+      <span class="sl">${label}${sub?`<small>${sub}</small>`:''}</span>
+      <span class="sv">${esc(val)} ${IC.chev}</span>
+    </div>`;
+  const sw = (label, on, onclick, sub) => `
+    <div class="set-row" onclick="${onclick}">
+      <span class="sl">${label}${sub?`<small>${sub}</small>`:''}</span>
+      <span class="switch ${on?'on':''}"><i></i></span>
+    </div>`;
+
+  return `${capsule()}
+  ${topbar('设置', 'me')}
+  <div class="scroll"><div class="grid" style="padding:10px 0 24px">
+    <div class="rail">
+      <div class="tick on" style="top:60px">01</div>
+      <div class="tick" style="top:250px">02</div>
+      <div class="tick" style="top:420px">03</div>
+      <div class="tick" style="top:590px">04</div>
+    </div>
+    <div class="col">
+      <div class="sec-h"><span class="h">写教案时的默认值</span><span class="m">每次都能改</span></div>
+      ${row('默认年龄班', st.defaultAge, "cycleSet('defaultAge')", '开新教案时第 1 题预先选好')}
+      ${row('教案格式', st.tplFormat, "cycleSet('tplFormat')", '表格式适合打印，叙述式适合手机看')}
+      <div class="set-note">默认年龄班只是预选，第 1 题<b>还是会问你</b>——万一这次是给别的班写的。</div>
+
+      <div class="hr" style="margin:18px 0"></div>
+      <div class="sec-h"><span class="h">配图</span><span class="m">今天还能生成 10 张</span></div>
+      ${sw('写完自动配图', st.autoImage, "toggleSet('autoImage')", '关着的话，成稿后自己点「生成配图」')}
+      <div class="set-note">
+        图片是这个工具唯一明显要花钱的地方（一张约 2.5 分），所以默认关着，
+        每人每天最多 10 张。用的是 MiniMax 的 image-01。
+      </div>
+
+      <div class="hr" style="margin:18px 0"></div>
+      <div class="sec-h"><span class="h">通知与记忆</span></div>
+      ${sw('教案写好了通知我', st.notify, "toggleSet('notify')", '生成要十几秒，可以先去忙别的')}
+      ${row('我的记忆', S.memories.length + ' / 10 条', "go('me')", '写教案时会自动带上')}
+
+      <div class="hr" style="margin:18px 0"></div>
+      <div class="sec-h"><span class="h">隐私</span></div>
+      <div class="priv">
+        <div class="pi"><b>不存孩子的任何信息。</b>姓名、照片、观察记录、发展评估，一概不收。
+          你在教案里写的班级情况（比如「12个孩子」）只作为这次生成的上下文，不会存成孩子的档案。</div>
+        <div class="pi"><b>不存你的手机号和真实姓名。</b>登录只拿微信给的匿名标识，换台手机也认得出是你。</div>
+        <div class="pi"><b>对话正文不进日志。</b>服务器日志只记「谁在什么时候调了哪个接口、花了多久」，不记你说了什么。</div>
+        <div class="pi"><b>你输入的和 AI 写的都会过微信内容安全检查。</b>这是小程序上架的硬性要求。</div>
+      </div>
+      ${row('删除我的全部数据', '', "toast('原型没做真的删除。正式版会连教案、记忆、配图一起清掉，不可恢复')", '教案、记忆、配图一起清掉')}
+
+      <div class="hr" style="margin:18px 0"></div>
+      <div class="sec-h"><span class="h">关于</span></div>
+      <div class="meta" style="line-height:1.9">
+        文字模型：DeepSeek（deepseek-chat）<br>
+        图片模型：MiniMax image-01<br>
+        教学框架：从台湾 STEAM 教材提炼，已本地化为大陆幼教用语<br>
+        版本：原型 · 2026-08-17
+      </div>
+      <div class="set-note" style="margin-top:12px">
+        知识库只做<b>框架提炼</b>，不做原书全文检索——那样会有版权问题。
+        所以教案是按框架现写的，不是从书里抄的。
+      </div>
+    </div>
+  </div></div>
+  ${tabbar('me')}`;
+}
+const CYCLE = { defaultAge: ['小班','中班','大班'], tplFormat: ['表格式','叙述式'] };
+function cycleSet(k) {
+  const arr = CYCLE[k]; if (!arr) return;
+  S.settings[k] = arr[(arr.indexOf(S.settings[k]) + 1) % arr.length];
+  render();
+}
+function toggleSet(k) {
+  S.settings[k] = !S.settings[k];
+  if (k === 'autoImage' && S.settings[k]) toast('打开后每份教案会自动配一张图，每天上限 10 张');
+  render();
+}
+window.cycleSet = cycleSet; window.toggleSet = toggleSet;
+
 /* ============ 启动 ============ */
 document.getElementById('reset').onclick = () => {
   clearInterval(genTimer);
   Object.assign(S, { screen:'home', seed:'', age:null, qi:0, answers:[], ownOpen:false, ownText:'',
-    sel:[], libState:'all', libAge:'all', genStep:0, done:[] });
+    sel:[], libState:'all', libAge:'all', genStep:0, done:[],
+    revFeedback:'', revQi:0, revSel:[], revOwnOpen:false, revOwnText:'',
+    revAnswers:[], revDone:false, revStarted:false,
+    settings:{ defaultAge:'小班', tplFormat:'表格式', autoImage:false, notify:true } });
   S.memories = [
     { fact:'该老师主要带小班', type:'年龄班专长', pinned:false },
     { fact:'该老师注重活动材料的安全性', type:'教学风格', pinned:false },

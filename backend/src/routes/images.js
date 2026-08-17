@@ -13,7 +13,7 @@ import { query, queryOne } from '../db/pool.js';
 import { ok, asyncRoute, notFound, AppError, ErrorCode } from '../utils/errors.js';
 import { assertImageQuota } from '../middleware/rateLimit.js';
 import { taskQueue } from '../services/taskQueue.js';
-import { generateImage, uploadImage, buildImageUrl } from '../services/doubao.js';
+import { generateImage, uploadImage, buildImageUrl } from '../services/minimax.js';
 import { buildImagePrompt } from '../services/lessonGenerator.js';
 import { IMAGE_PROMPT_SYSTEM } from '../services/promptBuilder.js';
 import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
@@ -50,16 +50,19 @@ imagesRouter.post(
     const sectionKey = req.body?.section_key ? String(req.body.section_key).slice(0, 32) : null;
     const note = req.body?.note ? String(req.body.note).slice(0, 200) : '';
 
-    // 没配豆包或对象存储就在这里挡掉，别往下走。
+    // 没配 MiniMax 就在这里挡掉，别往下走。
     // 往下走的代价是实打实的：会先调一次 DeepSeek 把中文描述翻成英文提示词
     // （每次约 250 token），再到出图那步必然失败；而且 assertImageQuota 在下面，
     // 老师每天 10 张的额度会被这些注定失败的请求白白吃掉。
-    if (!config.doubao.configured || !config.storage.configured) {
+    //
+    // 这里只查 MiniMax，不查对象存储：没配对象存储时 uploadImage 会存到本地磁盘，
+    // 单机开发照样能把「生成→落地→显示」跑通（见 minimax.js 的 uploadImage）。
+    if (!config.minimax.configured) {
       throw new AppError(ErrorCode.NOT_IMPLEMENTED, {
         message: '配图功能还没开通，先用文字教案吧',
         detail: {
-          reason: !config.doubao.configured ? 'doubao_not_configured' : 'storage_not_configured',
-          hint: '在 .env 里填 DOUBAO_ACCESS_KEY_ID / DOUBAO_SECRET_ACCESS_KEY 和 OBJECT_STORAGE_* 那几项',
+          reason: 'minimax_not_configured',
+          hint: '在 .env 里填 MINIMAX_API_KEY',
         },
       });
     }
@@ -99,10 +102,10 @@ imagesRouter.post(
           system: IMAGE_PROMPT_SYSTEM,
         });
 
-        // 第二步：调豆包出图（目前会抛 not_implemented，见 services/doubao.js）
+        // 第二步：调 MiniMax image-01 出图，拿 base64 当场解成 buffer
         const img = await generateImage({ prompt });
 
-        // 第三步：传对象存储，库里只存 key
+        // 第三步：落地。配了对象存储就传云上，没配就存本地磁盘；两种都只回 object_key
         const { objectKey, bytes } = await uploadImage({ buffer: img.buffer, ext: 'png' });
 
         await query(

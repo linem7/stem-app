@@ -22,7 +22,113 @@ import { logger } from '../utils/logger.js';
 
 export const generateRouter = Router();
 
-const taskIdOf = (conversationId) => `gen_${conversationId}`;
+export const taskIdOf = (conversationId) => `gen_${conversationId}`;
+
+/**
+ * 把一次教案生成放进队列。首次生成和改稿重生成走的是同一个函数 ——
+ * 两边各写一遍的话，「生成完要顺手做的那几件事」（存稿、把 conversation 标成 completed、
+ * 触发记忆提取、失败时标 failed）迟早会漏掉一件，而且是只在改稿路径上漏，最难发现。
+ *
+ * 调用前请确保 conversation.status 已经置为 'generating'。
+ */
+export function enqueueLessonGeneration({ conv, teacher, memories, qaHistory }) {
+  const taskId = taskIdOf(conv.id);
+  setProgressHint(taskId, PROGRESS_HINTS.start);
+
+  taskQueue.enqueue({
+    id: taskId,
+    kind: 'generate_lesson',
+    run: async () => {
+      const plan = await generateLessonPlan({
+        conversation: conv,
+        teacher,
+        memories,
+        qaHistory,
+        onProgress: (key) => setProgressHint(taskId, PROGRESS_HINTS[key] || PROGRESS_HINTS.drafting),
+      });
+
+      // AI 输出也要过内容安全（api-spec 第 10 节）
+      const check = await msgSecCheck({
+        content: plan.content_md,
+        openid: teacher.openid,
+        scene: 3,
+        stage: 'ai_output',
+      });
+      if (!check.pass) throw contentBlockedError('ai_output');
+
+      // 重新生成时覆盖旧稿并把 version + 1（conversation_id 上有 UNIQUE 约束）
+      const saved = await queryOne(
+        `INSERT INTO lesson_plans
+           (conversation_id, teacher_id, title, age_group, duration_min, content_md, content_json, quality_self)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb)
+         ON CONFLICT (conversation_id) DO UPDATE SET
+           title        = EXCLUDED.title,
+           age_group    = EXCLUDED.age_group,
+           duration_min = EXCLUDED.duration_min,
+           content_md   = EXCLUDED.content_md,
+           content_json = EXCLUDED.content_json,
+           quality_self = EXCLUDED.quality_self,
+           version      = lesson_plans.version + 1,
+           updated_at   = now()
+         RETURNING id, version`,
+        [
+          conv.id,
+          teacher.id,
+          plan.title.slice(0, 128),
+          plan.age_group,
+          plan.duration_min,
+          plan.content_md,
+          JSON.stringify(plan.content_json),
+          JSON.stringify(plan.quality_self),
+        ]
+      );
+
+      await query(
+        `UPDATE conversations
+            SET status = 'completed',
+                title = $1,
+                age_group = COALESCE($2, age_group),
+                completed_at = now(),
+                updated_at = now()
+          WHERE id = $3`,
+        [plan.title.slice(0, 128), plan.age_group, conv.id]
+      );
+
+      logger.info('lesson_generated', {
+        conversation_id: conv.id,
+        lesson_plan_id: saved.id,
+        version: saved.version,
+        age_group: plan.age_group,
+        token_in: plan.tokenIn,
+        token_out: plan.tokenOut,
+        age_band_violations: plan.quality_self?.age_band_violations?.length ?? 0,
+      });
+
+      // 记忆提取是另一个独立任务：它失败了不该影响老师已经拿到的教案
+      taskQueue.enqueue({
+        id: `mem_${conv.id}`,
+        kind: 'extract_memory',
+        run: async () => {
+          const transcript = qaHistory.map((x) => `问：${x.question}\n答：${x.answer}`).join('\n');
+          await extractAndSaveMemories({
+            teacherId: teacher.id,
+            conversationId: conv.id,
+            transcript: `${conv.seed_input}\n${transcript}`,
+          });
+        },
+      });
+    },
+    onError: async (err) => {
+      await query(`UPDATE conversations SET status = 'failed', updated_at = now() WHERE id = $1`, [conv.id]);
+      logger.error('lesson_generate_failed', {
+        conversation_id: conv.id,
+        code: err?.code || 'INTERNAL',
+      });
+    },
+  });
+
+  return taskId;
+}
 
 // ---------------------------------------------------------------
 // POST /conversations/:id/generate
@@ -50,100 +156,7 @@ generateRouter.post(
 
     await query(`UPDATE conversations SET status = 'generating', updated_at = now() WHERE id = $1`, [id]);
 
-    const taskId = taskIdOf(id);
-    setProgressHint(taskId, PROGRESS_HINTS.start);
-
-    taskQueue.enqueue({
-      id: taskId,
-      kind: 'generate_lesson',
-      run: async () => {
-        const plan = await generateLessonPlan({
-          conversation: conv,
-          teacher,
-          memories,
-          qaHistory,
-          onProgress: (key) => setProgressHint(taskId, PROGRESS_HINTS[key] || PROGRESS_HINTS.drafting),
-        });
-
-        // AI 输出也要过内容安全（api-spec 第 10 节）
-        const check = await msgSecCheck({
-          content: plan.content_md,
-          openid: teacher.openid,
-          scene: 3,
-          stage: 'ai_output',
-        });
-        if (!check.pass) throw contentBlockedError('ai_output');
-
-        // 重新生成时覆盖旧稿并把 version + 1（conversation_id 上有 UNIQUE 约束）
-        const saved = await queryOne(
-          `INSERT INTO lesson_plans
-             (conversation_id, teacher_id, title, age_group, duration_min, content_md, content_json, quality_self)
-           VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb)
-           ON CONFLICT (conversation_id) DO UPDATE SET
-             title        = EXCLUDED.title,
-             age_group    = EXCLUDED.age_group,
-             duration_min = EXCLUDED.duration_min,
-             content_md   = EXCLUDED.content_md,
-             content_json = EXCLUDED.content_json,
-             quality_self = EXCLUDED.quality_self,
-             version      = lesson_plans.version + 1,
-             updated_at   = now()
-           RETURNING id, version`,
-          [
-            conv.id,
-            teacher.id,
-            plan.title.slice(0, 128),
-            plan.age_group,
-            plan.duration_min,
-            plan.content_md,
-            JSON.stringify(plan.content_json),
-            JSON.stringify(plan.quality_self),
-          ]
-        );
-
-        await query(
-          `UPDATE conversations
-              SET status = 'completed',
-                  title = $1,
-                  age_group = COALESCE($2, age_group),
-                  completed_at = now(),
-                  updated_at = now()
-            WHERE id = $3`,
-          [plan.title.slice(0, 128), plan.age_group, conv.id]
-        );
-
-        logger.info('lesson_generated', {
-          conversation_id: conv.id,
-          lesson_plan_id: saved.id,
-          version: saved.version,
-          age_group: plan.age_group,
-          token_in: plan.tokenIn,
-          token_out: plan.tokenOut,
-          age_band_violations: plan.quality_self?.age_band_violations?.length ?? 0,
-        });
-
-        // 记忆提取是另一个独立任务：它失败了不该影响老师已经拿到的教案
-        taskQueue.enqueue({
-          id: `mem_${conv.id}`,
-          kind: 'extract_memory',
-          run: async () => {
-            const transcript = qaHistory.map((x) => `问：${x.question}\n答：${x.answer}`).join('\n');
-            await extractAndSaveMemories({
-              teacherId: teacher.id,
-              conversationId: conv.id,
-              transcript: `${conv.seed_input}\n${transcript}`,
-            });
-          },
-        });
-      },
-      onError: async (err) => {
-        await query(`UPDATE conversations SET status = 'failed', updated_at = now() WHERE id = $1`, [id]);
-        logger.error('lesson_generate_failed', {
-          conversation_id: id,
-          code: err?.code || 'INTERNAL',
-        });
-      },
-    });
+    const taskId = enqueueLessonGeneration({ conv, teacher, memories, qaHistory });
 
     return ok(res, { task_id: taskId, status: 'generating' });
   })
@@ -181,8 +194,8 @@ generateRouter.get(
   })
 );
 
-/** 引导过程的问答对，供生成教案时作为上下文 */
-async function loadQaHistory(conversationId) {
+/** 引导过程的问答对，供生成教案时作为上下文。改稿路由也用它，所以导出。 */
+export async function loadQaHistory(conversationId) {
   const rows = (
     await query(
       `SELECT role, content, payload FROM messages

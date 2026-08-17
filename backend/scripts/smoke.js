@@ -16,6 +16,9 @@
 const BASE = process.env.BASE || 'http://localhost:3000';
 const AGE_GROUP = process.argv[2] || '小班';
 const SEED = process.env.SEED || '我想做个浮与沉的活动';
+// 一个老师只带一个班，所以要做三个班的对照样本就得用三个账号 ——
+// 同一个账号跑完小班再跑大班，「该老师主要带小班」那条记忆会去影响后面的推荐答案。
+const TEACHER = process.env.TEACHER || 'dev:test001';
 
 let token = null;
 
@@ -56,7 +59,7 @@ rule();
 
 // 1. 假登录
 const auth = await call('POST', '/auth/login', {
-  code: 'dev:test001',
+  code: TEACHER,
   nickname: '测试老师',
 });
 token = auth.token;
