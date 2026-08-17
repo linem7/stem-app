@@ -16,7 +16,7 @@ const PHONE=`138${RND}`;
 const DEVCODE=`dev:iso_${RND}`;
 const chk=(c,m)=>{L(`  ${c?'✓':'✗'} ${m}`); if(!c) fail++;};
 
-A=(await adm('POST','/login',{password:'dev-admin-only-local-9f3a2c'})).data.token;
+A=(await adm('POST','/login',{username:'admin',password:'123456'})).data.token;
 T=(await usr('POST','/auth/login',{code:DEVCODE})).data.token;
 
 L('=== 隔离性（「园长看不到」那句承诺的技术底线）===');

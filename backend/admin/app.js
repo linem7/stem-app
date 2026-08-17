@@ -5,6 +5,7 @@ const API = '/admin/api';
 const app = document.getElementById('app');
 const S = {
   token: localStorage.getItem('admin_token') || null,
+  me: JSON.parse(localStorage.getItem('admin_me') || 'null'),   // { id, username, role, display_name }
   page: 'overview',
   data: {},
   loading: false,
@@ -40,19 +41,26 @@ async function api(method, path, body) {
 function loginView() {
   return `<div class="login"><div class="box">
     <h1>STEAM 教案助手 · 管理后台</h1>
-    <p>只有一个账号。老师的登录进不来这里。</p>
-    <input id="pwd" type="password" placeholder="管理密码" autofocus>
+    <p>老师的登录进不来这里。</p>
+    <input id="usr" type="text" placeholder="用户名" autocomplete="username" autofocus
+      onkeydown="if(event.key==='Enter')document.getElementById('pwd').focus()">
+    <input id="pwd" type="password" placeholder="密码" autocomplete="current-password"
+      style="margin-top:10px" onkeydown="if(event.key==='Enter')doLogin()">
     <button class="btn" onclick="doLogin()">进入</button>
   </div></div>`;
 }
 window.doLogin = async () => {
-  const pwd = document.getElementById('pwd').value;
+  const username = document.getElementById('usr').value.trim();
+  const password = document.getElementById('pwd').value;
   try {
-    const d = await api('POST', '/login', { password: pwd });
-    S.token = d.token; localStorage.setItem('admin_token', d.token);
+    const d = await api('POST', '/login', { username, password });
+    S.token = d.token; S.me = d.admin;
+    localStorage.setItem('admin_token', d.token);
+    localStorage.setItem('admin_me', JSON.stringify(d.admin));
     S.page = 'overview'; await load();
   } catch (e) { toast(e.message); }
 };
+const isSuper = () => S.me?.role === 'super';
 
 /* ============ 框架 ============ */
 const PAGES = {
@@ -62,6 +70,8 @@ const PAGES = {
   kindergartens: '园所',
   feedback: '反馈',
 };
+/** 只有超级管理员看得到的页 */
+const SUPER_PAGES = { admins: '管理员', logs: '操作记录' };
 
 function shell(inner) {
   const n = S.data.overview?.feedback_new || 0;
@@ -71,13 +81,25 @@ function shell(inner) {
       ${Object.entries(PAGES).map(([k, v]) => `
         <button class="nav ${S.page === k ? 'on' : ''}" onclick="goto('${k}')">${v}
           ${k === 'feedback' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('')}
-      <button class="nav" style="margin-top:18px;color:var(--ink-3)" onclick="logout()">退出</button>
+      ${isSuper() ? `<div class="navsec">超级管理员</div>
+        ${Object.entries(SUPER_PAGES).map(([k, v]) => `
+          <button class="nav ${S.page === k ? 'on' : ''}" onclick="goto('${k}')">${v}</button>`).join('')}` : ''}
+      <div class="who">
+        ${esc(S.me?.display_name || S.me?.username || '')}
+        <span class="pill ${isSuper() ? 'p-warn' : 'p-off'}">${isSuper() ? '超级管理员' : '一般管理员'}</span>
+        <button class="lnk" onclick="openChangePwd()">改密码</button>
+        <button class="lnk" onclick="logout()">退出</button>
+      </div>
     </div>
     <div class="main">${inner}</div>
   </div>${S.modal || ''}`;
 }
 window.goto = async (p) => { S.page = p; S.modal = null; await load(); };
-window.logout = () => { S.token = null; localStorage.removeItem('admin_token'); render(); };
+window.logout = () => {
+  S.token = null; S.me = null;
+  localStorage.removeItem('admin_token'); localStorage.removeItem('admin_me');
+  render();
+};
 window.closeModal = () => { S.modal = null; render(); };
 
 /* ============ 概览 ============ */
@@ -164,10 +186,13 @@ window.openTeacher = async (id) => {
       </table>` : '<div class="empty">还没发过额度</div>'}
 
       <b style="font-size:13px">教案（${d.conversations.length}）</b>
+      ${d.can_view_content === false ? `<div class="note" style="margin:8px 0">
+        只有超级管理员能看到教案标题和内容。这里显示写了几份、什么时候写的，够你判断她的使用情况。
+      </div>` : ''}
       ${d.conversations.length ? `<table style="margin:8px 0 16px">
         <tr><th>标题</th><th>年龄班</th><th>状态</th><th>版本</th><th>时间</th></tr>
         ${d.conversations.slice(0, 15).map((c) => `<tr>
-          <td>${esc(c.title || '—')}</td><td>${esc(c.age_group || '—')}</td>
+          <td>${c.title === undefined ? '—' : esc(c.title || '—')}</td><td>${esc(c.age_group || '—')}</td>
           <td>${c.status === 'completed' ? '<span class="pill p-ok">已完成</span>' : `<span class="pill p-off">${esc(c.status)}</span>`}</td>
           <td class="num">${c.version ? 'v' + c.version : '—'}</td>
           <td>${fmtDay(c.created_at)}</td></tr>`).join('')}
@@ -375,6 +400,8 @@ async function load() {
     }
     if (S.page === 'codes') jobs.codes = api('GET', `/codes?status=${S.filter.codeStatus}`);
     if (S.page === 'feedback') jobs.feedback = api('GET', `/feedback?kind=${S.filter.fbKind}`);
+    if (S.page === 'admins' && isSuper()) jobs.admins = api('GET', '/admins');
+    if (S.page === 'logs' && isSuper()) jobs.logs = api('GET', '/logs');
 
     const keys = Object.keys(jobs);
     const vals = await Promise.all(Object.values(jobs));
@@ -385,11 +412,151 @@ async function load() {
 
 function render() {
   if (!S.token) { app.innerHTML = loginView(); document.getElementById('pwd')?.focus(); return; }
-  const body = ({
+  const view = ({
     overview: overviewView, teachers: teachersView, codes: codesView,
     kindergartens: kgView, feedback: feedbackView,
-  })[S.page]();
+    admins: adminsView, logs: logsView,
+  })[S.page];
+  // 一般管理员手动改 URL 也进不去超管页 —— 后端还有一道守卫，这里只是不让界面出错
+  const body = (SUPER_PAGES[S.page] && !isSuper()) ? (S.page = 'overview', overviewView()) : view();
   app.innerHTML = shell(body);
+}
+
+
+/* ============ 管理员账号（只有超管进得来）============ */
+function adminsView() {
+  const items = S.data.admins?.items || [];
+  const meId = S.data.admins?.me;
+  return `<h2>管理员</h2>
+    <div class="sub">同事只做运营：发额度、建兑换码、看反馈。<b>手机号全号和老师写的内容，只有超级管理员看得到</b></div>
+    <div class="note">
+      老师同意的协议里写着「你的幼儿园和园长看不到这里的任何东西」。同事不是园方，这句话依然成立 ——
+      但每多一个人能读老师写的东西，这句承诺就少一分是真的。所以一般管理员默认看不到对话正文和完整手机号。
+      要给谁开超级管理员，先想清楚他是不是真的需要读这些。
+    </div>
+    <div class="row"><button class="btn" onclick="openNewAdmin()">＋ 新建管理员</button></div>
+    <table>
+      <tr><th>用户名</th><th>称呼</th><th>角色</th><th>状态</th><th>创建者</th><th>最近登录</th><th></th></tr>
+      ${items.map((a) => `<tr>
+        <td class="mono"><b>${esc(a.username)}</b>${a.id === meId ? ' <span class="pill p-off">我</span>' : ''}</td>
+        <td>${esc(a.display_name || '—')}</td>
+        <td>${a.role === 'super' ? '<span class="pill p-warn">超级管理员</span>' : '<span class="pill p-off">一般管理员</span>'}</td>
+        <td>${a.status === 'active' ? '<span class="pill p-ok">正常</span>' : '<span class="pill p-bad">已停用</span>'}</td>
+        <td>${esc(a.created_by_name || '—')}</td>
+        <td>${fmtDate(a.last_login_at)}</td>
+        <td>
+          <button class="btn-sm" onclick="openResetPwd(${a.id},'${esc(a.username)}')">重置密码</button>
+          ${a.id === meId ? '' : `<button class="btn-sm btn-danger"
+            onclick="toggleAdmin(${a.id},'${a.status === 'active' ? 'disabled' : 'active'}')">
+            ${a.status === 'active' ? '停用' : '恢复'}</button>`}
+        </td>
+      </tr>`).join('')}
+    </table>`;
+}
+
+window.openNewAdmin = () => {
+  S.modal = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="box">
+    <h3>新建管理员</h3>
+    <div class="grid2">
+      <div class="field"><label>用户名（小写字母/数字/下划线）</label>
+        <input type="text" id="a_user" placeholder="如 zhangsan" style="width:100%"></div>
+      <div class="field"><label>称呼</label><input type="text" id="a_name" placeholder="如 张三" style="width:100%"></div>
+    </div>
+    <div class="field"><label>初始密码（至少 6 位，让他登录后自己改）</label>
+      <input type="text" id="a_pwd" style="width:100%"></div>
+    <div class="field"><label>角色</label>
+      <select id="a_role" style="width:100%">
+        <option value="admin">一般管理员 —— 发额度、建码、看反馈；看不到手机号全号和对话内容</option>
+        <option value="super">超级管理员 —— 全部权限，含管理账号、看对话正文</option>
+      </select></div>
+    <div class="note" style="margin-top:10px">
+      给谁开超级管理员，先想清楚他是不是真的需要读老师写的东西。
+    </div>
+    <div class="foot">
+      <button class="btn-sm" onclick="closeModal()">取消</button>
+      <button class="btn" onclick="doCreateAdmin()">创建</button>
+    </div>
+  </div></div>`;
+  render();
+};
+window.doCreateAdmin = async () => {
+  const g = (id) => document.getElementById(id).value.trim();
+  try {
+    await api('POST', '/admins', {
+      username: g('a_user'), password: g('a_pwd'),
+      role: g('a_role'), display_name: g('a_name'),
+    });
+    toast('建好了 —— 把用户名和初始密码发给他，让他登录后自己改');
+    S.modal = null; await load();
+  } catch (e) { toast(e.message); }
+};
+
+window.openResetPwd = (id, username) => {
+  S.modal = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="box">
+    <h3>重置 ${esc(username)} 的密码</h3>
+    <div class="field"><label>新密码（至少 6 位）</label><input type="text" id="r_pwd" style="width:100%"></div>
+    <div class="foot">
+      <button class="btn-sm" onclick="closeModal()">取消</button>
+      <button class="btn" onclick="doResetPwd(${id})">重置</button>
+    </div>
+  </div></div>`;
+  render();
+};
+window.doResetPwd = async (id) => {
+  try {
+    await api('POST', `/admins/${id}/password`, { password: document.getElementById('r_pwd').value });
+    toast('改好了'); S.modal = null; await load();
+  } catch (e) { toast(e.message); }
+};
+window.toggleAdmin = async (id, status) => {
+  try { await api('POST', `/admins/${id}/status`, { status }); toast(status === 'disabled' ? '已停用' : '已恢复'); await load(); }
+  catch (e) { toast(e.message); }
+};
+
+/* 改自己的密码 —— 一般管理员也能用 */
+window.openChangePwd = () => {
+  S.modal = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="box">
+    <h3>改我的密码</h3>
+    <div class="field"><label>原密码</label><input type="password" id="p_old" style="width:100%"></div>
+    <div class="field"><label>新密码（至少 6 位）</label><input type="password" id="p_new" style="width:100%"></div>
+    <div class="foot">
+      <button class="btn-sm" onclick="closeModal()">取消</button>
+      <button class="btn" onclick="doChangePwd()">保存</button>
+    </div>
+  </div></div>`;
+  render();
+};
+window.doChangePwd = async () => {
+  try {
+    await api('POST', '/me/password', {
+      old_password: document.getElementById('p_old').value,
+      new_password: document.getElementById('p_new').value,
+    });
+    toast('改好了，下次用新密码登录'); S.modal = null; render();
+  } catch (e) { toast(e.message); }
+};
+
+/* ============ 操作记录 ============ */
+const ACTIONS = {
+  grant_quota: '发额度', create_code: '建兑换码', void_code: '作废码',
+  teacher_status: '停用/恢复老师', create_admin: '建管理员',
+  admin_status: '停用/恢复管理员', reset_password: '重置密码',
+  change_own_password: '改自己密码',
+};
+function logsView() {
+  const items = S.data.logs?.items || [];
+  return `<h2>操作记录</h2>
+    <div class="sub">多个人能改额度之后，「这 20 次是谁发的」必须能查</div>
+    ${items.length ? `<table>
+      <tr><th>时间</th><th>谁</th><th>做了什么</th><th>对象</th><th>详情</th></tr>
+      ${items.map((l) => `<tr>
+        <td>${fmtDate(l.created_at)}</td>
+        <td>${esc(l.display_name || l.username || '—')}</td>
+        <td>${ACTIONS[l.action] || esc(l.action)}</td>
+        <td class="mono">${esc(l.target || '—')}</td>
+        <td style="font-size:12.5px;color:var(--ink-3)">${esc(JSON.stringify(l.detail || {}) === '{}' ? '' : JSON.stringify(l.detail))}</td>
+      </tr>`).join('')}
+    </table>` : `<div class="empty">还没有操作记录</div>`}`;
 }
 
 load();

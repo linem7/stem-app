@@ -28,6 +28,7 @@ import { memoriesRouter } from './routes/memories.js';
 import { accountRouter } from './routes/account.js';
 import { feedbackRouter } from './routes/feedback.js';
 import { adminRouter, requireAdmin } from './routes/admin.js';
+import { ensureSuperAdmin } from './services/admins.js';
 
 // ---------------------------------------------------------------
 // 1. 环境变量
@@ -86,6 +87,10 @@ try {
 // 4. 清理上次进程被杀时卡住的任务
 // ---------------------------------------------------------------
 await recoverStuckTasks();
+
+// 没有任何管理员账号时，用 .env 的 ADMIN_PASSWORD 建一个 username=admin 的超管。
+// 不做这一步的话，升级到多账号之后没人能登进后台，得手动改库才能救 —— 那是很糟的死锁。
+await ensureSuperAdmin();
 
 // ---------------------------------------------------------------
 // 5. HTTP

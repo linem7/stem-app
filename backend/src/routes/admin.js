@@ -4,12 +4,16 @@
  * 与小程序**完全隔离**：不同的登录方式、不同的 token、不同的中间件。
  * 老师的 JWT 打不开这里，管理员的 token 也调不了业务接口。
  *
- * 只有一个管理员账号。这不是省事 —— 系统里根本不存在「园所管理员」这种角色，
- * 是「你的幼儿园和园长看不到这里的任何东西」那句承诺的技术兑现。
- * 将来要是有人提「给园长开个只读账号」，那句承诺就作废了，得先跟老师们重新讲清楚。
+ * 【两级权限，和对老师的承诺直接相关】
+ * 老师同意的协议里写着「你的幼儿园和园长看不到这里的任何东西」。
+ * 同事不是园方，这句承诺依然成立；但最敏感的两项锁在超级管理员手里：
+ *   · **手机号全号** —— 一般管理员只看打码
+ *   · **对话正文与教案内容** —— 一般管理员完全看不到
+ * 同事做运营（发额度、建兑换码、看反馈）不需要读老师写了什么。
+ * 少一个人能读，那句承诺就多一分是真的。
  *
- * 手机号在列表里**默认打码**，详情页才给全号。不是怕开发者自己看，
- * 是怕在别人旁边打开后台时整屏手机号被看见。
+ * 仍然**没有**「园所管理员」这种角色。要是哪天加了园长只读账号，
+ * 那句承诺就作废了，必须先跟老师们重新讲清楚。
  */
 import { Router } from 'express';
 import crypto from 'node:crypto';
@@ -17,8 +21,12 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import { query, queryOne, withTransaction } from '../db/pool.js';
 import { ok, asyncRoute, badRequest, notFound, AppError, ErrorCode } from '../utils/errors.js';
-import { generateCode, normalizeCode } from '../utils/code.js';
+import { generateCode } from '../utils/code.js';
 import { getQuota, grantQuota } from '../services/quota.js';
+import {
+  ROLES, findAdmin, verifyPassword, touchLogin, createAdmin,
+  setPassword, listAdmins, logAction,
+} from '../services/admins.js';
 import { logger } from '../utils/logger.js';
 
 export const adminRouter = Router();
@@ -38,24 +46,31 @@ function maskPhone(p) {
 adminRouter.post(
   '/login',
   asyncRoute(async (req, res) => {
-    if (!config.admin.configured) {
-      throw new AppError(ErrorCode.NOT_IMPLEMENTED, {
-        message: '管理后台还没配密码：在 .env 里设 ADMIN_PASSWORD（至少 12 位）',
-      });
-    }
-    const pwd = String(req.body?.password || '');
+    const username = String(req.body?.username || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
 
-    // 定长比较，别让响应时间泄露密码前缀对了几位
-    const a = crypto.createHash('sha256').update(pwd).digest();
-    const b = crypto.createHash('sha256').update(config.admin.password).digest();
-    if (!crypto.timingSafeEqual(a, b)) {
-      logger.warn('admin_login_failed', { ip: req.ip });
-      throw new AppError(ErrorCode.UNAUTHORIZED, { message: '密码不对' });
+    const admin = await findAdmin(username);
+    // 用户名不存在时也跑一次哈希比较，让响应时间跟「密码错」一致 ——
+    // 否则可以靠计时枚举出哪些用户名存在
+    const okPwd = admin
+      ? await verifyPassword(password, admin.password_hash, admin.salt)
+      : await verifyPassword(password, crypto.randomBytes(64).toString('hex'), 'x');
+
+    if (!admin || !okPwd) {
+      logger.warn('admin_login_failed', { username, ip: req.ip });
+      throw new AppError(ErrorCode.UNAUTHORIZED, { message: '用户名或密码不对' });
     }
 
-    const token = jwt.sign({ role: 'admin' }, config.jwt.secret, { expiresIn: TOKEN_TTL });
-    logger.info('admin_login', { ip: req.ip });
-    return ok(res, { token, expires_in: TOKEN_TTL });
+    await touchLogin(admin.id);
+    const token = jwt.sign(
+      { role: 'admin', aid: admin.id, arole: admin.role },
+      config.jwt.secret, { expiresIn: TOKEN_TTL }
+    );
+    logger.info('admin_login', { admin_id: admin.id, role: admin.role });
+    return ok(res, {
+      token, expires_in: TOKEN_TTL,
+      admin: { id: admin.id, username: admin.username, role: admin.role, display_name: admin.display_name },
+    });
   })
 );
 
@@ -69,10 +84,24 @@ export function requireAdmin(req, res, next) {
     if (payload.role !== 'admin') {
       return next(new AppError(ErrorCode.UNAUTHORIZED, { message: '这个账号没有后台权限' }));
     }
+    req.adminId = payload.aid;
+    req.adminRole = payload.arole || ROLES.ADMIN;
+    req.isSuper = req.adminRole === ROLES.SUPER;
     next();
   } catch {
     next(new AppError(ErrorCode.UNAUTHORIZED, { message: '登录过期了，重新登录一下' }));
   }
+}
+
+/** 只有超管能过。用在账号管理、看手机号全号、看对话正文这几处。 */
+function requireSuper(req, res, next) {
+  if (!req.isSuper) {
+    return next(new AppError(ErrorCode.UNAUTHORIZED, {
+      message: '这一项只有超级管理员能看',
+      detail: { need: 'super' },
+    }));
+  }
+  next();
 }
 
 // ---------------------------------------------------------------
@@ -181,7 +210,10 @@ adminRouter.get(
     return ok(res, {
       teacher: {
         id: t.id,
-        phone: t.phone,          // 详情页给全号
+        // 全号只给超管。一般管理员做运营用不着完整号码 ——
+        // 少一个人能看到，对老师的那句承诺就多一分是真的
+        phone: req.isSuper ? t.phone : maskPhone(t.phone),
+        phone_masked: !req.isSuper,
         real_name: t.real_name,
         kindergarten: t.kindergarten,
         class_name: t.class_name,
@@ -194,8 +226,13 @@ adminRouter.get(
       },
       quota,
       grants: grants.rows,
-      conversations: convs.rows,
+      // 一般管理员只看到「写了几份、什么时候写的」，看不到标题和内容
+      conversations: req.isSuper ? convs.rows : convs.rows.map((c) => ({
+        id: c.id, status: c.status, age_group: c.age_group,
+        created_at: c.created_at, version: c.version,
+      })),
       feedback: fb.rows,
+      can_view_content: req.isSuper,
     });
   })
 );
@@ -215,6 +252,9 @@ adminRouter.post(
     if (!reason) throw badRequest('写一下原因 —— 这是对账和研究记录的依据');
 
     await grantQuota({ teacherId: id, deltaText: dt, deltaImage: di, reason });
+    // 多个人能改额度之后，「这 20 次是谁发的」必须能查
+    await logAction({ adminId: req.adminId, action: 'grant_quota', target: `teacher:${id}`,
+      detail: { delta_text: dt, delta_image: di, reason } });
     return ok(res, { quota: await getQuota(id) });
   })
 );
@@ -230,6 +270,7 @@ adminRouter.post(
       [status, id]);
     if (!t) throw notFound('没有这位老师');
     logger.info('admin_teacher_status', { teacher_id: id, status });
+    await logAction({ adminId: req.adminId, action: 'teacher_status', target: `teacher:${id}`, detail: { status } });
     return ok(res, t);
   })
 );
@@ -295,6 +336,8 @@ adminRouter.post(
        String(b.grant_reason || '').trim() || '首次激活']
     );
     logger.info('admin_code_created', { code_id: row.id, kindergarten_id: row.kindergarten_id });
+    await logAction({ adminId: req.adminId, action: 'create_code', target: `code:${row.code}`,
+      detail: { init_text: row.init_text, init_image: row.init_image, reason: row.grant_reason } });
     return ok(res, { code: row.code, id: row.id });
   })
 );
@@ -306,6 +349,7 @@ adminRouter.post(
       `UPDATE redemption_codes SET status = 'void'
         WHERE id = $1 AND status = 'unused' RETURNING id, code`, [Number(req.params.id)]);
     if (!row) throw badRequest('只有还没被用的码可以作废');
+    await logAction({ adminId: req.adminId, action: 'void_code', target: `code:${row.code}` });
     return ok(res, row);
   })
 );
@@ -335,7 +379,9 @@ adminRouter.post('/kindergartens', asyncRoute(async (req, res) => {
 // ---------------------------------------------------------------
 // 内容与反馈
 // ---------------------------------------------------------------
-adminRouter.get('/plans/:id', asyncRoute(async (req, res) => {
+// 教案正文和对话记录 —— **只有超管**。
+// 这是老师写的东西，运营工作（发额度、建码、看反馈）根本用不到。
+adminRouter.get('/plans/:id', requireSuper, asyncRoute(async (req, res) => {
   const p = await queryOne(
     `SELECT p.*, t.real_name, k.name AS kindergarten
        FROM lesson_plans p
@@ -369,4 +415,85 @@ adminRouter.post('/feedback/:id/handled', asyncRoute(async (req, res) => {
     [req.body?.handled !== false, Number(req.params.id)]);
   if (!row) throw notFound('没有这条反馈');
   return ok(res, row);
+}));
+
+// ---------------------------------------------------------------
+// 管理员账号 —— 全部只有超管能碰
+// ---------------------------------------------------------------
+adminRouter.get('/admins', requireSuper, asyncRoute(async (req, res) => {
+  return ok(res, { items: await listAdmins(), me: req.adminId });
+}));
+
+adminRouter.post('/admins', requireSuper, asyncRoute(async (req, res) => {
+  const b = req.body || {};
+  try {
+    const row = await createAdmin({
+      username: b.username, password: b.password,
+      role: b.role, displayName: b.display_name, createdBy: req.adminId,
+    });
+    await logAction({ adminId: req.adminId, action: 'create_admin',
+      target: `admin:${row.username}`, detail: { role: row.role } });
+    logger.info('admin_created', { by: req.adminId, admin_id: row.id, role: row.role });
+    return ok(res, row);
+  } catch (e) { throw badRequest(e.message); }
+}));
+
+adminRouter.post('/admins/:id/password', requireSuper, asyncRoute(async (req, res) => {
+  try {
+    const row = await setPassword(Number(req.params.id), req.body?.password);
+    if (!row) throw notFound('没有这个账号');
+    await logAction({ adminId: req.adminId, action: 'reset_password', target: `admin:${row.username}` });
+    return ok(res, { id: row.id, username: row.username });
+  } catch (e) { throw badRequest(e.message); }
+}));
+
+adminRouter.post('/admins/:id/status', requireSuper, asyncRoute(async (req, res) => {
+  const id = Number(req.params.id);
+  // 不能停用自己 —— 停完就登不进来了，得手动改库才能救回来
+  if (id === req.adminId) throw badRequest('不能停用自己的账号');
+
+  const status = String(req.body?.status || '');
+  if (!['active', 'disabled'].includes(status)) throw badRequest('状态不对');
+
+  // 最后一个可用的超管不能被停用，否则没人能管账号了
+  if (status === 'disabled') {
+    const target = await queryOne(`SELECT role FROM admins WHERE id = $1`, [id]);
+    if (target?.role === ROLES.SUPER) {
+      const n = await queryOne(
+        `SELECT COUNT(*)::int AS n FROM admins WHERE role = 'super' AND status = 'active'`);
+      if (n.n <= 1) throw badRequest('这是最后一个超级管理员，停用之后就没人能管账号了');
+    }
+  }
+
+  const row = await queryOne(
+    `UPDATE admins SET status = $1 WHERE id = $2 RETURNING id, username, status`, [status, id]);
+  if (!row) throw notFound('没有这个账号');
+  await logAction({ adminId: req.adminId, action: 'admin_status',
+    target: `admin:${row.username}`, detail: { status } });
+  return ok(res, row);
+}));
+
+/** 改自己的密码 —— 这个一般管理员也能做，改的是自己的 */
+adminRouter.post('/me/password', asyncRoute(async (req, res) => {
+  const oldPwd = String(req.body?.old_password || '');
+  const newPwd = String(req.body?.new_password || '');
+  const me = await queryOne(`SELECT * FROM admins WHERE id = $1`, [req.adminId]);
+  if (!me) throw notFound('账号不存在');
+  if (!(await verifyPassword(oldPwd, me.password_hash, me.salt))) {
+    throw badRequest('原密码不对');
+  }
+  try {
+    await setPassword(req.adminId, newPwd);
+    await logAction({ adminId: req.adminId, action: 'change_own_password' });
+    return ok(res, { changed: true });
+  } catch (e) { throw badRequest(e.message); }
+}));
+
+/** 操作审计。多人之后「这笔额度是谁发的」必须能查。 */
+adminRouter.get('/logs', requireSuper, asyncRoute(async (req, res) => {
+  const rows = (await query(`
+    SELECT l.*, a.username, a.display_name
+      FROM admin_logs l LEFT JOIN admins a ON a.id = l.admin_id
+     ORDER BY l.created_at DESC LIMIT 200`)).rows;
+  return ok(res, { items: rows });
 }));

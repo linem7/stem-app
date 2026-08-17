@@ -13,7 +13,7 @@ const A=`dev:ops_a_${RND}`, Bacc=`dev:ops_b_${RND}`;
 let CODE=null;
 {
   const admTok=(await (await fetch('http://localhost:3000/admin/api/login',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({password:process.env.ADMIN_PASSWORD||'dev-admin-only-local-9f3a2c'})})).json()).data.token;
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'admin',password:process.env.ADMIN_PASSWORD||'123456'})})).json()).data.token;
   const kg=await (await fetch('http://localhost:3000/admin/api/kindergartens',{headers:{Authorization:`Bearer ${admTok}`}})).json();
   const r=await (await fetch('http://localhost:3000/admin/api/codes',{method:'POST',
     headers:{'Content-Type':'application/json',Authorization:`Bearer ${admTok}`},

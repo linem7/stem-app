@@ -93,8 +93,14 @@ export const config = {
   // 管理后台。只有一个账号 —— 系统里不存在「园所管理员」这种角色，
   // 这是「园方看不到老师数据」那句承诺的技术兑现，不是省事。
   admin: {
+    // 首个超管账号的初始密码。库里已经有账号之后，改密码在后台改，这个值就不再起作用。
     password: str('ADMIN_PASSWORD'),
-    get configured() { return Boolean(this.password && this.password.length >= 12); },
+    get configured() { return Boolean(this.password); },
+    // 生产环境的密码门槛单独判：后台能看到全部老师的手机号和对话内容，
+    // 弱密码在公网上等于没有密码。开发环境不拦，方便本地随便设。
+    get weakInProduction() {
+      return nodeEnv === 'production' && Boolean(this.password) && this.password.length < 12;
+    },
   },
 
   // 没配对象存储时，图片存这个本地目录，由 server.js 挂静态路由提供访问。
@@ -151,8 +157,15 @@ export function assertConfigOrExit() {
     }
     if (!config.admin.configured) {
       console.warn(
-        '\n[提醒] 没设 ADMIN_PASSWORD（或短于 12 位），管理后台 /admin 用不了。' +
-          '\n       发兑换码、发额度、看反馈都在那里，正式运营前要配上。\n'
+        '\n[提醒] 没设 ADMIN_PASSWORD，第一次启动建不出超级管理员账号。' +
+          '\n       发兑换码、发额度、看反馈都在 /admin 里，正式运营前要配上。\n'
+      );
+    }
+    if (config.admin.weakInProduction) {
+      console.error(
+        '\n[危险] 生产环境的 ADMIN_PASSWORD 短于 12 位。' +
+          '\n       管理后台能看到全部老师的手机号和对话内容，弱密码在公网上等于没有密码。' +
+          '\n       登录后台后立刻改掉，或者改 .env 重启。\n'
       );
     }
     if (config.devFakeLogin) {

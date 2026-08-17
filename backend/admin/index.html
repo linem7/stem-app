@@ -8,11 +8,14 @@
 ================================================================================
 管理后台。电脑浏览器打开 http://localhost:3000/admin
 
-只有一个账号。这不是省事 —— 系统里根本不存在「园所管理员」这种角色，
-是「你的幼儿园和园长看不到这里的任何东西」那句承诺的技术兑现。
-将来要是加了园长只读账号，那句承诺就作废了，得先跟老师们重新讲清楚。
+两级权限：超级管理员看得到全部；一般管理员做运营（发额度、建兑换码、看反馈），
+但看不到手机号全号和老师写的内容。
 
-手机号在列表里默认打码。不是怕自己看，是怕在别人旁边打开后台时整屏号码被看见。
+老师同意的协议里写着「你的幼儿园和园长看不到这里的任何东西」。同事不是园方，
+这句话依然成立 —— 但每多一个人能读老师写的东西，这句承诺就少一分是真的。
+
+仍然没有「园所管理员」这种角色。要是哪天加了园长只读账号，
+那句承诺就作废了，必须先跟老师们重新讲清楚。
 ================================================================================
 -->
 <style>
@@ -115,6 +118,13 @@ label{font-size:12.5px;color:var(--ink-2);display:block;margin-bottom:4px}
 .empty{text-align:center;padding:40px 20px;color:var(--ink-3);font-size:13.5px}
 .note{background:var(--sky-soft);border-radius:10px;padding:10px 13px;font-size:12.5px;
   color:var(--ink-2);line-height:1.65;margin-bottom:14px}
+.navsec{font-size:11px;color:var(--ink-3);padding:14px 10px 5px;letter-spacing:.05em;
+  border-top:1px solid var(--rule);margin-top:10px}
+.who{margin-top:18px;padding-top:12px;border-top:1px solid var(--rule);font-size:12.5px;color:var(--ink-2)}
+.who .pill{display:inline-block;margin:5px 0}
+.lnk{display:block;background:none;border:none;font:inherit;font-size:12px;color:var(--ink-3);
+  cursor:pointer;padding:3px 0;text-align:left}
+.lnk:hover{color:var(--amber-deep)}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);
   color:#fff;padding:11px 20px;border-radius:12px;font-size:13.5px;z-index:99;
   opacity:0;transition:.2s;pointer-events:none}
