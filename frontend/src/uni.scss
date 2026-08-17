@@ -22,11 +22,12 @@ $amber-deep: #8a6410; // 黄色系文字（黄本身太亮，做文字必须用�
 $mint: #6fbf8b; // 已完成圆点、筛选选中、浅底按钮
 $mint-deep: #3e8f5d; // 配白字的绿按钮底、绿色文字
 $mint-soft: #eaf6ee; // 浅绿底
-$mint-line: #cfe7d8; // 浅绿底上的描边（与 $amber-line 同位）
+$mint-line: #c3e0ce; // 浅绿底上的描边（与 $amber-line 同位）
 
 /* ============ 点缀 · 天空蓝 / 珊瑚粉 ============ */
 $sky: #8fc7e8; // 插画天空、中性提示带、STEAM 的 T
 $sky-soft: #eaf3fa; // 极浅蓝底
+$sky-line: #d2e1ea; // 浅蓝底上的描边
 $sky-deep: #2e6e96; // 蓝色文字
 $coral: #ee8069; // 「我的」、STEAM 的 A、少量强调
 $coral-deep: #b44b33; // 珊瑚色文字、危险/删除
@@ -36,6 +37,7 @@ $ink: #3a3630; // 正文·暖褐黑
 $ink-2: #6b655c; // 次级文字
 $ink-3: #7a7368; // 最浅可用文字，不得再浅
 $rule: #ebe5d6; // 分隔线
+$rule-2: #ddd9cc; // 白卡片上的描边、开关轨道（比 $rule 深一档，压得住白底）
 $white: #ffffff; // 卡片实底、deep 档按钮上的文字
 
 /* ============ 派生档 ============ */

@@ -182,6 +182,10 @@ const a2 = await convApi.answerQuestion(conv.conversation_id, {
   selected: [ageQ.options.find((o) => o.label === '小班')?.key || ageQ.options[0].key],
 })
 chk(a2.can_finish === true, '答完年龄班 → can_finish=true')
+// 引导页底部那个按钮是拿 required_left 判能不能按的，所以这条必须跟着归零，
+// 否则「年龄班答了但按钮还是灰的」
+chk(a2.progress?.required_left === 0, `required_left=${a2.progress?.required_left}（按钮据此解禁）`)
+chk(typeof a2.ack === 'string' && a2.ack.length > 0, `ack 有话说：${String(a2.ack).slice(0, 24)}…`)
 
 // 覆盖：同一题再答一次不该报错，也不该把 answered 加成 3
 const a3 = await convApi.answerQuestion(conv.conversation_id, {
@@ -201,6 +205,19 @@ chk(
 )
 const still = await convApi.getConversation(conv.conversation_id)
 chk(still.progress?.answered === 2, '已填答案没被清空')
+
+L('\n=== 8.5 断点续写：引导页靠 GET /conversations/:id 原样还原那一屏 ===')
+chk(still.questions?.length === 4, `草稿会带回 ${still.questions?.length} 道题`)
+chk(
+  still.questions.every((q) => Array.isArray(q.options) && q.options.every((o) => o.key && o.label)),
+  '每题都有 options，且每项有 key 和 label'
+)
+const restored = still.answers?.[venueQ.id]
+chk(Boolean(restored), 'answers 按 question_id 归位')
+chk(
+  Array.isArray(restored?.selected) && 'custom_text' in restored,
+  `字段名对得上：selected=${JSON.stringify(restored?.selected)}, custom_text=${restored?.custom_text}`
+)
 
 L('\n=== 9. 教案库 ===')
 const lib = await convApi.listConversations({ status: 'all' })
