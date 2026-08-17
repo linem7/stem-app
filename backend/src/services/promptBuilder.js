@@ -452,24 +452,41 @@ ${existingMemories.map((m) => `- ${m.fact}`).join('\n')}`
 }
 
 /** 图片提示词生成用的 system prompt（system-prompts.md 第 3 节） */
+/**
+ * 图片提示词规范。
+ *
+ * 【这段是拿实测结果调出来的，别凭感觉改】2026-08-17 用 image-01 跑了 9 张对照：
+ *
+ *   风格约束（flat illustration / no photorealism）—— **6/6 全守住**，可靠
+ *   姿态约束（NO faces visible / strictly back view）—— **只有 2/4 守住**，不可靠
+ *
+ * 所以规范的重心从「不许出现脸」改成「锁死插画风格」。
+ * 一开始写「绝不画脸」是把红线画错了地方：真正的风险是**照片级写实的可辨认幼儿面孔**
+ * （第一版实测就生成了三个西方小孩的写实大头照，那个确实不能用）；
+ * 而两点一线的扁平卡通脸不构成任何人的肖像，印在教案里没问题。
+ *
+ * 强约束一件做不到的事，只会让人以为它做到了。
+ */
 export const IMAGE_PROMPT_SYSTEM = `请为幼儿园STEAM教案的某个环节生成一个图片描述提示词，用于AI图像生成。
 
-要求：
-1. 用英文描述（MiniMax image-01 对英文提示词的响应明显更准）
-2. 包含：活动场景、幼儿在做的动作、材料、颜色、光线
-3. **不要描写幼儿的脸**。不写 face、smile、expression、eyes、joyful expression 这类词，
-   改用能表达状态又不涉及面部的写法：seen from behind、over-the-shoulder view、
-   looking down at their hands、focused on the task、hands in the foreground
-4. 避免：文字、具体数字、复杂细节、人物特写
-5. 风格：温暖、安全、适龄的幼儿教育场景，插画风
-6. 幼儿年龄要与年龄班相符（小班写 3-4 year-old，中班 4-5，大班 5-6）
-7. 长度：1-2 句话，简洁有力
+**提示词必须以这段风格前缀开头，一字不改**：
+"Flat vector illustration in a warm children's picture-book style, simple geometric shapes, no photorealism, no photographic rendering, no 3D. Cream background, soft yellow / mint green / sky blue palette. Chinese kindergarten children with black hair and East Asian features."
 
-只输出那段英文描述本身，不要任何解释、不要引号。
+然后接一句英文场景描述，要求：
+1. 写清楚：孩子在做什么动作、用什么材料、在什么场地
+2. 视角优先写 seen mostly from behind 或 seen from the side —— 这样画面重点落在手上的动作和材料上，
+   而不是表情。（模型不一定完全照做，但写了会好一些）
+3. 面部一律保持极简：如果要提，只写 simple minimal facial features；
+   绝对不要写 close-up、portrait、detailed face、realistic 这类词
+4. 不要出现：文字、具体数字、品牌、写实照片质感
+5. 幼儿年龄要与年龄班相符（小班 3-4 year-old，中班 4-5，大班 5-6）
+6. 场景描述控制在 1-2 句
 
-第 3 条是硬要求，不是风格偏好：这些图会印在教案里给同事和家长看，
-生成可辨认的幼儿面孔在合规上是不必要的风险；而且教案配图要说明的是
-「孩子在做什么」，手上的动作比表情更有信息量。`;
+只输出「风格前缀 + 场景描述」这一整段英文，不要任何解释、不要引号。
+
+为什么风格前缀不能动：实测这段能稳定压住写实照片风格，而单靠「不要画脸」压不住
+（同一段强约束跑 4 张，2 张照样画了正脸）。风格对了，即使露脸也只是卡通脸，
+不构成可辨认的幼儿肖像；风格错了，就会生成照片级的儿童面孔 —— 那才是真问题。`;
 
 // ============================================================
 // 代码层的年龄班硬校验

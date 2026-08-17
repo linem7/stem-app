@@ -389,6 +389,10 @@ body{background:var(--canvas);font-family:var(--f-body);color:var(--ink);
 .priv .pi{font-size:12.5px;color:var(--ink-2);line-height:1.75;padding-left:14px;position:relative;margin-bottom:9px}
 .priv .pi::before{content:"";position:absolute;left:2px;top:9px;width:5px;height:5px;border-radius:999px;background:var(--sky)}
 .priv .pi b{color:var(--ink)}
+
+/* 成稿页的真实配图 */
+.lesson-img{display:block;width:100%;border-radius:14px;border:1px solid var(--rule-2);background:var(--paper-2)}
+.img-cap{font-size:12px;color:var(--ink-3);line-height:1.65;margin-top:7px}
 </style>
 </head>
 <body>
@@ -844,6 +848,8 @@ const SKIP_WHY = {
   E: '「改变形状让它浮起来」要孩子先预测、再反复调整，超出 3–4 岁的能力，这一步放到中班。',
 };
 const STEAM_CN = { S:'科学', T:'技术', E:'工程', A:'艺术', M:'数学' };
+/* 真跑出来的配图。只有这两个班有 —— 没跑的就诚实显示占位，不拿同一张图糊弄 */
+const DEMO_IMG = { '小班': 'small-flow1.jpg', '大班': 'big-flow1.jpg' };
 
 function scPlan() {
   const age = S.age || '小班';
@@ -916,7 +922,12 @@ function scPlan() {
       <div class="sec-h"><span class="h">延伸活动</span></div>
       <p style="font-size:13.5px;line-height:1.7;color:var(--ink-2)">${esc(c.extension)}</p>
 
-      <div class="ph-img" style="height:74px;margin-top:18px">配图待生成</div>
+      ${DEMO_IMG[age] ? `<div style="margin-top:18px">
+        <div class="sec-h"><span class="h">配图</span><span class="m">MiniMax image-01 · 真实生成</span></div>
+        <img class="lesson-img" src="./images/${DEMO_IMG[age]}" alt="${esc(c.title)}的活动配图" loading="lazy">
+        <div class="img-cap">这张是真跑出来的，不是占位图。风格前缀锁死了扁平插画和东亚面孔
+          —— 实测只写「不要画脸」压不住，写实照片风的儿童面孔才是真风险。</div>
+      </div>` : `<div class="ph-img" style="height:74px;margin-top:18px">配图待生成</div>`}
     </div>
   </div></div>
   <div class="dock">
@@ -931,7 +942,7 @@ function scPlan() {
 }
 function notDone(what) {
   const why = {
-    '配图': '配图还没开通：豆包的火山引擎签名还没做完（doubao.js 里标着 TODO）。后端现在会明确返回 501，不会静默失败。',
+    '配图': '配图后端已经跑通了（MiniMax image-01，约 30 秒一张，2.5 分钱）。这个原型是静态页连不上后端，所以点不动 —— 成稿页里那张图就是真跑出来的。',
     '导出 Word': '导出 Word 后端也还没做，返回 NOT_IMPLEMENTED / 501 且标了不可重试 —— 先用「复制全文」把教案带走。',
     '分享': '分享要小程序的转发能力，浏览器里没有。',
   };

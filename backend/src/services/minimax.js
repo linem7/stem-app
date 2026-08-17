@@ -118,14 +118,17 @@ export async function generateImage({ prompt, aspectRatio = DEFAULT_RATIO }) {
   }
 
   const buffer = Buffer.from(b64, 'base64');
-  const { width, height } = readPngSize(buffer) || ratioToSize(aspectRatio);
+  // image-01 实际返回的是 **JPEG**（魔数 FFD8），不是 PNG。
+  // 按 PNG 存会得到一个扩展名是 .png 的 JPEG 文件 —— 浏览器多半能显示，
+  // 但对象存储的 Content-Type 会标错，某些客户端就不认了。
+  const { ext, width, height } = readImageMeta(buffer) || { ext: 'jpg', ...ratioToSize(aspectRatio) };
 
   logger.info('minimax_image_generated', {
-    ms: t(), bytes: buffer.length, width, height, id: body?.id,
+    ms: t(), bytes: buffer.length, width, height, ext, id: body?.id,
   });
 
   return {
-    buffer, width, height,
+    buffer, width, height, ext,
     bytes: buffer.length,
     // image-01 是 $0.0035/张，按 7.2 汇率折人民币约 2.5 分。
     // 存整数分是为了让「这个月配图花了多少」能直接 SUM，不用担心浮点误差。
@@ -133,10 +136,30 @@ export async function generateImage({ prompt, aspectRatio = DEFAULT_RATIO }) {
   };
 }
 
-/** PNG 的宽高就在文件头固定位置，读它比信参数准（模型可能不完全按 aspect_ratio 出图） */
-function readPngSize(buf) {
-  if (buf.length < 24 || buf.readUInt32BE(0) !== 0x89504e47) return null;
-  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+/**
+ * 从字节流本身认格式和宽高，不信参数也不信扩展名。
+ * 模型不一定完全按 aspect_ratio 出图，返回格式也可能随版本变。
+ */
+function readImageMeta(buf) {
+  // PNG：89 50 4E 47，宽高在固定偏移
+  if (buf.length > 24 && buf.readUInt32BE(0) === 0x89504e47) {
+    return { ext: 'png', width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+  }
+  // JPEG：FFD8 开头，宽高在 SOF 段里，得顺着段长跳过去找
+  if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+    let o = 2;
+    while (o + 9 < buf.length) {
+      if (buf[o] !== 0xff) { o += 1; continue; }
+      const marker = buf[o + 1];
+      // SOF0-SOF15，跳过 DHT(C4)/RSTn(C8)/DAC(CC) 这几个不是尺寸段的
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return { ext: 'jpg', height: buf.readUInt16BE(o + 5), width: buf.readUInt16BE(o + 7) };
+      }
+      o += 2 + buf.readUInt16BE(o + 2);
+    }
+    return { ext: 'jpg', width: 0, height: 0 };
+  }
+  return null;
 }
 function ratioToSize(r) {
   const [w, h] = String(r).split(':').map(Number);

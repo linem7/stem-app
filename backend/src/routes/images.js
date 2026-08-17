@@ -106,7 +106,8 @@ imagesRouter.post(
         const img = await generateImage({ prompt });
 
         // 第三步：落地。配了对象存储就传云上，没配就存本地磁盘；两种都只回 object_key
-        const { objectKey, bytes } = await uploadImage({ buffer: img.buffer, ext: 'png' });
+        // 扩展名跟着真实格式走（image-01 返回的是 JPEG），别写死 png
+        const { objectKey, bytes } = await uploadImage({ buffer: img.buffer, ext: img.ext || 'jpg' });
 
         await query(
           `UPDATE lesson_images

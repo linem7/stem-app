@@ -42,3 +42,7 @@ research/*.pdf
 # 开发期本地图片落地目录（没配对象存储时用）
 backend/.local-images/
 .local-images/
+
+# 图片提示词实验产物，不入库
+.imgtest/
+.tmpimg.jpg
