@@ -194,6 +194,13 @@ const a3 = await convApi.answerQuestion(conv.conversation_id, {
 })
 chk(a3.progress?.answered === 2, `重复提交是覆盖不是新增（answered=${a3.progress?.answered}）`)
 
+L('\n=== 7.5 必答题不接受空答案 ===')
+// 引导页原来写成「再点一下取消选择」，点在年龄班上就是这个 400。
+// 现在前端对必答题不给取消，这条留着守住后端的行为不变。
+await expectError('把年龄班取消掉', 'VALIDATION_FAILED', () =>
+  convApi.answerQuestion(conv.conversation_id, { questionId: ageQ.id, selected: [] })
+)
+
 L('\n=== 8. 换年龄班重拉推荐答案 ===')
 const re = await convApi.refetchQuestions(conv.conversation_id, '大班')
 // api-spec 写的是「除年龄班外的三题」，后端实际把 4 题都返回了。
@@ -202,6 +209,19 @@ chk(re.questions?.length >= 3, `重拉到 ${re.questions?.length} 题（spec 写
 chk(
   re.questions.every((x) => conv.questions.some((y) => y.id === x.id)),
   '重拉的题 id 与首次一致，前端可按 id 原地换推荐答案'
+)
+// 关键：字母不是稳定标识。换班后 A/B/C 指向的文案会变，
+// 所以前端必须按 label 重新对位，不能把勾原样留在原字母上。
+const venueBefore = conv.questions.find((x) => x.key === 'venue')
+const venueAfter = re.questions.find((x) => x.key === 'venue')
+const movedAt = venueBefore.options.findIndex(
+  (o, i) => venueAfter.options[i] && venueAfter.options[i].label !== o.label
+)
+chk(
+  movedAt >= 0,
+  movedAt >= 0
+    ? `换班后同一字母指向的文案会变（${venueBefore.options[movedAt].key}：${venueBefore.options[movedAt].label} → ${venueAfter.options[movedAt].label}），所以前端必须按 label 对位`
+    : '这一轮字母恰好没变，但不能据此认为它稳定'
 )
 const still = await convApi.getConversation(conv.conversation_id)
 chk(still.progress?.answered === 2, '已填答案没被清空')

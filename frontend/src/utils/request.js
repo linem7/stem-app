@@ -72,6 +72,19 @@ export function onAuthExpired(handler) {
  * @returns {Promise<object>}   已拆掉信封的 data
  */
 export function request({ method = 'GET', path, data, timeout = 20000, auth = true }) {
+  // 打包时没注入后端地址，请求会发到一个相对路径上，微信那边直接 fail，
+  // 表现出来跟「网络断了」一模一样 —— 真拿这个包给老师用，她会一直以为是自己的网有问题。
+  // 最容易撞上的场景：build:mp-weixin 出的是上线包，而线上域名还没备案，.env.production 里就空着。
+  if (!API_BASE) {
+    return Promise.reject(
+      new ApiError({
+        code: 'NO_API_BASE',
+        message: '这个包没配后端地址，连不上。开发时请用 npm run dev:mp-weixin 出的包（dist/dev/mp-weixin）',
+        retryable: false,
+      })
+    )
+  }
+
   const header = { 'Content-Type': 'application/json' }
   if (auth) {
     const t = getToken()
