@@ -8,6 +8,8 @@
  * 任何一步失败都不抛英文栈。
  */
 import express from 'express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { config, assertConfigOrExit } from './config.js';
 import { pingDatabase, query, closePool } from './db/pool.js';
 import { requireAuth, requireActivated } from './middleware/auth.js';
@@ -25,10 +27,13 @@ import { reviseRouter } from './routes/revise.js';
 import { memoriesRouter } from './routes/memories.js';
 import { accountRouter } from './routes/account.js';
 import { feedbackRouter } from './routes/feedback.js';
+import { adminRouter, requireAdmin } from './routes/admin.js';
 
 // ---------------------------------------------------------------
 // 1. 环境变量
 // ---------------------------------------------------------------
+const here = path.dirname(fileURLToPath(import.meta.url));
+
 assertConfigOrExit();
 
 // ---------------------------------------------------------------
@@ -161,6 +166,25 @@ v1.use('/feedback', requireAuth, requireActivated, feedbackRouter);
 app.use('/v1', v1);
 app.use('/', v1);
 
+// ---------------------------------------------------------------
+// 管理后台。与小程序完全隔离：不同的登录、不同的 token、不同的守卫。
+// 老师的 JWT 打不开这里（payload 里没有 role=admin），管理员 token 也调不了业务接口。
+//
+// 只有一个管理员账号 —— 系统里不存在「园所管理员」这种角色，
+// 这是「你的幼儿园和园长看不到这里的任何东西」那句承诺的技术兑现。
+// ---------------------------------------------------------------
+const adminApi = express.Router();
+adminApi.use((req, res, next) => {
+  // 登录接口本身不能要求已登录，其余一律要
+  if (req.path === '/login') return next();
+  return requireAdmin(req, res, next);
+});
+adminApi.use(adminRouter);
+app.use('/admin/api', adminApi);
+
+// 后台页面是一个独立的静态 HTML，跟小程序不共享任何前端代码
+app.use('/admin', express.static(path.join(here, '..', 'admin')));
+
 app.use(notFoundHandler);
 app.use(errorHandler);
 
@@ -176,6 +200,7 @@ const server = app.listen(config.port, () => {
       `  文本模型：  ${config.deepseek.model}`,
       `  配图：      ${config.minimax.configured ? '已配置' : '未配置（不影响其他功能）'}`,
       `  内容安全：  ${config.wechat.contentCheckEnabled ? '开' : '关（上线前必须开）'}`,
+      `  管理后台：  ${config.admin.configured ? `http://localhost:${config.port}/admin` : '未配置（设 ADMIN_PASSWORD 后可用）'}`,
       '',
       '  验证一下：',
       `      curl http://localhost:${config.port}/healthz`,

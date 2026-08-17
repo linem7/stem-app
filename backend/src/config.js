@@ -90,6 +90,13 @@ export const config = {
 
   taskConcurrency: num('TASK_CONCURRENCY', 2),
 
+  // 管理后台。只有一个账号 —— 系统里不存在「园所管理员」这种角色，
+  // 这是「园方看不到老师数据」那句承诺的技术兑现，不是省事。
+  admin: {
+    password: str('ADMIN_PASSWORD'),
+    get configured() { return Boolean(this.password && this.password.length >= 12); },
+  },
+
   // 没配对象存储时，图片存这个本地目录，由 server.js 挂静态路由提供访问。
   // 只在单机开发时成立，见 minimax.js 的 uploadImage 注释。
   localImageDir: str('LOCAL_IMAGE_DIR', './.local-images'),
@@ -140,6 +147,12 @@ export function assertConfigOrExit() {
       console.warn(
         '\n[提醒] CONTENT_CHECK_ENABLED=false，微信内容安全检查已关闭。' +
           '\n       本地开发可以这样，但正式提交小程序审核前必须设为 true，否则审核会被打回。\n'
+      );
+    }
+    if (!config.admin.configured) {
+      console.warn(
+        '\n[提醒] 没设 ADMIN_PASSWORD（或短于 12 位），管理后台 /admin 用不了。' +
+          '\n       发兑换码、发额度、看反馈都在那里，正式运营前要配上。\n'
       );
     }
     if (config.devFakeLogin) {

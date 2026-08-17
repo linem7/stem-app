@@ -7,9 +7,24 @@ async function call(m,p,b){
 }
 const L=console.log; let fail=0;
 const chk=(cond,msg)=>{ L(`  ${cond?'✓':'✗'} ${msg}`); if(!cond) fail++; };
+// 自己造干净数据，可反复跑
+const RND=String(Date.now()).slice(-8);
+const A=`dev:ops_a_${RND}`, Bacc=`dev:ops_b_${RND}`;
+let CODE=null;
+{
+  const admTok=(await (await fetch('http://localhost:3000/admin/api/login',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({password:process.env.ADMIN_PASSWORD||'dev-admin-only-local-9f3a2c'})})).json()).data.token;
+  const kg=await (await fetch('http://localhost:3000/admin/api/kindergartens',{headers:{Authorization:`Bearer ${admTok}`}})).json();
+  const r=await (await fetch('http://localhost:3000/admin/api/codes',{method:'POST',
+    headers:{'Content-Type':'application/json',Authorization:`Bearer ${admTok}`},
+    body:JSON.stringify({phone:`137${RND}`,real_name:'李老师',kindergarten_id:kg.data.items[0]?.id,
+      class_name:'中二班',position:'主班',age_group:'中班',init_text:20,init_image:10,grant_reason:'完成8月问卷·首次'})})).json();
+  CODE=r.data.code;
+  L(`（本轮测试码：${CODE}）`);
+}
 
 L('=== 1. 登录（还没激活）===');
-const auth=(await call('POST','/auth/login',{code:'dev:teacher_a'}));
+const auth=(await call('POST','/auth/login',{code:A}));
 token=auth.data.token;
 L('  teacher:', JSON.stringify(auth.data.teacher).slice(0,120));
 chk(auth.data.teacher.activated===false, 'activated=false');
@@ -26,7 +41,7 @@ const bad=await call('POST','/auth/redeem',{code:'STEM-XXXX-YYYY'});
 chk(bad.ok===false, `拒绝：${bad.error?.message}`);
 
 L('=== 4. 兑换码激活（故意用小写+空格，测宽容输入）===');
-const red=await call('POST','/auth/redeem',{code:'  stem 4k7p qx3m '});
+const red=await call('POST','/auth/redeem',{code:'  '+CODE.toLowerCase().replace(/-/g,' ')+' '});
 chk(red.ok===true, '激活成功');
 if(red.ok){
   L('   身份:', red.data.teacher.class_name, red.data.teacher.position, '| 年龄班:', red.data.teacher.age_group);
@@ -45,12 +60,12 @@ const ag=await call('POST','/me/agree');
 chk(ag.ok && ag.data.teacher.agreed===true, 'agreed=true');
 
 L('=== 7. 码不能重复用 ===');
-token=(await call('POST','/auth/login',{code:'dev:teacher_b'})).data.token;
-const reuse=await call('POST','/auth/redeem',{code:'STEM-4K7P-QX3M'});
+token=(await call('POST','/auth/login',{code:Bacc})).data.token;
+const reuse=await call('POST','/auth/redeem',{code:CODE});
 chk(reuse.ok===false && reuse.error.message.includes('用过'), `拒绝：${reuse.error?.message}`);
 
 L('=== 8. 回到老师A，正常开会话 ===');
-token=(await call('POST','/auth/login',{code:'dev:teacher_a'})).data.token;
+token=(await call('POST','/auth/login',{code:A})).data.token;
 const conv=await call('POST','/conversations',{seed_input:'我想做个浮与沉的活动'});
 chk(conv.ok===true, `开会话成功，${conv.data?.questions?.length} 题`);
 

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>STEAM 教案助手 · 管理后台</title>
+<!--
+================================================================================
+管理后台。电脑浏览器打开 http://localhost:3000/admin
+
+只有一个账号。这不是省事 —— 系统里根本不存在「园所管理员」这种角色，
+是「你的幼儿园和园长看不到这里的任何东西」那句承诺的技术兑现。
+将来要是加了园长只读账号，那句承诺就作废了，得先跟老师们重新讲清楚。
+
+手机号在列表里默认打码。不是怕自己看，是怕在别人旁边打开后台时整屏号码被看见。
+================================================================================
+-->
+<style>
+:root{
+  --canvas:#F9F5E3; --paper:#FFFDF8; --paper-2:#FBF7EC;
+  --amber:#F5C63D; --amber-soft:#FDF6DE; --amber-line:#E8B62A; --amber-deep:#8A6410;
+  --mint:#6FBF8B; --mint-deep:oklch(0.52 0.115 155); --mint-soft:#EAF6EE;
+  --sky:#8FC7E8; --sky-soft:#EAF3FA; --sky-deep:#2E6E96;
+  --coral:#EE8069; --coral-deep:#B44B33;
+  --ink:#3A3630; --ink-2:#6B655C; --ink-3:oklch(0.505 0.014 82);
+  --rule:#EBE5D6; --rule-2:oklch(0.885 0.018 92);
+  font-synthesis:none;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--canvas);color:var(--ink);min-height:100vh;
+  font-family:-apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+  -webkit-font-smoothing:antialiased;font-size:14px;line-height:1.6}
+
+/* 登录 */
+.login{min-height:100vh;display:flex;align-items:center;justify-content:center}
+.login .box{background:var(--paper);border:1px solid var(--rule-2);border-radius:18px;
+  padding:32px 30px;width:360px;box-shadow:0 6px 30px rgba(138,100,16,.09)}
+.login h1{font-size:19px;margin-bottom:6px}
+.login p{font-size:13px;color:var(--ink-3);margin-bottom:20px}
+.login input{width:100%;padding:12px 14px;border:1px solid var(--rule-2);border-radius:12px;
+  font:inherit;font-size:15px;outline:none;background:#fff}
+.login input:focus{border-color:var(--amber-line);box-shadow:0 0 0 3px var(--amber-soft)}
+.login button{width:100%;margin-top:14px}
+
+/* 布局 */
+.wrap{display:flex;min-height:100vh}
+.side{width:190px;flex:none;background:var(--paper);border-right:1px solid var(--rule);padding:20px 14px}
+.side .brand{font-size:14px;font-weight:700;padding:0 8px 16px;border-bottom:1px solid var(--rule);margin-bottom:12px}
+.side .brand small{display:block;font-size:11px;color:var(--ink-3);font-weight:400;margin-top:3px}
+.nav{display:block;width:100%;text-align:left;background:none;border:none;font:inherit;font-size:14px;
+  color:var(--ink-2);padding:9px 10px;border-radius:9px;cursor:pointer;margin-bottom:2px}
+.nav:hover{background:var(--paper-2);color:var(--ink)}
+.nav.on{background:var(--amber-soft);color:var(--ink);font-weight:600}
+.nav .badge{float:right;background:var(--coral);color:#fff;border-radius:999px;
+  font-size:11px;padding:0 6px;font-weight:600}
+.main{flex:1;padding:24px 28px;min-width:0;overflow-x:auto}
+.main h2{font-size:19px;margin-bottom:3px}
+.main .sub{font-size:13px;color:var(--ink-3);margin-bottom:18px}
+
+/* 组件 */
+.btn{border:none;border-radius:11px;padding:10px 16px;font:inherit;font-size:14px;font-weight:600;
+  cursor:pointer;background:var(--amber);color:var(--ink);
+  box-shadow:inset 0 0 0 1.2px var(--amber-deep)}
+.btn:hover{background:#F7D05E}
+.btn:disabled{background:var(--rule-2);color:var(--ink-3);box-shadow:none;cursor:not-allowed}
+.btn-sm{padding:5px 11px;font-size:12.5px;border-radius:8px;background:oklch(1 0 0 / .8);
+  border:1px solid var(--rule-2);box-shadow:none;font-weight:500;color:var(--ink-2)}
+.btn-sm:hover{background:#fff;border-color:var(--amber-line);color:var(--amber-deep)}
+.btn-danger:hover{border-color:var(--coral);color:var(--coral-deep)}
+
+.card{background:var(--paper);border:1px solid var(--rule-2);border-radius:14px;padding:16px 18px;margin-bottom:16px}
+.stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.stat{background:var(--paper);border:1px solid var(--rule-2);border-radius:14px;padding:14px 18px;min-width:110px}
+.stat .n{font-size:24px;font-weight:700;letter-spacing:-.02em}
+.stat .l{font-size:12.5px;color:var(--ink-3);margin-top:2px}
+
+table{width:100%;border-collapse:collapse;background:var(--paper);border-radius:14px;overflow:hidden;
+  border:1px solid var(--rule-2)}
+th{text-align:left;font-size:12px;font-weight:600;color:var(--ink-3);padding:10px 12px;
+  background:var(--paper-2);border-bottom:1px solid var(--rule-2);white-space:nowrap}
+td{padding:11px 12px;border-bottom:1px solid var(--rule);font-size:13.5px;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:oklch(1 0 0 / .5)}
+td.num{font-variant-numeric:tabular-nums}
+.mono{font-family:ui-monospace,"SF Mono",Consolas,monospace;font-size:13px;letter-spacing:.02em}
+
+.pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:999px;font-weight:600}
+.p-ok{background:var(--mint-soft);color:var(--mint-deep)}
+.p-warn{background:var(--amber);color:var(--ink)}
+.p-off{background:var(--paper-2);color:var(--ink-3);border:1px solid var(--rule-2)}
+.p-bad{background:oklch(0.93 0.05 30);color:var(--coral-deep)}
+.low{color:var(--coral-deep);font-weight:600}
+
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+input[type=text],input[type=number],select,textarea{padding:8px 11px;border:1px solid var(--rule-2);
+  border-radius:9px;font:inherit;font-size:13.5px;outline:none;background:#fff}
+input:focus,select:focus,textarea:focus{border-color:var(--amber-line)}
+label{font-size:12.5px;color:var(--ink-2);display:block;margin-bottom:4px}
+.field{margin-bottom:11px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+
+.modal{position:fixed;inset:0;background:rgba(58,54,48,.4);display:flex;align-items:center;
+  justify-content:center;z-index:50;padding:20px}
+.modal .box{background:var(--paper);border-radius:16px;padding:22px 24px;width:520px;max-height:86vh;
+  overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.2)}
+.modal h3{font-size:17px;margin-bottom:14px}
+.modal .foot{display:flex;gap:9px;justify-content:flex-end;margin-top:18px}
+
+.codebox{background:var(--amber-soft);border:1px solid var(--amber-line);border-radius:12px;
+  padding:16px;text-align:center;margin:14px 0}
+.codebox .c{font-family:ui-monospace,Consolas,monospace;font-size:24px;font-weight:700;
+  letter-spacing:.1em;color:var(--amber-deep)}
+.codebox .t{font-size:12.5px;color:var(--ink-2);margin-top:8px}
+
+.empty{text-align:center;padding:40px 20px;color:var(--ink-3);font-size:13.5px}
+.note{background:var(--sky-soft);border-radius:10px;padding:10px 13px;font-size:12.5px;
+  color:var(--ink-2);line-height:1.65;margin-bottom:14px}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);
+  color:#fff;padding:11px 20px;border-radius:12px;font-size:13.5px;z-index:99;
+  opacity:0;transition:.2s;pointer-events:none}
+.toast.show{opacity:.96}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="./app.js"></script>
+</body>
+</html>
