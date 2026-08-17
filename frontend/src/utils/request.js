@@ -85,6 +85,22 @@ export function request({ method = 'GET', path, data, timeout = 20000, auth = tr
     )
   }
 
+  // 微信 wx.request 的 method 只认 OPTIONS/GET/HEAD/POST/PUT/DELETE/TRACE/CONNECT，
+  // **没有 PATCH**。而 api-spec 里 PATCH /me、PATCH /memories/:id、PATCH /lesson-plans/:id
+  // 三个接口都是 PATCH。目前还没有页面用到它们，所以先在这里拦下来说清楚，
+  // 免得等做「我的」和成稿编辑时又是一场「点了没反应」。
+  // 真要修得改接口约定（后端同时接受 POST，或加 X-HTTP-Method-Override），
+  // 按项目规矩得先改 api-spec.md —— 不在这儿偷偷绕过去。
+  if (method === 'PATCH') {
+    return Promise.reject(
+      new ApiError({
+        code: 'METHOD_UNSUPPORTED',
+        message: '小程序发不出 PATCH 请求，这个接口要先改成 POST（见 api-spec）',
+        retryable: false,
+      })
+    )
+  }
+
   const header = { 'Content-Type': 'application/json' }
   if (auth) {
     const t = getToken()

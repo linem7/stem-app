@@ -1,5 +1,5 @@
 <template>
-  <s-page>
+  <s-page dock>
     <text class="kicker">开始之前</text>
     <text class="q">先说清楚我们会记录什么</text>
 
@@ -30,7 +30,7 @@
     </text>
 
     <template #dock>
-      <s-button label="知道了，开始用" arrow :loading="submitting" @tap="submit" />
+      <s-button label="知道了，开始用" arrow :loading="submitting" @press="submit" />
     </template>
   </s-page>
 </template>

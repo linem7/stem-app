@@ -9,7 +9,7 @@
 
     <template v-else-if="session.bootError">
       <text class="err">{{ session.bootError.message }}</text>
-      <s-button label="重试" variant="plain" @tap="retry" />
+      <s-button label="重试" variant="plain" @press="retry" />
     </template>
 
     <template v-else>
@@ -44,7 +44,7 @@
           :disabled="!seed.trim()"
           :loading="starting"
           loading-text="正在准备问题"
-          @tap="start"
+          @press="start"
         />
       </view>
 

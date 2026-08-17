@@ -17,7 +17,7 @@
     </scroll-view>
 
     <!-- 拇指位常驻操作条。方向 B 的核心资产之一，主行动永远在够得着的地方 -->
-    <view v-if="hasDock" class="s-page__dock">
+    <view v-if="dock" class="s-page__dock">
       <slot name="dock" />
     </view>
 
@@ -26,18 +26,24 @@
 </template>
 
 <script setup>
-import { computed, useSlots } from 'vue'
 import { statusBarHeight } from '../utils/ui.js'
 
-const props = defineProps({
+defineProps({
   /** 'home' | 'library' | 'me'，传了才显示底部 tab */
   tab: { type: String, default: '' },
+  /**
+   * 要不要显示底部操作条。
+   *
+   * 原来是用 useSlots() 判断的，在小程序端不成立 —— 插槽是**编译期静态声明**的
+   * （wxml 上那句 u-s="{{['top','dock','d']}}"），运行时 slots.dock 恒为真。
+   * 结果是页面还在加载骨架、或者加载失败时，底下也挂着一条什么都没有的空白横条，
+   * 看起来像按钮没加载出来。改成由页面显式告诉它。
+   */
+  dock: { type: Boolean, default: false },
   /** 内容区不要左右留白（图片通栏之类） */
   flush: { type: Boolean, default: false },
 })
 
-const slots = useSlots()
-const hasDock = computed(() => Boolean(slots.dock))
 const statusH = statusBarHeight()
 </script>
 

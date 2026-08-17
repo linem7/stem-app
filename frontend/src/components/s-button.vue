@@ -1,10 +1,16 @@
 <template>
+  <!--
+    对外事件名故意不叫 tap，理由同 s-option：小程序里自定义组件是真实节点，
+    根节点的原生 tap 会冒泡穿过 <s-button> 打到父级 bindtap 上，
+    而 $emit('tap') 的 triggerEvent 又打一次，处理器跑两遍。
+    更麻烦的是原生冒泡那条路根本不经过下面的 onPress，disabled / loading 这道闸会被绕开。
+  -->
   <button
     class="s-btn"
     :class="[`s-btn--${variant}`, { 's-btn--disabled': disabled || loading }]"
     :disabled="disabled || loading"
     hover-class="none"
-    @tap="onTap"
+    @tap="onPress"
   >
     <text class="s-btn__label">{{ loading ? loadingText || label : label }}</text>
     <image v-if="arrow && !loading" class="s-btn__arrow" :src="arrowSrc" mode="widthFix" />
@@ -26,14 +32,18 @@ const props = defineProps({
   arrow: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['tap'])
+const emit = defineEmits(['press'])
 
-// 主按钮是黄底墨字（约 8.4:1），比白字方案更亮也更清楚 —— design-tokens 规则 2
-const arrowSrc = computed(() => iconArrow(props.variant === 'mint' ? COLORS.white : COLORS.ink))
+// 主按钮是黄底墨字（约 8.4:1），比白字方案更亮也更清楚 —— design-tokens 规则 2。
+// 禁用时箭头也得跟着变浅，否则深墨箭头挂在浅灰按钮上，看着像半亮半暗。
+const arrowSrc = computed(() => {
+  if (props.disabled || props.loading) return iconArrow(COLORS.disabledInk)
+  return iconArrow(props.variant === 'mint' ? COLORS.white : COLORS.ink)
+})
 
-function onTap() {
+function onPress() {
   if (props.disabled || props.loading) return
-  emit('tap')
+  emit('press')
 }
 </script>
 

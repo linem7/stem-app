@@ -27,7 +27,7 @@
         :disabled="!code.trim()"
         :loading="submitting"
         loading-text="正在激活"
-        @tap="submit"
+        @press="submit"
       />
     </view>
 

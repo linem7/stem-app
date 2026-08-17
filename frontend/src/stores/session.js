@@ -94,12 +94,23 @@ export async function agree() {
 }
 
 /**
- * 401 的兜底：清掉本地态，重新静默登录，然后回首页重来。
+ * 401 的兜底：清掉本地态，重新静默登录。
  * 不弹「登录过期」的框 —— 微信小程序里静默重登对老师是无感的，弹框只会吓到她。
+ *
+ * 走 ensureSession 而不是直接 bootstrap：401 常常是好几个并发请求一起回来的，
+ * 每个都触发一次就会同时发好几个 wx.login，输的那几路会把 bootError 写进去，
+ * 首页于是停在「网络好像断了」——其实登录是成功的。ensureSession 里的 memo 保证只跑一次。
  */
+let reauthing = false
 onAuthExpired(async () => {
+  if (reauthing) return
+  reauthing = true
   clearToken()
   session.teacher = null
   session.ready = false
-  await bootstrap()
+  try {
+    await ensureSession()
+  } finally {
+    reauthing = false
+  }
 })

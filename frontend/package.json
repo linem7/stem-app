@@ -9,7 +9,8 @@
     "dev:h5": "uni",
     "build:h5": "uni build",
     "test:api": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/api-contract-test.mjs",
-    "test:tokens": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tokens-test.mjs"
+    "test:tokens": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tokens-test.mjs",
+    "test:mp": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mp-lint.mjs"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-5020420260813003",
