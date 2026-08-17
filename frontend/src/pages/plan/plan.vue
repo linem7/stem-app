@@ -83,19 +83,11 @@
       <view class="hr" />
       <view class="sec">
         <text class="sec__h">材料清单</text>
-        <text class="sec__m">{{ picking ? `还能配 ${leftImages} 张` : `${(c.materials || []).length} 样` }}</text>
+        <text class="sec__m">{{ (c.materials || []).length }} 样</text>
       </view>
-      <text v-if="picking" class="pickhint">点一样材料，我给你画一张图</text>
       <view class="mats">
-        <view
-          v-for="(m, i) in c.materials || []"
-          :key="i"
-          class="mat"
-          :class="{ 'mat--pick': picking, 'mat--has': hasImageFor(m) }"
-          @tap="picking ? drawMaterial(i, m) : null"
-        >
+        <view v-for="(m, i) in c.materials || []" :key="i" class="mat">
           <text class="mat__t">{{ shortMat(m) }}</text>
-          <text v-if="hasImageFor(m)" class="mat__mark">有图</text>
         </view>
       </view>
 
@@ -158,25 +150,34 @@
       <!-- 集中放在最后。老师是照着这一节去准备东西的，穿插在流程里反而要来回翻 -->
       <view class="hr" />
       <view class="sec">
-        <text class="sec__h">活动材料图</text>
+        <text class="sec__h">配图</text>
         <text class="sec__m">{{ readyImages.length ? `${readyImages.length}/3 张` : '最多 3 张' }}</text>
       </view>
 
       <view v-for="img in readyImages" :key="img.id" class="mimg">
         <image class="mimg__i" :src="img.url" mode="widthFix" @tap="preview(img.url)" />
-        <text class="mimg__cap">{{ img.label || '活动材料' }}</text>
+        <view class="mimg__bar">
+          <view class="mimg__meta">
+            <text class="mimg__cap">{{ img.label || '活动材料' }}</text>
+            <text class="mimg__kind">{{ purposeCn(img.purpose) }} · {{ img.width }}×{{ img.height }}</text>
+          </view>
+          <!-- 存下来是为了打印，所以给的是原图不是缩略图 -->
+          <view class="mimg__save" @tap="saveOne(img)">
+            <text class="mimg__save-t">存到相册</text>
+          </view>
+        </view>
         <!-- 教案改过之后材料清单可能已经不含它了。图不删 —— 她当初觉得值得画才画的 ——
              但要标一句，让她自己判断还用不用得上 -->
-        <text v-if="img.label && !inMaterials(img.label)" class="mimg__stale">
+        <text v-if="isStale(img)" class="mimg__stale">
           现在的材料清单里已经没有这一样了，图先留着
         </text>
       </view>
 
       <view v-if="pendingImage" class="imgwait">
-        <text class="imgwait__t">正在画「{{ pendingName }}」…可以先去忙，画好了回来看</text>
+        <text class="imgwait__t">正在画「{{ pendingName }}」…约 45 秒，可以先去忙</text>
       </view>
       <view v-else-if="!readyImages.length" class="imgph">
-        <text class="imgph__t">还没有材料图。底下点「配图」，从材料清单里挑</text>
+        <text class="imgph__t">还没有配图。底下点「配图」</text>
       </view>
 
       <!-- ============ 评价 ============ -->
@@ -201,15 +202,74 @@
     <template #dock>
       <s-button label="哪里不对？我来改" arrow @press="goRevise" />
       <view class="row">
-        <view class="row__b" :class="{ 'row__b--on': picking }" @tap="togglePicking">
-          <text class="row__t" :class="{ 'row__t--on': picking }">
-            {{ pendingImage ? '画着…' : picking ? '不配了' : '配图' }}
-          </text>
+        <view class="row__b" @tap="openSheet">
+          <text class="row__t">{{ pendingImage ? '画着…' : '配图' }}</text>
         </view>
         <view class="row__b" @tap="doExport"><text class="row__t">导出</text></view>
         <view class="row__b" @tap="backToLibrary"><text class="row__t">教案库</text></view>
       </view>
     </template>
+
+    <!--
+      配图抽屉。原来是「点按钮 → 材料清单变可点 → 往上滚半屏去点」，
+      老师点完按钮人在页面最底下，根本看不到该干什么。抽屉从底下上来，
+      选择就在拇指够得着的地方。
+    -->
+    <s-sheet :visible="sheetOpen" title="配一张图" has-foot @close="sheetOpen = false">
+      <text class="sh__lead">这些图是给你打印出来在活动里用的，所以先说印出来干什么</text>
+
+      <view class="sh__sec"><text class="sh__h">印出来干什么用</text></view>
+      <view class="sh__purposes">
+        <view
+          v-for="p in PURPOSES"
+          :key="p.key"
+          class="sh__p"
+          :class="{ 'sh__p--on': purpose === p.key }"
+          @tap="purpose = p.key"
+        >
+          <text class="sh__p-t" :class="{ 'sh__p-t--on': purpose === p.key }">{{ p.cn }}</text>
+          <text class="sh__p-s">{{ p.hint }}</text>
+        </view>
+      </view>
+
+      <view class="sh__sec"><text class="sh__h">画什么</text></view>
+      <text class="sh__sub">从材料清单里挑一样</text>
+      <view class="mats">
+        <view
+          v-for="(m, i) in c.materials || []"
+          :key="i"
+          class="mat mat--pick"
+          :class="{ 'mat--on': pickedIndex === i, 'mat--has': hasImageFor(m) }"
+          @tap="choose(i, m)"
+        >
+          <text class="mat__t">{{ shortMat(m) }}</text>
+          <text v-if="hasImageFor(m)" class="mat__mark">有图</text>
+        </view>
+      </view>
+
+      <text class="sh__sub sh__sub--gap">或者自己说要什么</text>
+      <textarea
+        :value="custom"
+        class="sh__ta"
+        placeholder="例：海洋主题的背景墙，中间留白贴孩子的画"
+        placeholder-class="sh__ph"
+        :maxlength="200"
+        :auto-height="true"
+        @input="onCustomInput"
+      />
+
+      <template #foot>
+        <s-button
+          :label="`画这张（约 45 秒）`"
+          arrow
+          :disabled="!canDraw"
+          :loading="pendingImage"
+          loading-text="正在画"
+          @press="draw"
+        />
+        <text class="sh__foot">还能配 {{ leftImages }} 张 · 一张约 2.5 分钱</text>
+      </template>
+    </s-sheet>
   </s-page>
 </template>
 
@@ -226,6 +286,7 @@ import {
   rollback,
 } from '../../api/lessonPlans.js'
 import { navTo, reLaunch } from '../../utils/nav.js'
+import { saveImageToAlbum } from '../../utils/saveImage.js'
 import { showApiError, toast } from '../../utils/ui.js'
 
 const STEAM_KEYS = ['S', 'T', 'E', 'A', 'M']
@@ -243,10 +304,28 @@ const loadError = ref(null)
 const rating = ref('')
 const pendingImage = ref(false)
 const pendingName = ref('')
-/** 配图选材料模式。选完一样就画一张，一次一张（一张要 30 秒，排队等没意义） */
-const picking = ref(false)
 const versions = ref([])
 const currentVersion = ref(1)
+
+/* ============ 配图抽屉 ============ */
+// 用途决定构图：记录表要能写字的大格子，头饰要两条能绕头的长带，
+// 展示图要网格分隔，背景墙要中间留白。这些不是风格微调，是完全不同的图。
+// 键必须跟后端 imagePurpose.js 对上。
+const PURPOSES = [
+  { key: 'material', cn: '材料图', hint: '照着去准备' },
+  { key: 'worksheet', cn: '记录表', hint: '发给孩子写画' },
+  { key: 'headwear', cn: '头饰', hint: '剪下来戴头上' },
+  { key: 'display', cn: '展示图', hint: '一格一样，贴展示板' },
+  { key: 'backdrop', cn: '环创背景', hint: '贴墙，中间留白' },
+]
+const PURPOSE_CN = Object.fromEntries(PURPOSES.map((p) => [p.key, p.cn]))
+const purposeCn = (k) => PURPOSE_CN[k] || '配图'
+
+const sheetOpen = ref(false)
+const purpose = ref('material')
+const pickedIndex = ref(-1)
+const pickedName = ref('')
+const custom = ref('')
 
 const MAX_IMAGES = 3
 
@@ -329,8 +408,15 @@ const shortMat = (m) => String(m).replace(/（.*?）/g, '').split('，')[0]
 
 /** 这样材料有没有画过。按名字比，不按下标 —— 改稿之后下标会错位 */
 const hasImageFor = (m) => readyImages.value.some((i) => i.label && i.label === shortMat(m))
-/** 这张图对应的材料还在不在现在的清单里 */
-const inMaterials = (label) => (c.value.materials || []).some((m) => shortMat(m) === label)
+
+/**
+ * 这张图对不上现在的材料清单了。
+ * 只对材料图判断 —— 自由描述画的背景墙、头饰本来就不在材料清单里，标它「过时」是错的。
+ */
+const isStale = (img) =>
+  img.purpose === 'material' &&
+  Boolean(img.label) &&
+  !(c.value.materials || []).some((m) => shortMat(m) === img.label)
 
 function preview(url) {
   uni.previewImage({ urls: readyImages.value.map((i) => i.url), current: url })
@@ -371,38 +457,58 @@ async function doRollback(version) {
 
 /* ============ 材料配图 ============ */
 
-function togglePicking() {
+function openSheet() {
   if (pendingImage.value) return
-  if (!picking.value && leftImages.value <= 0) {
+  if (leftImages.value <= 0) {
     // 上限不是成本判断：三张以上老师就不看了，越多越像商品目录、离教案越远
     uni.showModal({
       title: '',
-      content: '这份教案已经有 3 张材料图了，够用了。',
+      content: '这份教案已经有 3 张配图了，够用了。',
       showCancel: false,
       confirmText: '知道了',
     })
     return
   }
-  picking.value = !picking.value
+  pickedIndex.value = -1
+  pickedName.value = ''
+  custom.value = ''
+  purpose.value = 'material'
+  sheetOpen.value = true
 }
 
+/** 选了材料就把自由输入清掉，反之亦然 —— 两个来源二选一，别让她猜哪个生效 */
+function choose(index, material) {
+  pickedIndex.value = pickedIndex.value === index ? -1 : index
+  pickedName.value = pickedIndex.value >= 0 ? shortMat(material) : ''
+  if (pickedIndex.value >= 0) custom.value = ''
+}
+
+function onCustomInput(e) {
+  custom.value = e.detail.value
+  if (custom.value.trim()) {
+    pickedIndex.value = -1
+    pickedName.value = ''
+  }
+}
+
+const canDraw = computed(() => Boolean(custom.value.trim() || pickedName.value))
+
 /**
- * 给一样材料画图。一次一张 —— 一张要 30 秒，让她排队等三张没意义，
+ * 画一张。一次一张 —— 一张要 45 秒，让她排队等三张没意义，
  * 而且画完一张她可能就不想画了。
  */
-async function drawMaterial(index, material) {
-  if (pendingImage.value) return
-  const name = shortMat(material)
-  if (hasImageFor(material)) {
-    toast('这一样已经有图了')
-    return
-  }
+async function draw() {
+  if (pendingImage.value || !canDraw.value) return
+  const free = custom.value.trim()
+  const name = free || pickedName.value
   pendingImage.value = true
   pendingName.value = name
-  picking.value = false
+  sheetOpen.value = false
   try {
     const res = await requestImage(planId.value, {
-      sectionKey: `material.${index}`,
+      purpose: purpose.value,
+      // 自由描述时没有材料下标，后端允许缺省
+      sectionKey: free ? null : `material.${pickedIndex.value}`,
       note: name,
     })
     imageHandle = pollImage(planId.value, res.image_id)
@@ -416,12 +522,17 @@ async function drawMaterial(index, material) {
     }
   } catch (err) {
     // 没配 MiniMax 时后端返回 NOT_IMPLEMENTED、超 3 张返回 IMAGE_LIMIT_EXCEEDED，
-    // 两句文案都由后端给，前端照显示
+    // 文案都由后端给，前端照显示
     showApiError(err)
   } finally {
     pendingImage.value = false
     pendingName.value = ''
   }
+}
+
+/** 存到相册。存的是原图（2048 长边）—— 她要的就是那个大的，拿去打印 */
+function saveOne(img) {
+  saveImageToAlbum(img.url)
 }
 
 async function doExport() {
@@ -1000,5 +1111,143 @@ async function doExport() {
   color: $ink-2;
   line-height: 1.7;
   margin: 60rpx 0 32rpx;
+}
+
+/* ============ 配图抽屉 ============ */
+.sh__lead {
+  display: block;
+  font-size: $fs-sub;
+  color: $ink-2;
+  line-height: 1.7;
+  margin-bottom: 24rpx;
+}
+
+.sh__sec {
+  padding: 8rpx 0 14rpx;
+}
+
+.sh__h {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: $ink-2;
+  letter-spacing: 0.04em;
+}
+
+.sh__sub {
+  display: block;
+  font-size: $fs-tag;
+  color: $ink-3;
+  margin-bottom: 14rpx;
+
+  &--gap {
+    margin-top: 26rpx;
+  }
+}
+
+.sh__purposes {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.sh__p {
+  border: 2rpx solid $rule-2;
+  border-radius: 24rpx;
+  background: $white;
+  padding: 16rpx 22rpx;
+  margin: 0 14rpx 14rpx 0;
+
+  &--on {
+    background: $amber-soft;
+    border-color: $amber-line;
+    box-shadow: 0 0 0 2rpx $amber-line;
+  }
+}
+
+.sh__p-t {
+  display: block;
+  font-size: 27rpx;
+  color: $ink-2;
+
+  &--on {
+    color: $ink;
+    font-weight: 600;
+  }
+}
+
+.sh__p-s {
+  display: block;
+  font-size: 22rpx;
+  color: $ink-3;
+  margin-top: 2rpx;
+}
+
+.sh__ta {
+  width: 100%;
+  border: 2rpx solid $rule-2;
+  border-radius: $r-btn;
+  background: $white;
+  padding: 22rpx 24rpx;
+  font-size: 28rpx;
+  line-height: 1.6;
+  color: $ink;
+  min-height: 110rpx;
+}
+
+.sh__ph {
+  color: $ink-3;
+}
+
+.sh__foot {
+  display: block;
+  font-size: 22rpx;
+  color: $ink-3;
+  text-align: center;
+  margin-top: 12rpx;
+}
+
+/* 抽屉里材料可点 */
+.mat--on {
+  background: $amber;
+  border-color: $amber-line;
+
+  .mat__t {
+    color: $ink;
+    font-weight: 600;
+  }
+}
+
+/* ============ 图片下方的操作条 ============ */
+.mimg__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12rpx;
+}
+
+.mimg__meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.mimg__kind {
+  display: block;
+  font-size: 22rpx;
+  color: $ink-3;
+  margin-top: 2rpx;
+}
+
+.mimg__save {
+  flex: none;
+  border: 2rpx solid $mint;
+  border-radius: $r-chip;
+  background: $mint-soft;
+  padding: 10rpx 24rpx;
+  margin-left: 16rpx;
+}
+
+.mimg__save-t {
+  font-size: 25rpx;
+  color: $mint-deep;
+  font-weight: 600;
 }
 </style>

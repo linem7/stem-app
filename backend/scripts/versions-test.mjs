@@ -196,6 +196,31 @@ if (WITH_REVISE) {
   chk(plan.images.length === 3, '折腾完图还是 3 张');
 }
 
+// ---------------------------------------------------------------
+L('\n=== 9. 配图用途（不花钱，直接查规则表）===');
+const { PURPOSES, resolvePurpose, buildPurposeSystem } = await import('../src/services/imagePurpose.js');
+
+chk(Object.keys(PURPOSES).length === 5, `五种用途齐全：${Object.keys(PURPOSES).join('/')}`);
+chk(PURPOSES.worksheet.height > PURPOSES.worksheet.width, '记录表是竖版（对着 A4）');
+chk(PURPOSES.headwear.width > PURPOSES.headwear.height, '头饰是横版（两条带子要够长）');
+chk(PURPOSES.backdrop.width > PURPOSES.backdrop.height, '环创背景是横版通景');
+chk(
+  Object.values(PURPOSES).every((p) => Math.max(p.width, p.height) === 2048 || p.width === p.height),
+  '尺寸按打印定：长边 2048，约 A4 250 DPI'
+);
+chk(resolvePurpose('乱填的') === 'material', '不认识的用途退回材料图，不报错');
+chk(resolvePurpose(undefined) === 'material', '没传用途也退回材料图');
+
+// 最重要的一条：否定约束必须落在**英文风格前缀**里。
+// 中文那几条只有 DeepSeek 看得到，图片模型从头到尾没见过 —— 第一版就是这么翻的车，
+// 中文写着「一个字都不许画」，出来的记录表上却印着 BOAT / HEAVY STONE 和一个假签名。
+const missingNoText = Object.keys(PURPOSES).filter((k) => {
+  const prefix = buildPurposeSystem(k).split('\n').find((l) => l.trim().startsWith('"Flat vector')) || '';
+  return !/no letters, no words, no numbers/.test(prefix);
+});
+chk(missingNoText.length === 0, `五种用途的英文前缀里都写死了「一个字都不许画」${missingNoText.length ? '：缺 ' + missingNoText.join('/') : ''}`);
+chk(PURPOSES.worksheet.optimize === false, '记录表关掉了 MiniMax 的提示词润色（它会把标题栏和水印补回来）');
+
 L(`\n${failed === 0 ? '全部通过' : `${failed} 项没过`}`);
 await closePool();
 process.exit(failed === 0 ? 0 : 1);

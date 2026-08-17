@@ -53,9 +53,12 @@ function apiError(code, extra = {}) {
  * @param {object} o
  * @param {string} o.prompt        英文提示词（由 buildImagePrompt 让文本模型翻好）
  * @param {string} [o.aspectRatio] 1:1 | 16:9 | 4:3 | 3:2 | 2:3 | 3:4 | 9:16 | 21:9
+ * @param {number} [o.width]       给了宽高就按宽高出（512-2048，8 的倍数），优先于 aspectRatio
+ * @param {number} [o.height]
+ * @param {boolean} [o.optimize] 要不要让 MiniMax 再润一次提示词。文档类图要关掉，见下方注释
  * @returns {Promise<{buffer:Buffer, width:number, height:number, bytes:number, costCents:number}>}
  */
-export async function generateImage({ prompt, aspectRatio = DEFAULT_RATIO }) {
+export async function generateImage({ prompt, aspectRatio = DEFAULT_RATIO, width, height, optimize }) {
   if (!config.minimax.configured) {
     throw new AppError(ErrorCode.NOT_IMPLEMENTED, {
       message: '配图功能还没开通，先用文字教案吧',
@@ -81,11 +84,19 @@ export async function generateImage({ prompt, aspectRatio = DEFAULT_RATIO }) {
       body: JSON.stringify({
         model: config.minimax.model,
         prompt: String(prompt).slice(0, 1500),
-        aspect_ratio: aspectRatio,
+        // 给了具体尺寸就用尺寸，没给才退回比例。
+        // 为什么要具体尺寸：这些图的终点是打印机不是屏幕 —— 1152x864 印在 A4 上
+        // 只有约 140 DPI，线条发虚；2048 长边约 250 DPI 才够。代价是一张从 30 秒变成约 47 秒。
+        ...(width && height ? { width, height } : { aspect_ratio: aspectRatio }),
         n: 1,
-        // 让 MiniMax 自己润色提示词。实测对「幼儿园扁平插画」这类描述有明显提升，
-        // 而且我们给的英文提示词本来就是文本模型翻的，不是人写的，经得起再润一次。
-        prompt_optimizer: true,
+        // 润色开关按用途给。
+        //
+        // 对插画类（材料图、背景墙）它确实有提升，我们给的英文本来就是文本模型翻的，
+        // 经得起再润一次。但对**文档类**（记录表）它是有害的：
+        // 「可复印的练习纸」这个视觉套路里天然带标题栏和出版社水印，
+        // 润色器会把这些补回来，把我们写死的「一个字都不许有」直接盖掉。
+        // 实测记录表开着润色会画出 "Table" 标题和一个假水印 "Nehproeds"。
+        ...(optimize === undefined ? { prompt_optimizer: true } : { prompt_optimizer: optimize }),
         response_format: 'base64',
       }),
       signal: AbortSignal.timeout(config.minimax.timeoutMs),
@@ -121,14 +132,19 @@ export async function generateImage({ prompt, aspectRatio = DEFAULT_RATIO }) {
   // image-01 实际返回的是 **JPEG**（魔数 FFD8），不是 PNG。
   // 按 PNG 存会得到一个扩展名是 .png 的 JPEG 文件 —— 浏览器多半能显示，
   // 但对象存储的 Content-Type 会标错，某些客户端就不认了。
-  const { ext, width, height } = readImageMeta(buffer) || { ext: 'jpg', ...ratioToSize(aspectRatio) };
+  // 参数名跟入参的 width/height 撞了，这里换个名 —— 实际尺寸以图片头里读到的为准，
+  // 模型不保证完全照着我们给的尺寸出
+  const meta = readImageMeta(buffer) || { ext: 'jpg', ...ratioToSize(aspectRatio) };
+  const { ext } = meta;
+  const outWidth = meta.width || width || 0;
+  const outHeight = meta.height || height || 0;
 
   logger.info('minimax_image_generated', {
-    ms: t(), bytes: buffer.length, width, height, ext, id: body?.id,
+    ms: t(), bytes: buffer.length, width: outWidth, height: outHeight, ext, id: body?.id,
   });
 
   return {
-    buffer, width, height, ext,
+    buffer, width: outWidth, height: outHeight, ext,
     bytes: buffer.length,
     // image-01 是 $0.0035/张，按 7.2 汇率折人民币约 2.5 分。
     // 存整数分是为了让「这个月配图花了多少」能直接 SUM，不用担心浮点误差。

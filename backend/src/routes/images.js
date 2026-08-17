@@ -10,13 +10,13 @@
 import { Router } from 'express';
 import { config } from '../config.js';
 import { query, queryOne } from '../db/pool.js';
-import { ok, asyncRoute, notFound, AppError, ErrorCode } from '../utils/errors.js';
+import { ok, asyncRoute, notFound, badRequest, AppError, ErrorCode } from '../utils/errors.js';
 import { assertImageQuota } from '../middleware/rateLimit.js';
 import { assertQuota } from '../services/quota.js';
 import { taskQueue } from '../services/taskQueue.js';
 import { generateImage, uploadImage, buildImageUrl } from '../services/minimax.js';
 import { buildImagePrompt } from '../services/lessonGenerator.js';
-import { IMAGE_PROMPT_MATERIAL_SYSTEM } from '../services/promptBuilder.js';
+import { buildPurposeSystem, purposeSpec, resolvePurpose } from '../services/imagePurpose.js';
 import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
 import { logger } from '../utils/logger.js';
 
@@ -63,6 +63,13 @@ imagesRouter.post(
     const plan = await loadPlan(req.params.id, req.teacherId);
     const sectionKey = req.body?.section_key ? String(req.body.section_key).slice(0, 32) : null;
     const note = req.body?.note ? String(req.body.note).slice(0, 200) : '';
+    // 用途决定构图规则和画布比例。不认识的值一律当材料图 ——
+    // 老师那边不该出现「用途填错了」这种事
+    const purpose = resolvePurpose(req.body?.purpose);
+    const spec = purposeSpec(purpose);
+
+    // 自由描述时没有 section_key，那 note 就是唯一的信息来源，必须有
+    if (!sectionKey && !note) throw badRequest('说说要画什么？');
 
     // 没配 MiniMax 就在这里挡掉，别往下走。
     // 往下走的代价是实打实的：会先调一次 DeepSeek 把中文描述翻成英文提示词
@@ -119,10 +126,10 @@ imagesRouter.post(
     // object_key 先落空串：这一列是 NOT NULL（db-schema.md），
     // 而 key 要等图片真生成出来、上传成功才知道。用空串占位比改表结构划算。
     const row = await queryOne(
-      `INSERT INTO lesson_images (lesson_plan_id, section_key, prompt_cn, object_key, status)
-       VALUES ($1, $2, $3, '', 'pending')
+      `INSERT INTO lesson_images (lesson_plan_id, section_key, purpose, prompt_cn, object_key, status)
+       VALUES ($1, $2, $3, $4, '', 'pending')
        RETURNING id`,
-      [plan.id, sectionKey, note || null]
+      [plan.id, sectionKey, purpose, note || null]
     );
 
     const teacher = req.teacher;
@@ -136,11 +143,15 @@ imagesRouter.post(
           ageGroup: plan.age_group,
           sectionName: materialName(plan.content_json, sectionKey, note),
           note,
-          system: IMAGE_PROMPT_MATERIAL_SYSTEM,
+          system: buildPurposeSystem(purpose),
         });
 
-        // 第二步：调 MiniMax image-01 出图，拿 base64 当场解成 buffer
-        const img = await generateImage({ prompt });
+        // 第二步：调 MiniMax image-01 出图，拿 base64 当场解成 buffer。
+        // 尺寸按用途给：记录表竖版、头饰横长条、背景墙通景，长边一律 2048 ——
+        // 这图的终点是打印机，屏幕上根本不需要这么大
+        const img = await generateImage({
+          prompt, width: spec.width, height: spec.height, optimize: spec.optimize,
+        });
 
         // 第三步：落地。配了对象存储就传云上，没配就存本地磁盘；两种都只回 object_key
         // 扩展名跟着真实格式走（image-01 返回的是 JPEG），别写死 png
@@ -175,7 +186,7 @@ imagesRouter.post(
       },
     });
 
-    return ok(res, { image_id: row.id, status: 'pending' });
+    return ok(res, { image_id: row.id, status: 'pending', purpose });
   })
 );
 
@@ -198,6 +209,9 @@ imagesRouter.get(
     return ok(res, {
       image_id: img.id,
       section_key: img.section_key,
+      purpose: img.purpose,
+      // 老师看到的那句话（材料名或她自己的描述），界面上拿它当这张图的标签
+      label: img.prompt_cn || null,
       status: img.status,
       url: img.status === 'ready' ? buildImageUrl(img.object_key) : null,
       width: img.width,

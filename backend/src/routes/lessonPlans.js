@@ -34,7 +34,7 @@ async function loadImages(lessonPlanId) {
       // prompt_cn 是老师当时选的那样材料的名字。必须带出来 ——
       // 教案改过之后材料清单可能已经变了，图还在（有意的，见 api-spec 6.5），
       // 界面上得靠这个名字说清楚每张图对的是什么，让她自己判断还用不用得上。
-      `SELECT id, section_key, prompt_cn, object_key, status, width, height, created_at
+      `SELECT id, section_key, purpose, prompt_cn, object_key, status, width, height, created_at
          FROM lesson_images WHERE lesson_plan_id = $1 ORDER BY id ASC`,
       [lessonPlanId]
     )
@@ -42,7 +42,11 @@ async function loadImages(lessonPlanId) {
   return rows.map((r) => ({
     id: r.id,
     section_key: r.section_key,
-    // 这张图画的是哪样材料。教案改过之后材料清单可能已经不含它了，图仍然留着
+    // 打印出来干什么用：material 材料图 | worksheet 记录表 | headwear 头饰 |
+    // display 展示图 | backdrop 环创背景。构图完全不同，界面上也要分开标
+    purpose: r.purpose || 'material',
+    // 老师看到的那句话（材料名或她自己的描述）。教案改过之后材料清单可能
+    // 已经不含它了，图仍然留着 —— 靠这个标签说清楚每张图对的是什么
     label: r.prompt_cn || null,
     status: r.status,
     // url 是拼出来的，不入库：换域名或换云厂商时只改 buildImageUrl 一处

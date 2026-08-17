@@ -344,19 +344,55 @@
 
 顺带解决一个风险：画材料实物就不该出现儿童，**儿童面孔这个最麻烦的问题直接不存在了**。
 
+### 图是**要打印出来在活动里用的**（2026-08-17 补，这条决定了一切）
+
+老师不是拿它看，是拿它印。所以「画成什么形状」取决于**印出来干什么**：
+
+| `purpose` | 中文 | 印出来干什么 | 因此构图必须 |
+|---|---|---|---|
+| `material` | 材料图 | 认材料、照着去备料 | 单件占满画面、纯色底、无场景 |
+| `worksheet` | 记录表 | 发给孩子写画 | 粗线大格子、格内**留白**、竖版、白底省墨 |
+| `headwear` | 头饰 | 剪下来戴头上 | 中间图案 + **左右两条水平长带**，横版 |
+| `display` | 展示图 | 贴在展示板上介绍材料 | 网格分隔，一格一样东西 |
+| `backdrop` | 环创背景 | 贴墙做主题墙 | 横向通景，**中间留白**给孩子作品 |
+
+**所有用途都禁止画文字**：模型写出来的中文一定是乱码，印出来是废纸。
+需要表头、标签的地方用简笔图标代替。
+
 ### `POST /lesson-plans/:id/images`
 ```json
-{ "section_key": "material.3", "note": "塑料小碗" }
-// → { "ok": true, "data": { "image_id": 3, "status": "pending" } }
+// 从材料清单里选
+{ "purpose": "material", "section_key": "material.3", "note": "塑料小碗" }
+// 老师自己说要什么（没有 section_key）
+{ "purpose": "backdrop", "note": "海洋主题的背景墙，中间留白贴孩子的画" }
+// → { "ok": true, "data": { "image_id": 3, "status": "pending", "purpose": "material" } }
 ```
 
-- `section_key` 形如 `material.<下标>`，下标是**提交那一刻** `content_json.materials` 里的位置
-- `note` 是材料名，会原样记进 `prompt_cn`，也是界面上这张图的标签
+- `purpose` 决定构图规则和画布比例，默认 `material`。不认识的值一律按 `material`
+- `section_key` **可选**，形如 `material.<下标>`；老师自由描述时没有它
+- `note` 是老师看到的那句话（材料名或她自己的描述），原样记进 `prompt_cn`，
+  也是界面上这张图的标签。自由描述时**必填**
 - **每份教案最多 3 张**（`IMAGE_LIMIT_EXCEEDED`，不可重试）。这是内容判断不是成本判断：
-  三张以上老师就不看了，而且材料图越多越像商品目录，离教案越远
+  三张以上老师就不看了，而且越多越像商品目录，离教案越远
+
+### 尺寸：按打印来定，不是按屏幕
+
+出图一律 2048 长边（约 A4 250 DPI）。屏幕上根本不需要这么大，但**这图的终点是打印机**，
+1152×864 印出来在 A4 上只有约 140 DPI，线条发虚。代价是一张从 30 秒变成约 47 秒。
+
+比例跟着 `purpose` 走：记录表竖版、头饰和背景墙横版、材料图方版。
 
 ### `GET /lesson-plans/:id/images/:image_id`
-轮询取结果，`status` 转 `ready` 时带 `url`。
+轮询取结果，`status` 转 `ready` 时带 `url`、`width`、`height`、`purpose`、`label`。
+
+### 下载
+
+前端用 `uni.downloadFile` + `uni.saveImageToPhotosAlbum` 存到相册，老师再从相册发到
+电脑或直接连打印机。`url` 给的就是原图（2048 长边），**不做缩略图** ——
+屏幕上 `<image mode="widthFix">` 自己缩，而她要的恰恰是那个大的。
+
+小程序要在 `manifest.json` 里声明 `scope.writePhotosAlbum`，第一次保存会弹授权。
+她拒绝了要给一句话说明怎么在设置里打开，不能静默失败。
 
 ### 图片与版本的关系：**图永远不跟着版本走**
 

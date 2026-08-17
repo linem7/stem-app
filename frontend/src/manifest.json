@@ -19,7 +19,12 @@
       "postcss": true
     },
     "usingComponents": true,
-    "permission": {},
+    "permission": {
+      // 配图要存到相册给老师拿去打印。第一次保存会弹这句授权说明
+      "scope.writePhotosAlbum": {
+        "desc": "把活动配图存到你的相册，方便打印出来在活动里用"
+      }
+    },
     "requiredPrivateInfos": []
   },
   "h5": {
