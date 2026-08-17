@@ -16,7 +16,7 @@ import { assertQuota } from '../services/quota.js';
 import { taskQueue } from '../services/taskQueue.js';
 import { generateImage, uploadImage, buildImageUrl } from '../services/minimax.js';
 import { buildImagePrompt } from '../services/lessonGenerator.js';
-import { IMAGE_PROMPT_SYSTEM } from '../services/promptBuilder.js';
+import { IMAGE_PROMPT_MATERIAL_SYSTEM } from '../services/promptBuilder.js';
 import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
 import { logger } from '../utils/logger.js';
 
@@ -30,15 +30,28 @@ async function loadPlan(id, teacherId) {
   return plan;
 }
 
-/** section_key 形如 'flow.1'，找出它对应的环节名，让图片提示词更贴题 */
-function sectionName(contentJson, sectionKey) {
-  if (!sectionKey) return '活动过程';
-  const m = /^flow\.(\d+)$/.exec(sectionKey);
+/**
+ * 一份教案最多几张材料图。
+ *
+ * 这是内容判断不是成本判断：三张以上老师就不看了，而且材料图越多越像商品目录、
+ * 离教案越远。跟每天 10 张那道闸管的是两件事（那个是防刷）。
+ */
+const MAX_IMAGES_PER_PLAN = 3;
+
+/**
+ * section_key 形如 'material.3'，找出它指的那样材料。
+ *
+ * 下标是**提交那一刻**材料清单里的位置。教案改过之后清单可能变了，
+ * 所以真正可靠的是 note（老师点的时候那样材料的名字），下标只作兜底。
+ */
+function materialName(contentJson, sectionKey, note) {
+  if (note) return note;
+  const m = /^material\.(\d+)$/.exec(String(sectionKey || ''));
   if (m) {
-    const idx = Number(m[1]);
-    return contentJson?.flow?.[idx]?.stage || contentJson?.flow?.[idx - 1]?.stage || '活动过程';
+    const item = contentJson?.materials?.[Number(m[1])];
+    if (item) return String(item);
   }
-  return { materials: '材料准备', extension: '延伸活动' }[sectionKey] || '活动过程';
+  return '活动材料';
 }
 
 // ---------------------------------------------------------------
@@ -68,7 +81,26 @@ imagesRouter.post(
       });
     }
 
-    // 两道闸并存，管的是两件事：
+    // 每份教案 3 张的上限。查在最前面 ——
+    // 让她挑完材料、等 30 秒，最后才说超了，是最糟的时机。
+    // 失败的那些不算（她没拿到图，不该占名额）。
+    const used = Number(
+      (
+        await queryOne(
+          `SELECT count(*)::int AS n FROM lesson_images
+            WHERE lesson_plan_id = $1 AND status <> 'failed'`,
+          [plan.id]
+        )
+      )?.n || 0
+    );
+    if (used >= MAX_IMAGES_PER_PLAN) {
+      throw new AppError(ErrorCode.IMAGE_LIMIT_EXCEEDED, {
+        message: `这份教案已经有 ${used} 张材料图了，最多 3 张`,
+        detail: { lesson_plan_id: plan.id, used },
+      });
+    }
+
+    // 另外两道闸并存，管的是另外两件事：
     //   assertImageQuota —— 每天 10 张的防刷上限（成本保护）
     //   assertQuota      —— 她这个月还剩几张的运营额度
     await assertImageQuota(req.teacherId);
@@ -102,9 +134,9 @@ imagesRouter.post(
         const prompt = await buildImagePrompt({
           lessonTitle: plan.title,
           ageGroup: plan.age_group,
-          sectionName: sectionName(plan.content_json, sectionKey),
+          sectionName: materialName(plan.content_json, sectionKey, note),
           note,
-          system: IMAGE_PROMPT_SYSTEM,
+          system: IMAGE_PROMPT_MATERIAL_SYSTEM,
         });
 
         // 第二步：调 MiniMax image-01 出图，拿 base64 当场解成 buffer

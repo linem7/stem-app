@@ -9,7 +9,7 @@
  * 而这里只需要一个 30 秒内的结果（api-spec 第 4 节已给出理由）。
  */
 import { Router } from 'express';
-import { query, queryOne } from '../db/pool.js';
+import { query, queryOne, withTransaction } from '../db/pool.js';
 import { ok, asyncRoute, badRequest } from '../utils/errors.js';
 import { limitGenerate } from '../middleware/rateLimit.js';
 import { taskQueue, setProgressHint, getProgressHint } from '../services/taskQueue.js';
@@ -56,32 +56,75 @@ export function enqueueLessonGeneration({ conv, teacher, memories, qaHistory }) 
       });
       if (!check.pass) throw contentBlockedError('ai_output');
 
-      // 重新生成时覆盖旧稿并把 version + 1（conversation_id 上有 UNIQUE 约束）
-      const saved = await queryOne(
-        `INSERT INTO lesson_plans
-           (conversation_id, teacher_id, title, age_group, duration_min, content_md, content_json, quality_self)
-         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb)
-         ON CONFLICT (conversation_id) DO UPDATE SET
-           title        = EXCLUDED.title,
-           age_group    = EXCLUDED.age_group,
-           duration_min = EXCLUDED.duration_min,
-           content_md   = EXCLUDED.content_md,
-           content_json = EXCLUDED.content_json,
-           quality_self = EXCLUDED.quality_self,
-           version      = lesson_plans.version + 1,
-           updated_at   = now()
-         RETURNING id, version`,
-        [
-          conv.id,
-          teacher.id,
-          plan.title.slice(0, 128),
-          plan.age_group,
-          plan.duration_min,
-          plan.content_md,
-          JSON.stringify(plan.content_json),
-          JSON.stringify(plan.quality_self),
-        ]
-      );
+      // 产生这一版的那句改稿意见。第一版没有（它不是改出来的）。
+      // 存它是因为老师认版本靠的是「我当时说了什么」，不是版本号。
+      const revisions = Array.isArray(conv.collected?.revisions) ? conv.collected.revisions : [];
+      const reviseNote = revisions.length ? String(revisions[revisions.length - 1]?.feedback || '').slice(0, 500) : null;
+
+      // 覆盖当前稿 + 落一条版本快照，两件事必须同生共死：
+      // 只写快照没覆盖，老师看到的还是旧的；只覆盖没写快照，这一版就永远回不去了。
+      const saved = await withTransaction(async (client) => {
+        const row = (
+          await client.query(
+            `INSERT INTO lesson_plans
+               (conversation_id, teacher_id, title, age_group, duration_min, content_md, content_json, quality_self)
+             VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb)
+             ON CONFLICT (conversation_id) DO UPDATE SET
+               title        = EXCLUDED.title,
+               age_group    = EXCLUDED.age_group,
+               duration_min = EXCLUDED.duration_min,
+               content_md   = EXCLUDED.content_md,
+               content_json = EXCLUDED.content_json,
+               quality_self = EXCLUDED.quality_self,
+               updated_at   = now()
+             RETURNING id`,
+            [
+              conv.id,
+              teacher.id,
+              plan.title.slice(0, 128),
+              plan.age_group,
+              plan.duration_min,
+              plan.content_md,
+              JSON.stringify(plan.content_json),
+              JSON.stringify(plan.quality_self),
+            ]
+          )
+        ).rows[0];
+
+        // 版本号取「历史里的最大值 + 1」，不是「当前版本 + 1」。
+        // 差别在回退之后：当前指向 v1、历史里已经有 v2，这时再改稿必须出 v3，
+        // 用 current + 1 会撞上已经存在的 v2（那条唯一索引会直接报错）。
+        const next = (
+          await client.query(
+            `SELECT COALESCE(MAX(version), 0) + 1 AS v FROM lesson_plan_versions WHERE lesson_plan_id = $1`,
+            [row.id]
+          )
+        ).rows[0].v;
+
+        await client.query(
+          `INSERT INTO lesson_plan_versions
+             (lesson_plan_id, version, title, age_group, duration_min, content_md, content_json, quality_self, revise_note)
+           VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9)`,
+          [
+            row.id,
+            next,
+            plan.title.slice(0, 128),
+            plan.age_group,
+            plan.duration_min,
+            plan.content_md,
+            JSON.stringify(plan.content_json),
+            JSON.stringify(plan.quality_self),
+            reviseNote,
+          ]
+        );
+
+        await client.query(
+          `UPDATE lesson_plans SET version = $1, current_version = $1 WHERE id = $2`,
+          [next, row.id]
+        );
+
+        return { id: row.id, version: next };
+      });
 
       await query(
         `UPDATE conversations

@@ -22,6 +22,9 @@ export const ERROR_CATALOG = {
   QUOTA_EXCEEDED: { http: 403, message: '这个月的额度用完了，完成任务可以再拿一些', retryable: false },
   // 还没兑换码激活 / 还没同意协议，前端据此跳对应的页
   NOT_ACTIVATED: { http: 403, message: '这个小程序目前只开放给合作园的老师，需要兑换码才能使用', retryable: false },
+  // 一份教案的材料图上限。这是内容判断不是成本判断 ——
+  // 三张以上老师就不看了，而且越多越像商品目录、离教案越远。
+  IMAGE_LIMIT_EXCEEDED: { http: 403, message: '一份教案最多配 3 张材料图，够用了', retryable: false },
   INTERNAL: { http: 500, message: '出了点问题，我们已经记录下来了', retryable: true },
 };
 

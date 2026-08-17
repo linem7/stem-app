@@ -35,8 +35,30 @@ export function submitReviseAnswers(lessonPlanId, reviseRound, answers) {
   })
 }
 
+/* ============ 版本与回退 ============ */
+
+/** 版本列表。note 是产生那一版的改稿意见 —— 老师认版本靠这句，不是版本号 */
+export function getVersions(lessonPlanId) {
+  return get(`/lesson-plans/${lessonPlanId}/versions`)
+}
+
+/**
+ * 回到某一版。不新增版本、不删版本，可以来回切；不消耗额度；**不动图片**。
+ * 图跨版本一直在是有意的：老师只在觉得某样材料值得画时才生成，
+ * 那份判断不会因为教案改了一句话就失效。
+ */
+export function rollback(lessonPlanId, version) {
+  return post(`/lesson-plans/${lessonPlanId}/rollback`, { version })
+}
+
 /* ============ 配图 ============ */
 
+/**
+ * 给一样**材料**画图（不是活动场景）。老师要的是照着能去准备东西。
+ * sectionKey 形如 material.3，note 是材料名 —— 后端拿它当图片标签，
+ * 因为教案改过之后材料清单可能已经变了，靠下标认不出来。
+ * 每份教案最多 3 张，超了返回 IMAGE_LIMIT_EXCEEDED。
+ */
 export function requestImage(lessonPlanId, { sectionKey, note }) {
   return post(`/lesson-plans/${lessonPlanId}/images`, { section_key: sectionKey, note })
 }

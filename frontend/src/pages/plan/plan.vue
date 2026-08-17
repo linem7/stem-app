@@ -29,8 +29,28 @@
           <text class="chip__t chip__t--saved">已保存</text>
         </view>
         <view v-if="plan.version > 1" class="chip chip--ver">
-          <text class="chip__t">第 {{ plan.version }} 版</text>
+          <text class="chip__t">第 {{ currentVersion }} 版</text>
         </view>
+      </view>
+
+      <!--
+        版本条。改稿是覆盖式的，不给退路等于逼老师赌一把 —— 她会因此不敢提意见，
+        而「改一改」正是这个产品的核心。所以退路必须摆在明面上。
+      -->
+      <view v-if="versions.length > 1" class="ver">
+        <view class="ver__hd">
+          <text class="ver__t">这是第 {{ currentVersion }} 版，共 {{ versions.length }} 版</text>
+        </view>
+        <text v-if="currentNote" class="ver__note">按你说的改的：「{{ currentNote }}」</text>
+        <view class="ver__ops">
+          <view v-if="prevVersion" class="ver__b" @tap="doRollback(prevVersion.version)">
+            <text class="ver__b-t">回到第 {{ prevVersion.version }} 版</text>
+          </view>
+          <view v-if="latestVersion > currentVersion" class="ver__b" @tap="doRollback(latestVersion)">
+            <text class="ver__b-t">回到最新的第 {{ latestVersion }} 版</text>
+          </view>
+        </view>
+        <text class="ver__keep">来回切都行，配图不受影响。</text>
       </view>
 
       <!-- ============ STEAM 五域 ============ -->
@@ -63,11 +83,19 @@
       <view class="hr" />
       <view class="sec">
         <text class="sec__h">材料清单</text>
-        <text class="sec__m">{{ (c.materials || []).length }} 样</text>
+        <text class="sec__m">{{ picking ? `还能配 ${leftImages} 张` : `${(c.materials || []).length} 样` }}</text>
       </view>
+      <text v-if="picking" class="pickhint">点一样材料，我给你画一张图</text>
       <view class="mats">
-        <view v-for="(m, i) in c.materials || []" :key="i" class="mat">
+        <view
+          v-for="(m, i) in c.materials || []"
+          :key="i"
+          class="mat"
+          :class="{ 'mat--pick': picking, 'mat--has': hasImageFor(m) }"
+          @tap="picking ? drawMaterial(i, m) : null"
+        >
           <text class="mat__t">{{ shortMat(m) }}</text>
+          <text v-if="hasImageFor(m)" class="mat__mark">有图</text>
         </view>
       </view>
 
@@ -82,15 +110,8 @@
           <text class="flow__stage">{{ f.stage }}</text>
           <text class="flow__min">{{ f.minutes }} 分钟</text>
         </view>
+        <!-- 图不再穿插在流程里 —— 它是材料图，属于最后那一节 -->
         <text class="flow__d">{{ f.detail }}</text>
-        <image
-          v-for="img in imagesFor(`flow.${i}`)"
-          :key="img.id"
-          class="flow__img"
-          :src="img.url"
-          mode="widthFix"
-          @tap="preview(img.url)"
-        />
       </view>
 
       <!-- ============ 指标 ============ -->
@@ -133,17 +154,29 @@
         <text class="para">{{ c.extension }}</text>
       </template>
 
-      <!-- ============ 配图 ============ -->
+      <!-- ============ 活动材料图 ============ -->
+      <!-- 集中放在最后。老师是照着这一节去准备东西的，穿插在流程里反而要来回翻 -->
       <view class="hr" />
       <view class="sec">
-        <text class="sec__h">配图</text>
-        <text class="sec__m">{{ readyImages.length ? `${readyImages.length} 张` : '约 30 秒一张' }}</text>
+        <text class="sec__h">活动材料图</text>
+        <text class="sec__m">{{ readyImages.length ? `${readyImages.length}/3 张` : '最多 3 张' }}</text>
       </view>
+
+      <view v-for="img in readyImages" :key="img.id" class="mimg">
+        <image class="mimg__i" :src="img.url" mode="widthFix" @tap="preview(img.url)" />
+        <text class="mimg__cap">{{ img.label || '活动材料' }}</text>
+        <!-- 教案改过之后材料清单可能已经不含它了。图不删 —— 她当初觉得值得画才画的 ——
+             但要标一句，让她自己判断还用不用得上 -->
+        <text v-if="img.label && !inMaterials(img.label)" class="mimg__stale">
+          现在的材料清单里已经没有这一样了，图先留着
+        </text>
+      </view>
+
       <view v-if="pendingImage" class="imgwait">
-        <text class="imgwait__t">正在画…可以先去忙，画好了回来看</text>
+        <text class="imgwait__t">正在画「{{ pendingName }}」…可以先去忙，画好了回来看</text>
       </view>
       <view v-else-if="!readyImages.length" class="imgph">
-        <text class="imgph__t">还没有配图</text>
+        <text class="imgph__t">还没有材料图。底下点「配图」，从材料清单里挑</text>
       </view>
 
       <!-- ============ 评价 ============ -->
@@ -168,8 +201,10 @@
     <template #dock>
       <s-button label="哪里不对？我来改" arrow @press="goRevise" />
       <view class="row">
-        <view class="row__b" @tap="makeImage">
-          <text class="row__t">{{ pendingImage ? '画着…' : '配图' }}</text>
+        <view class="row__b" :class="{ 'row__b--on': picking }" @tap="togglePicking">
+          <text class="row__t" :class="{ 'row__t--on': picking }">
+            {{ pendingImage ? '画着…' : picking ? '不配了' : '配图' }}
+          </text>
         </view>
         <view class="row__b" @tap="doExport"><text class="row__t">导出</text></view>
         <view class="row__b" @tap="backToLibrary"><text class="row__t">教案库</text></view>
@@ -184,9 +219,11 @@ import { onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import {
   exportLessonPlan,
   getLessonPlan,
+  getVersions,
   pollImage,
   rateLessonPlan,
   requestImage,
+  rollback,
 } from '../../api/lessonPlans.js'
 import { navTo, reLaunch } from '../../utils/nav.js'
 import { showApiError, toast } from '../../utils/ui.js'
@@ -205,6 +242,13 @@ const plan = ref(null)
 const loadError = ref(null)
 const rating = ref('')
 const pendingImage = ref(false)
+const pendingName = ref('')
+/** 配图选材料模式。选完一样就画一张，一次一张（一张要 30 秒，排队等没意义） */
+const picking = ref(false)
+const versions = ref([])
+const currentVersion = ref(1)
+
+const MAX_IMAGES = 3
 
 let imageHandle = null
 
@@ -216,6 +260,15 @@ const skipped = computed(() =>
 )
 
 const readyImages = computed(() => (plan.value?.images || []).filter((i) => i.status === 'ready' && i.url))
+const leftImages = computed(() => Math.max(0, MAX_IMAGES - readyImages.value.length))
+
+const latestVersion = computed(() => versions.value.reduce((m, v) => Math.max(m, v.version), 1))
+const currentNote = computed(() => versions.value.find((v) => v.version === currentVersion.value)?.note || '')
+/** 当前版本前面那一版。改稿后老师第一反应是「不如上一版」，所以这个入口要最直接 */
+const prevVersion = computed(() => {
+  const before = versions.value.filter((v) => v.version < currentVersion.value)
+  return before.length ? before[before.length - 1] : null
+})
 
 onLoad((query) => {
   planId.value = Number(query?.id || 0)
@@ -241,7 +294,16 @@ async function load() {
   loadError.value = null
   try {
     plan.value = await getLessonPlan(planId.value)
+    currentVersion.value = plan.value.current_version || plan.value.version || 1
     if (!conversationId.value) conversationId.value = plan.value.conversation_id || 0
+    // 版本列表拉失败不该挡着她看教案 —— 大不了没有回退入口
+    try {
+      const v = await getVersions(planId.value)
+      versions.value = v.versions || []
+      currentVersion.value = v.current_version || currentVersion.value
+    } catch (e) {
+      versions.value = []
+    }
   } catch (err) {
     loadError.value = err
   }
@@ -265,7 +327,10 @@ const skipWhy = (k) =>
 // 材料常写成「大水盆（2个，直径约60cm...）」，胶囊里只留主名
 const shortMat = (m) => String(m).replace(/（.*?）/g, '').split('，')[0]
 
-const imagesFor = (key) => readyImages.value.filter((i) => i.section_key === key)
+/** 这样材料有没有画过。按名字比，不按下标 —— 改稿之后下标会错位 */
+const hasImageFor = (m) => readyImages.value.some((i) => i.label && i.label === shortMat(m))
+/** 这张图对应的材料还在不在现在的清单里 */
+const inMaterials = (label) => (c.value.materials || []).some((m) => shortMat(m) === label)
 
 function preview(url) {
   uni.previewImage({ urls: readyImages.value.map((i) => i.url), current: url })
@@ -292,29 +357,70 @@ function backToLibrary() {
   reLaunch('library')
 }
 
-async function makeImage() {
-  if (pendingImage.value) return
-  pendingImage.value = true
+/* ============ 版本回退 ============ */
+
+async function doRollback(version) {
   try {
-    const first = (c.value.flow || [])[0]
+    await rollback(planId.value, version)
+    await load()
+    toast(`回到第 ${version} 版了`)
+  } catch (err) {
+    showApiError(err)
+  }
+}
+
+/* ============ 材料配图 ============ */
+
+function togglePicking() {
+  if (pendingImage.value) return
+  if (!picking.value && leftImages.value <= 0) {
+    // 上限不是成本判断：三张以上老师就不看了，越多越像商品目录、离教案越远
+    uni.showModal({
+      title: '',
+      content: '这份教案已经有 3 张材料图了，够用了。',
+      showCancel: false,
+      confirmText: '知道了',
+    })
+    return
+  }
+  picking.value = !picking.value
+}
+
+/**
+ * 给一样材料画图。一次一张 —— 一张要 30 秒，让她排队等三张没意义，
+ * 而且画完一张她可能就不想画了。
+ */
+async function drawMaterial(index, material) {
+  if (pendingImage.value) return
+  const name = shortMat(material)
+  if (hasImageFor(material)) {
+    toast('这一样已经有图了')
+    return
+  }
+  pendingImage.value = true
+  pendingName.value = name
+  picking.value = false
+  try {
     const res = await requestImage(planId.value, {
-      sectionKey: 'flow.0',
-      note: first?.stage ? `${first.stage}：${String(first.detail || '').slice(0, 60)}` : '',
+      sectionKey: `material.${index}`,
+      note: name,
     })
     imageHandle = pollImage(planId.value, res.image_id)
     const done = await imageHandle.promise
     imageHandle = null
     if (done.status === 'ready') {
       await load()
-      toast('配图好了')
+      toast(`「${name}」画好了`)
     } else {
       toast('这张没画出来，可以再试一次')
     }
   } catch (err) {
-    // 没配 MiniMax 时后端返回 NOT_IMPLEMENTED，文案后端给，前端照显示
+    // 没配 MiniMax 时后端返回 NOT_IMPLEMENTED、超 3 张返回 IMAGE_LIMIT_EXCEEDED，
+    // 两句文案都由后端给，前端照显示
     showApiError(err)
   } finally {
     pendingImage.value = false
+    pendingName.value = ''
   }
 }
 
@@ -532,6 +638,118 @@ async function doExport() {
   line-height: 1.5;
 }
 
+/* 选材料配图时，材料变成可点的 —— 用实边框和暖底提示可点，不只靠颜色 */
+.mat--pick {
+  background: $amber-soft;
+  border-color: $amber-line;
+
+  .mat__t {
+    color: $ink;
+    font-weight: 600;
+  }
+}
+
+.mat--has {
+  background: $mint-soft;
+  border-color: $mint;
+}
+
+.mat__mark {
+  font-size: 22rpx;
+  color: $mint-deep;
+  font-weight: 600;
+  margin-left: 10rpx;
+}
+
+.pickhint {
+  display: block;
+  font-size: $fs-sub;
+  color: $amber-deep;
+  line-height: 1.6;
+  margin-bottom: 16rpx;
+}
+
+/* ============ 版本条 ============ */
+.ver {
+  background: $sky-soft;
+  border: 2rpx solid $sky-line;
+  border-radius: 28rpx;
+  padding: 24rpx 26rpx;
+  margin-bottom: 30rpx;
+}
+
+.ver__hd {
+  margin-bottom: 8rpx;
+}
+
+.ver__t {
+  font-size: 27rpx;
+  font-weight: 600;
+  color: $sky-deep;
+}
+
+.ver__note {
+  display: block;
+  font-size: $fs-tag;
+  color: $ink-2;
+  line-height: 1.65;
+  margin-bottom: 16rpx;
+}
+
+.ver__ops {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.ver__b {
+  border: 2rpx solid $sky;
+  border-radius: $r-chip;
+  background: $white;
+  padding: 12rpx 26rpx;
+  margin: 0 14rpx 10rpx 0;
+}
+
+.ver__b-t {
+  font-size: 25rpx;
+  color: $sky-deep;
+  font-weight: 600;
+}
+
+.ver__keep {
+  display: block;
+  font-size: 22rpx;
+  color: $ink-3;
+  line-height: 1.6;
+}
+
+/* ============ 材料图 ============ */
+.mimg {
+  margin-bottom: 26rpx;
+}
+
+.mimg__i {
+  width: 100%;
+  border-radius: 24rpx;
+  border: 2rpx solid $rule-2;
+  background: $paper-2;
+}
+
+.mimg__cap {
+  display: block;
+  font-size: 26rpx;
+  color: $ink-2;
+  font-weight: 600;
+  margin-top: 12rpx;
+}
+
+.mimg__stale {
+  display: block;
+  font-size: 22rpx;
+  color: $ink-3;
+  line-height: 1.6;
+  margin-top: 4rpx;
+}
+
 /* ============ 流程 ============ */
 .flow {
   margin-bottom: 28rpx;
@@ -734,9 +952,19 @@ async function doExport() {
   }
 }
 
+.row__b--on {
+  background: $amber;
+  border-color: $amber-line;
+}
+
 .row__t {
   font-size: 26rpx;
   color: $ink-2;
+}
+
+.row__t--on {
+  color: $ink;
+  font-weight: 600;
 }
 
 /* ============ 骨架 ============ */

@@ -467,6 +467,40 @@ ${existingMemories.map((m) => `- ${m.fact}`).join('\n')}`
  *
  * 强约束一件做不到的事，只会让人以为它做到了。
  */
+/**
+ * 材料图专用（2026-08-17 起配图画的是材料，不是活动场景）。
+ *
+ * 老师要的不是一张示意插画，是**照着能去准备东西**：这样材料长什么样、大概多大、
+ * 要准备几份。所以画面主体是材料本身。
+ *
+ * 顺带把最麻烦的风险消掉了：画材料就不该出现儿童，
+ * 「不要画脸」这条一直压不住（实测 4 张里 2 张照样画正脸），现在根本不需要压。
+ * 这条约束是硬的 —— 谁要往回改成画孩子，先把那个实测再跑一遍。
+ */
+export const IMAGE_PROMPT_MATERIAL_SYSTEM = `请为幼儿园STEAM教案里的一样**活动材料**生成图片描述提示词，用于AI图像生成。
+
+**提示词必须以这段风格前缀开头，一字不改**：
+"Flat vector illustration in a warm children's picture-book style, simple geometric shapes, no photorealism, no photographic rendering, no 3D. Plain flat cream background, no room, no floor, no wall, no corner, no perspective, no scenery. Soft yellow / mint green / sky blue palette. The object is drawn large and centered, filling most of the frame, like a catalogue item."
+
+然后接一句英文描述，要求：
+1. 画的是**这样材料本身**，静物。写清楚它是什么、什么形状、大概什么尺寸、准备几份
+2. **画面里不许出现人、手、儿童、教师、面孔** —— 一个都不要。这是材料图不是活动图
+3. 不要背景故事、不要教室场景、不要正在被使用的样子
+4. 不要出现：文字、具体数字、品牌标识、写实照片质感
+5. 材料若是一组同类物（比如"10 块积木"），画成整齐排开的一组，同样占满画面
+6. 描述控制在 1-2 句，并且要以 "drawn large, filling the frame" 之类的说法收尾
+
+只输出「风格前缀 + 材料描述」这一整段英文，不要任何解释、不要引号。
+
+为什么画材料不画孩子：老师配图是为了准备材料，不是为了看示意图；
+而且画面里没有儿童，就不存在生成可辨认幼儿面孔的风险 ——
+那个风险靠提示词压不住，靠不画人才压得住。
+
+为什么反复强调「占满画面、不要房间地面墙角」：第一版只写了 centered，
+实测画出来是一个空荡荡的墙角里躺着一枚很小的磁铁 —— 主体只占十几分之一，
+老师根本看不清材料长什么样。图片模型对「构图」的默认偏好是画场景，
+不明确禁止就会自己加环境。`;
+
 export const IMAGE_PROMPT_SYSTEM = `请为幼儿园STEAM教案的某个环节生成一个图片描述提示词，用于AI图像生成。
 
 **提示词必须以这段风格前缀开头，一字不改**：

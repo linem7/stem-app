@@ -31,7 +31,10 @@ async function loadPlan(id, teacherId) {
 async function loadImages(lessonPlanId) {
   const rows = (
     await query(
-      `SELECT id, section_key, object_key, status, width, height, created_at
+      // prompt_cn 是老师当时选的那样材料的名字。必须带出来 ——
+      // 教案改过之后材料清单可能已经变了，图还在（有意的，见 api-spec 6.5），
+      // 界面上得靠这个名字说清楚每张图对的是什么，让她自己判断还用不用得上。
+      `SELECT id, section_key, prompt_cn, object_key, status, width, height, created_at
          FROM lesson_images WHERE lesson_plan_id = $1 ORDER BY id ASC`,
       [lessonPlanId]
     )
@@ -39,6 +42,8 @@ async function loadImages(lessonPlanId) {
   return rows.map((r) => ({
     id: r.id,
     section_key: r.section_key,
+    // 这张图画的是哪样材料。教案改过之后材料清单可能已经不含它了，图仍然留着
+    label: r.prompt_cn || null,
     status: r.status,
     // url 是拼出来的，不入库：换域名或换云厂商时只改 buildImageUrl 一处
     url: r.status === 'ready' ? buildImageUrl(r.object_key) : null,
@@ -65,8 +70,107 @@ lessonPlansRouter.get(
       version: plan.version,
       // quality_self 是内测分析用的，前端不展示，但返回出来方便你自己看模型自检结果
       quality_self: plan.quality_self,
+      // 一共出到第几版 / 现在显示的是哪一版。回退之后这两个数不一样
+      current_version: plan.current_version ?? plan.version,
       images: await loadImages(plan.id),
       updated_at: plan.updated_at,
+    });
+  })
+);
+
+// ---------------------------------------------------------------
+// GET /lesson-plans/:id/versions —— api-spec 第 6.5 节
+// ---------------------------------------------------------------
+lessonPlansRouter.get(
+  '/:id/versions',
+  asyncRoute(async (req, res) => {
+    const plan = await loadPlan(req.params.id, req.teacherId);
+    const rows = (
+      await query(
+        `SELECT version, title, duration_min, revise_note, created_at
+           FROM lesson_plan_versions WHERE lesson_plan_id = $1 ORDER BY version ASC`,
+        [plan.id]
+      )
+    ).rows;
+    const current = plan.current_version ?? plan.version;
+    return ok(res, {
+      current_version: current,
+      versions: rows.map((r) => ({
+        version: r.version,
+        title: r.title,
+        duration_min: r.duration_min,
+        is_current: r.version === current,
+        // 产生这一版的那句改稿意见。老师认版本靠这个，不是靠版本号
+        note: r.revise_note || null,
+        created_at: r.created_at,
+      })),
+    });
+  })
+);
+
+// ---------------------------------------------------------------
+// POST /lesson-plans/:id/rollback —— api-spec 第 6.5 节
+//
+// 把某一版的内容写回当前教案。**不新增版本号、不删任何版本**，所以能来回切。
+// 不查额度：回退不调模型，而且没有退路本来就是我们造成的，不该让她为此花额度。
+// **不动图片**：图挂在 lesson_plan_id 上，跨版本一直在，这是有意的。
+// ---------------------------------------------------------------
+lessonPlansRouter.post(
+  '/:id/rollback',
+  asyncRoute(async (req, res) => {
+    const plan = await loadPlan(req.params.id, req.teacherId);
+    const target = Number(req.body?.version);
+    if (!Number.isInteger(target) || target <= 0) throw badRequest('要回到第几版？');
+
+    const snap = await queryOne(
+      `SELECT * FROM lesson_plan_versions WHERE lesson_plan_id = $1 AND version = $2`,
+      [plan.id, target]
+    );
+    if (!snap) throw notFound('找不到那一版了');
+
+    const current = plan.current_version ?? plan.version;
+    if (current === target) {
+      return ok(res, { version: target, title: plan.title, content_json: plan.content_json, unchanged: true });
+    }
+
+    const updated = await queryOne(
+      `UPDATE lesson_plans
+          SET title = $1, age_group = $2, duration_min = $3,
+              content_md = $4, content_json = $5::jsonb, quality_self = $6::jsonb,
+              current_version = $7, updated_at = now()
+        WHERE id = $8
+        RETURNING *`,
+      [
+        snap.title,
+        snap.age_group,
+        snap.duration_min,
+        snap.content_md,
+        JSON.stringify(snap.content_json),
+        JSON.stringify(snap.quality_self),
+        target,
+        plan.id,
+      ]
+    );
+
+    // 教案库里那条也要跟着改标题，否则列表上显示的还是回退前那一版的名字
+    await query(`UPDATE conversations SET title = $1, updated_at = now() WHERE id = $2`, [
+      snap.title,
+      plan.conversation_id,
+    ]);
+
+    logger.info('plan_rollback', {
+      teacher_id: req.teacherId,
+      lesson_plan_id: plan.id,
+      from_version: current,
+      to_version: target,
+    });
+
+    return ok(res, {
+      version: target,
+      current_version: target,
+      title: updated.title,
+      duration_min: updated.duration_min,
+      content_json: updated.content_json,
     });
   })
 );
