@@ -46,27 +46,30 @@ async function waitDone(convId) {
 
 /** 走完一个年龄班的完整引导，返回题目快照和成稿 */
 async function runCase({ age, teacher, seed }) {
-  L(`\n── ${age} ──`);
+  L(`
+── ${age} ──`);
   token = (await call('POST', '/auth/login', { code: teacher, nickname: '测试老师' })).token;
   const conv = await call('POST', '/conversations', { seed_input: seed });
 
-  const questions = [];
-  let q = conv.question;
-  while (q) {
-    // 记下这一题原样的题面和推荐答案 —— 原型里老师看到的就是这些
-    questions.push({
-      id: q.id, title: q.title, hint: q.hint, multi: q.multi,
-      allow_custom: q.allow_custom, required: q.required,
-      options: q.options.map((o) => ({ k: o.key, l: o.label, s: o.sub || null })),
-    });
-    // 年龄班那题必须选对，否则后面整套规则都错了；其余选第一个（多选选前两个）
-    const sel = q.id === 'q1'
-      ? [q.options.find((o) => o.l ? o.l.includes(age) : o.label.includes(age)).key]
-      : q.multi ? q.options.slice(0, 2).map((o) => o.key) : [q.options[0].key];
-    const r = await call('POST', `/conversations/${conv.conversation_id}/answer`, { question_id: q.id, selected: sel });
+  // 题目现在是一次性全给的
+  let questions = conv.questions;
+
+  // 先答年龄班 —— 它决定后面推荐答案按哪个班算
+  const q1 = questions.find((q) => q.id === 'q1');
+  const ageKey = q1.options.find((o) => o.label.includes(age)).key;
+  await call('POST', `/conversations/${conv.conversation_id}/answer`, { question_id: 'q1', selected: [ageKey] });
+  L(`  q1 ${q1.title} → ${age}`);
+
+  // 年龄班跟档案默认不一致时，重拉一次推荐答案（真实前端也该这么做）
+  const re = await call('GET', `/conversations/${conv.conversation_id}/questions?age_group=${encodeURIComponent(age)}`);
+  questions = re.questions;
+
+  // 其余题按顺序答，多选取前两个
+  for (const q of questions) {
+    if (q.id === 'q1') continue;
+    const sel = q.multi ? q.options.slice(0, 2).map((o) => o.key) : [q.options[0].key];
+    await call('POST', `/conversations/${conv.conversation_id}/answer`, { question_id: q.id, selected: sel });
     L(`  ${q.id} ${q.title} → ${sel.map((k) => q.options.find((o) => o.key === k).label).join('；')}`);
-    q = r.question;
-    if (r.ready_to_generate) break;
   }
 
   await call('POST', `/conversations/${conv.conversation_id}/generate`, {});
@@ -75,11 +78,15 @@ async function runCase({ age, teacher, seed }) {
   L(`  → 《${plan.title}》${plan.duration_min}分钟 · ${plan.content_json.flow.length}环节 · ${plan.content_json.indicators.length}指标`);
 
   return {
-    questions,
+    // 存的是重拉之后那套（跟老师真正看到的一致）
+    questions: questions.map((q) => ({
+      id: q.id, key: q.key, title: q.title, hint: q.hint, multi: q.multi,
+      allow_custom: q.allow_custom, required: q.required,
+      options: q.options.map((o) => ({ k: o.key, l: o.label, s: o.sub || null })),
+    })),
     plan: {
       id: plan.id, title: plan.title, age_group: plan.age_group,
-      duration_min: plan.duration_min, content_json: plan.content_json,
-      version: plan.version,
+      duration_min: plan.duration_min, content_json: plan.content_json, version: plan.version,
     },
     convId: conv.conversation_id,
     planId: plan.id,

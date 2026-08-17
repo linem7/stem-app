@@ -1,8 +1,9 @@
 /**
  * 教案会话 —— api-spec 第 3 节和第 7 节
  *
- *   POST   /conversations            开新会话，直接返回第一题
- *   POST   /conversations/:id/answer 答一题，拿下一题
+ *   POST   /conversations             开新会话，一次返回全部 4 题
+ *   GET    /conversations/:id/questions 换了年龄班时重拉推荐答案
+ *   POST   /conversations/:id/answer  答一题即落库，不限顺序、可覆盖
  *   GET    /conversations/:id        断点续写时拉全量
  *   GET    /conversations            教案库列表（cursor 分页）
  *   DELETE /conversations/:id        软删除
@@ -19,17 +20,15 @@ import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
 import { listMemories } from '../services/memoryExtractor.js';
 import { fallbackTitle } from '../services/lessonGenerator.js';
 import {
-  QUESTION_PLAN,
-  TOTAL_ROUNDS,
-  planIndexOf,
-  positionOf,
+  TOTAL_QUESTIONS,
   buildProgress,
-  buildNextStep,
+  buildAllQuestions,
+  buildAck,
   resolveAnswer,
-  clampDuration,
   canFinish,
   isFinished,
   progressText,
+  specOf,
 } from '../services/guideFlow.js';
 import { logger } from '../utils/logger.js';
 
@@ -55,27 +54,18 @@ function parseId(raw) {
   return id;
 }
 
-/** 写一条 assistant 提问消息 */
-async function insertQuestionMessage(client, conv, question, position, meta = {}) {
+/** 写一条 assistant 提问消息。题目一次性全给，所以不再有「第几轮第几题」的坐标。 */
+async function insertQuestionMessage(client, conv, question) {
   await client.query(
-    `INSERT INTO messages (conversation_id, role, content, payload, round_index, question_index, token_in, token_out, model)
-     VALUES ($1, 'assistant', $2, $3, $4, $5, $6, $7, $8)`,
-    [
-      conv.id,
-      question.title,
-      JSON.stringify(question),
-      position.round,
-      position.questionIndex,
-      meta.tokenIn ?? null,
-      meta.tokenOut ?? null,
-      meta.model ?? null,
-    ]
+    `INSERT INTO messages (conversation_id, role, content, payload)
+     VALUES ($1, 'assistant', $2, $3)`,
+    [conv.id, question.title, JSON.stringify(question)]
   );
 }
 
-/** 把 AI 的输出（ack + 推荐选项）过一遍内容安全 */
-async function checkAiOutput({ openid, ack, question }) {
-  const text = [ack, question?.title, ...(question?.options || []).map((o) => `${o.label} ${o.sub || ''}`)]
+/** 把 AI 生成的题目和推荐答案过一遍内容安全 */
+async function checkAiOutput({ openid, ack, questions = [] }) {
+  const text = [ack, ...questions.flatMap((q) => [q.title, ...(q.options || []).map((o) => `${o.label} ${o.sub || ''}`)])]
     .filter(Boolean)
     .join(' ');
   if (!text.trim()) return;
@@ -102,29 +92,29 @@ conversationsRouter.post(
     });
     if (!check.pass) throw contentBlockedError('teacher_input');
 
-    // 老师档案里的年龄班先作为默认值放进 collected —— 但第 1 题仍然会问，
-    // 因为老师可能同时带两个班（age-band-adaptation.md「对界面的影响」）。
     const conv = await queryOne(
-      `INSERT INTO conversations (teacher_id, title, seed_input, status, round_index, question_index, total_rounds, collected)
-       VALUES ($1, $2, $3, 'draft', 1, 1, $4, '{}'::jsonb)
+      // round_index / question_index 这两列留着不用了（题目一次性全给，没有「第几题」的概念），
+      // 但它们是 NOT NULL DEFAULT，不删列就不用写迁移，等下次改表时一并清理
+      `INSERT INTO conversations (teacher_id, title, seed_input, status, total_rounds, collected)
+       VALUES ($1, $2, $3, 'draft', $4, '{}'::jsonb)
        RETURNING *`,
-      [req.teacherId, fallbackTitle(seedInput), seedInput, TOTAL_ROUNDS]
+      [req.teacherId, fallbackTitle(seedInput), seedInput, TOTAL_QUESTIONS]
     );
 
     const memories = await listMemories(req.teacherId);
-    const step = await buildNextStep({
+    // 一次把全部题目和推荐答案生成出来。推荐答案按老师档案里的年龄班算
+    // —— 她只带一个班，这个默认几乎总是对的；选了别的班再调 /questions 重拉。
+    const questions = await buildAllQuestions({
       teacher: req.teacher,
       memories,
       collected: {},
       seedInput,
-      planIndex: 0,
-      lastAnswer: null,
     });
 
-    await checkAiOutput({ openid: req.teacher.openid, ack: step.ack, question: step.question });
+    await checkAiOutput({ openid: req.teacher.openid, questions });
 
     await withTransaction(async (client) => {
-      await insertQuestionMessage(client, conv, step.question, { round: 1, questionIndex: 1 });
+      for (const q of questions) await insertQuestionMessage(client, conv, q);
     });
 
     logger.info('conv_created', { teacher_id: req.teacherId, conversation_id: conv.id });
@@ -132,9 +122,45 @@ conversationsRouter.post(
     return ok(res, {
       conversation_id: conv.id,
       status: conv.status,
-      progress: buildProgress(1, 1),
-      question: step.question,
+      progress: buildProgress({}),
+      questions,
     });
+  })
+);
+
+// ---------------------------------------------------------------
+// GET /conversations/:id/questions —— 换了年龄班时重拉推荐答案
+// ---------------------------------------------------------------
+conversationsRouter.get(
+  '/:id/questions',
+  asyncRoute(async (req, res) => {
+    const id = parseId(req.params.id);
+    const conv = await loadConversation(id, req.teacherId);
+    const ageGroup = req.query.age_group ? String(req.query.age_group) : null;
+
+    const memories = await listMemories(req.teacherId);
+    const questions = await buildAllQuestions({
+      teacher: req.teacher,
+      memories,
+      collected: conv.collected || {},
+      seedInput: conv.seed_input,
+      ageGroup,
+    });
+
+    await checkAiOutput({ openid: req.teacher.openid, questions });
+
+    // 覆盖掉旧的题目消息：老师换了年龄班，旧推荐答案已经不适用了。
+    // 她**已经填的答案不动** —— collected 一个字都没碰。
+    await withTransaction(async (client) => {
+      await client.query(
+        `DELETE FROM messages WHERE conversation_id = $1 AND role = 'assistant'
+           AND payload->>'kind' IS DISTINCT FROM 'revise_question'`,
+        [conv.id]
+      );
+      for (const q of questions) await insertQuestionMessage(client, conv, q);
+    });
+
+    return ok(res, { questions, progress: buildProgress(conv.collected || {}) });
   })
 );
 
@@ -153,27 +179,20 @@ conversationsRouter.post(
       );
     }
 
-    const planIndex = planIndexOf(conv.round_index, conv.question_index);
-    const spec = QUESTION_PLAN[planIndex];
-    if (!spec) throw badRequest('问题都答完了，可以直接生成教案');
-
     const { question_id: questionId, selected, custom_text: customText } = req.body || {};
-    if (questionId && questionId !== spec.id) {
-      // 前端拿着旧题目重复提交（比如网络重试）。告诉它当前该答哪题，而不是默默写坏进度。
-      throw badRequest('这题已经答过了，刷新一下继续');
-    }
+    const spec = specOf(questionId);
+    // 题目一次性全给出去了，所以答哪一题、什么顺序答，由老师决定 ——
+    // 唯一要校验的是这个 id 确实是我们出过的题。
+    if (!spec) throw badRequest('题目对不上了，刷新一下继续');
 
-    // 取出上一条 assistant 问题，用来把选项 key 还原成 label
     const pendingRow = await queryOne(
       `SELECT payload FROM messages
-        WHERE conversation_id = $1 AND role = 'assistant'
+        WHERE conversation_id = $1 AND role = 'assistant' AND payload->>'id' = $2
         ORDER BY id DESC LIMIT 1`,
-      [conv.id]
+      [conv.id, spec.id]
     );
     const pending = pendingRow?.payload || null;
-    if (!pending || pending.id !== spec.id) {
-      throw badRequest('题目对不上了，刷新一下继续');
-    }
+    if (!pending) throw badRequest('题目对不上了，刷新一下继续');
 
     if (customText) {
       if (String(customText).length > 300) throw badRequest('写得有点长了，精简一下');
@@ -188,86 +207,66 @@ conversationsRouter.post(
 
     const { value, text } = resolveAnswer(spec, pending, { selected, custom_text: customText });
 
-    // ---- 落库（这一步必须在调模型之前）----
+    // ---- 落库（必须在调模型之前）----
+    // 一次性出题不等于一次性提交：每选一项就存一次，老师被叫走也不丢。
     const collected = { ...(conv.collected || {}) };
-    if (spec.key === 'duration') {
-      const { duration, note } = clampDuration(value, collected.age_group);
-      collected.duration = duration;
-      if (note) collected.duration_note = note;
-    } else if (value !== null && value !== undefined && !(Array.isArray(value) && value.length === 0)) {
+    if (value !== null && value !== undefined && !(Array.isArray(value) && value.length === 0)) {
       collected[spec.key] = value;
+    } else {
+      delete collected[spec.key]; // 她把选中的取消了，就当这题没答
     }
 
-    const nextPlanIndex = planIndex + 1;
-    const nextPos = positionOf(nextPlanIndex);
-    // 走完最后一题时，把进度停在「最后一题的下一格」，这样 isFinished 能判出来
-    const newRound = nextPos ? nextPos.round : conv.round_index;
-    const newQuestionIndex = nextPos ? nextPos.questionIndex : conv.question_index + 1;
-
     const updated = await withTransaction(async (client) => {
+      // 同一题改主意是覆盖，不是追加 —— 否则 qaHistory 里会出现同一题的两个答案
       await client.query(
-        `INSERT INTO messages (conversation_id, role, content, payload, round_index, question_index)
-         VALUES ($1, 'user', $2, $3, $4, $5)`,
+        `DELETE FROM messages WHERE conversation_id = $1 AND role = 'user'
+           AND payload->>'question_id' = $2`,
+        [conv.id, spec.id]
+      );
+      await client.query(
+        `INSERT INTO messages (conversation_id, role, content, payload)
+         VALUES ($1, 'user', $2, $3)`,
         [
           conv.id,
           text,
           JSON.stringify({ question_id: spec.id, key: spec.key, selected: selected || [], custom_text: customText || null }),
-          conv.round_index,
-          conv.question_index,
         ]
       );
       const r = await client.query(
         `UPDATE conversations
             SET collected = $1::jsonb,
                 age_group = COALESCE($2, age_group),
-                round_index = $3,
-                question_index = $4,
                 updated_at = now()
-          WHERE id = $5
+          WHERE id = $3
           RETURNING *`,
-        [
-          JSON.stringify(collected),
-          spec.key === 'age_group' ? value : null,
-          newRound,
-          newQuestionIndex,
-          conv.id,
-        ]
+        [JSON.stringify(collected), spec.key === 'age_group' ? value : null, conv.id]
       );
       return r.rows[0];
     });
 
-    // ---- 落库完成，接下来调模型出下一题；这一步失败也不影响已保存的答案 ----
+    // ---- 落库完成，再调模型要那句回应；它失败也不影响已保存的答案 ----
     const memories = await listMemories(req.teacherId);
-    const step = await buildNextStep({
-      teacher: req.teacher,
-      memories,
-      collected,
-      seedInput: conv.seed_input,
-      planIndex: nextPlanIndex,
-      lastAnswer: { title: spec.title, text },
+    const ack = await buildAck({
+      teacher: req.teacher, memories, collected,
+      seedInput: conv.seed_input, spec, answerText: text,
     });
 
-    await checkAiOutput({ openid: req.teacher.openid, ack: step.ack, question: step.question });
-
-    if (step.question && nextPos) {
-      await withTransaction(async (client) => {
-        await insertQuestionMessage(client, updated, step.question, nextPos);
-      });
-    }
+    await checkAiOutput({ openid: req.teacher.openid, ack });
 
     logger.info('conv_answer', {
       conversation_id: conv.id,
       teacher_id: req.teacherId,
       question_id: spec.id,
-      round: conv.round_index,
+      answered: buildProgress(collected).answered,
     });
 
     return ok(res, {
-      progress: buildProgress(newRound, newQuestionIndex),
-      ack: step.ack,
-      question: step.question,
+      progress: buildProgress(collected),
+      ack,
       can_finish: canFinish(collected),
-      ready_to_generate: step.ready_to_generate,
+      ready_to_generate: isFinished(collected),
+      // 年龄班一变，时长跟着变。前端拿它更新成稿预期，不用自己算。
+      ...(spec.key === 'age_group' ? { age_group: value } : {}),
     });
   })
 );
@@ -283,35 +282,41 @@ conversationsRouter.get(
 
     const messages = (
       await query(
-        `SELECT role, content, payload, round_index, question_index, created_at
+        `SELECT role, content, payload, created_at
            FROM messages WHERE conversation_id = $1 ORDER BY id ASC`,
         [conv.id]
       )
     ).rows;
 
-    // 把 assistant 提问和紧随其后的 user 回答配成对，供前端渲染已答列表
-    const answered = [];
-    let currentQuestion = null;
+    // 出过的题（排除改稿追问，那些属于另一条线）
+    const questions = [];
+    const seen = new Set();
     for (const m of messages) {
-      if (m.role === 'assistant' && m.payload?.id) {
-        currentQuestion = m.payload;
-      } else if (m.role === 'user' && currentQuestion) {
-        answered.push({
-          question_id: currentQuestion.id,
-          title: currentQuestion.title,
-          answer_text: m.content,
-          answered_at: m.created_at,
-        });
-        currentQuestion = null;
-      }
+      if (m.role !== 'assistant' || !m.payload?.id) continue;
+      if (m.payload.kind === 'revise_question') continue;
+      // 换年龄班会重新出题，同一个 id 可能有多条，取最后一条
+      const i = questions.findIndex((q) => q.id === m.payload.id);
+      if (i >= 0) questions[i] = m.payload; else questions.push(m.payload);
+      seen.add(m.payload.id);
+    }
+
+    // 已答的答案，按题目 id 归位
+    const answers = {};
+    for (const m of messages) {
+      if (m.role !== 'user' || !m.payload?.question_id) continue;
+      answers[m.payload.question_id] = {
+        question_id: m.payload.question_id,
+        selected: m.payload.selected || [],
+        custom_text: m.payload.custom_text || null,
+        answer_text: m.content,
+        answered_at: m.created_at,
+      };
     }
 
     const plan = await queryOne(
       `SELECT id, title FROM lesson_plans WHERE conversation_id = $1`,
       [conv.id]
     );
-
-    const finished = isFinished(conv.round_index, conv.question_index);
 
     return ok(res, {
       conversation_id: conv.id,
@@ -320,13 +325,13 @@ conversationsRouter.get(
       seed_input: conv.seed_input,
       age_group: conv.age_group,
       collected: conv.collected,
-      progress: buildProgress(conv.round_index, conv.question_index),
+      progress: buildProgress(conv.collected || {}),
       progress_text: progressText(conv),
-      answered,
-      // currentQuestion 是最后一条没被回答的 assistant 提问 —— 正好是老师退出时停在的那题
-      question: conv.status === 'draft' ? currentQuestion : null,
+      // 全部题目 + 各自答没答，前端一次拿到就能把那一屏原样还原出来
+      questions: conv.status === 'draft' ? questions : [],
+      answers,
       can_finish: canFinish(conv.collected),
-      ready_to_generate: finished,
+      ready_to_generate: isFinished(conv.collected || {}),
       lesson_plan_id: plan?.id ?? null,
       updated_at: conv.updated_at,
     });

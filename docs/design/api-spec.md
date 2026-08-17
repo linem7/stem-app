@@ -88,46 +88,77 @@
 // 请求
 { "seed_input": "我想做个浮与沉的活动" }
 
-// 响应 —— 直接返回第一轮的第一题，前端不用再请求一次
+// 响应 —— 一次把全部问题都给出来
 { "ok": true, "data": {
   "conversation_id": 1024,
   "status": "draft",
-  "progress": { "round": 1, "question": 1, "total_rounds": 3, "questions_in_round": 4 },
-  "question": {
-    "id": "q1",
-    "title": "这次活动是给哪个年龄班的？",
-    "hint": "选一个最接近的就好",
-    "multi": false,
-    "options": [
-      { "key": "A", "label": "小班", "sub": "3-4 岁" },
-      { "key": "B", "label": "中班", "sub": "4-5 岁" },
-      { "key": "C", "label": "大班", "sub": "5-6 岁" }
-    ],
-    "allow_custom": true,
-    "custom_placeholder": "我自己说 —— 点这里打字"
-  }
+  "progress": { "answered": 0, "total": 4, "required_left": 1 },
+  "questions": [
+    { "id": "q1", "key": "age_group", "title": "这次活动是给哪个年龄班的？", "hint": "选一个",
+      "multi": false, "required": true, "allow_custom": false,
+      "options": [
+        { "key": "A", "label": "小班", "sub": "3-4 岁" },
+        { "key": "B", "label": "中班", "sub": "4-5 岁", "recommended": true },
+        { "key": "C", "label": "大班", "sub": "5-6 岁" }
+      ] },
+    { "id": "q2", "key": "focus",   "title": "你希望孩子主要收获什么？",   "multi": true,  "...": "" },
+    { "id": "q3", "key": "venue",   "title": "打算在哪里做？",           "multi": false, "...": "" },
+    { "id": "q4", "key": "constraints", "title": "班上有什么情况要我考虑？", "multi": true, "...": "" }
+  ]
 }}
 ```
 
-### `POST /conversations/:id/answer` · 答一题，拿下一题
+**为什么一次给全，而不是一题一题喂**：老师看不到总量时，答完一题不知道还剩几题，
+心里没底就容易中途退出。一屏摊开、顶部一条进度、随时看得到「还差一题」，比逐题揭晓好。
+
+**只有 4 题，而且都是模型猜不到的**：
+
+| 问 | 为什么非问不可 |
+|---|---|
+| 年龄班 | 决定整套适龄规则。**唯一必答项** |
+| 教学重点 | 老师的教学意图，同一个主题不同老师侧重完全不同 |
+| 场地 | 户外空地搭跷跷板，还是教室区角做桌面游戏，活动形态完全是两回事 |
+| 班上的情况 | 人数、材料、人手，每个园都不一样 |
+
+**不问时长** —— 年龄班一确定时长就定了（取该班最常用值），再问一遍是让老师替代码做算术。
+她要改，成稿页直接改。
+
+其余全部由模型按教学框架和年龄班规则自己产出：材料、流程、要问孩子什么、安全事项、
+评估方式、延伸活动。判断标准只有一条 —— **只问模型猜不到的，不问模型本来就该会的**。
+
+推荐答案基于老师档案里的年龄班生成（她只带一个班，档案稳定）。
+她要是在 q1 选了跟档案不同的班，前端可以调 `GET /conversations/:id/questions?age_group=大班` 重拉一次。
+
+### `POST /conversations/:id/answer` · 答一题，即时落库
 
 ```json
 // 请求
-{ "question_id": "q2", "selected": ["A", "B"], "custom_text": null }
+{ "question_id": "q3", "selected": ["A"], "custom_text": null }
 
 // 响应
 { "ok": true, "data": {
-  "progress": { "round": 1, "question": 3, "total_rounds": 3, "questions_in_round": 4 },
-  "ack": "好的，那我们把重点放在动手体验上。",
-  "question": { ... 下一题，结构同上 ... },
-  "can_finish": true
+  "progress": { "answered": 3, "total": 4, "required_left": 0 },
+  "ack": "户外场地够大，跷跷板可以真的搭起来。",
+  "can_finish": true,
+  "ready_to_generate": false
 }}
 ```
 
-- **每次调用即落库**（PRD 要求：老师被打断退出后进度不丢）
-- `ack` 是 AI 对上一题的一句话回应，前端显示在已答题目下方，增强对话感
-- `can_finish` 为 true 时，前端显示「跳过引导，直接生成」
-- 若本轮已答完且无下一题，`question` 为 `null`、`ready_to_generate` 为 true
+- **每次调用即落库**（PRD 要求：老师被打断退出后进度不丢）。
+  一次性出题不等于一次性提交 —— 前端每选一项就调一次，她中途被叫走也不丢
+- **不限顺序**：想先答哪题就先答哪题，跳着答也行
+- 同一题重复提交是覆盖，不是报错 —— 她改主意很正常
+- `ack` 是对这一题的一句话回应，前端显示在该题下方
+- `can_finish` 只看年龄班答没答：没有年龄班，生成出来的一定是错的
+
+### `GET /conversations/:id/questions` · 换了年龄班时重拉推荐答案
+
+```json
+// GET /conversations/1024/questions?age_group=大班
+// → { "ok": true, "data": { "questions": [ ...除年龄班外的三题，推荐答案按大班重新生成... ] } }
+```
+
+老师已经答过的内容不会被清空，只换推荐答案。
 
 ⚠️ **推荐答案必须由后端生成**，因为它要综合年龄班规则、老师档案和记忆。前端不许硬编码任何推荐项。
 

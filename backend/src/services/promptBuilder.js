@@ -84,6 +84,17 @@ export function getAgeBand(ageGroup) {
  * age-band-adaptation.md「对界面的影响」明确要求：选了小班要显示 15/20，不是 30/45。
  * 返回 [推荐下限, 推荐上限, 上限值]，正好是 system-prompts.md Q3 里写的三个选项。
  */
+/**
+ * 该年龄班的默认时长 —— 取建议区间里靠后那个（小班 20 / 中班 30 / 大班 40）。
+ *
+ * 2026-08-17 起不再问老师时长：年龄班一定，时长就定了，再问一遍是让她替代码做算术。
+ * 她要改，成稿页直接改那一个数字，比在引导里多占一题划算。
+ */
+export function defaultDuration(ageGroup) {
+  const band = getAgeBand(ageGroup);
+  return band.duration_recommend[1];
+}
+
 export function durationOptions(ageGroup) {
   const band = getAgeBand(ageGroup);
   return [...band.duration_recommend, band.duration_max];
@@ -445,13 +456,20 @@ export const IMAGE_PROMPT_SYSTEM = `请为幼儿园STEAM教案的某个环节生
 
 要求：
 1. 用英文描述（MiniMax image-01 对英文提示词的响应明显更准）
-2. 包含：活动场景、幼儿动作、材料、颜色、光线、情感氛围
-3. 避免：文字、具体数字、复杂细节、可辨认的人脸特写
-4. 风格：温暖、安全、适龄的幼儿教育场景
-5. 长度：1-2 句话，简洁有力
+2. 包含：活动场景、幼儿在做的动作、材料、颜色、光线
+3. **不要描写幼儿的脸**。不写 face、smile、expression、eyes、joyful expression 这类词，
+   改用能表达状态又不涉及面部的写法：seen from behind、over-the-shoulder view、
+   looking down at their hands、focused on the task、hands in the foreground
+4. 避免：文字、具体数字、复杂细节、人物特写
+5. 风格：温暖、安全、适龄的幼儿教育场景，插画风
 6. 幼儿年龄要与年龄班相符（小班写 3-4 year-old，中班 4-5，大班 5-6）
+7. 长度：1-2 句话，简洁有力
 
-只输出那段英文描述本身，不要任何解释、不要引号。`;
+只输出那段英文描述本身，不要任何解释、不要引号。
+
+第 3 条是硬要求，不是风格偏好：这些图会印在教案里给同事和家长看，
+生成可辨认的幼儿面孔在合规上是不必要的风险；而且教案配图要说明的是
+「孩子在做什么」，手上的动作比表情更有信息量。`;
 
 // ============================================================
 // 代码层的年龄班硬校验
