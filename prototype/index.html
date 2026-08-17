@@ -128,18 +128,18 @@ body{background:var(--canvas);font-family:var(--f-body);color:var(--ink);
   scrollbar-color:var(--rule-2) transparent}
 .scroll::-webkit-scrollbar{width:5px}
 .scroll::-webkit-scrollbar-thumb{background:var(--rule-2);border-radius:9px}
-.grid{display:grid;grid-template-columns:40px 1fr;column-gap:0}
-.rail{position:relative}
-.rail::before{content:"";position:absolute;left:19.5px;top:0;bottom:0;width:1px;background:var(--rule)}
-.tick{position:absolute;left:50%;transform:translateX(-50%);background:var(--paper);
-  font-size:11.5px;font-weight:700;color:var(--ink-3);width:22px;text-align:center;
-  padding:5px 0;letter-spacing:.01em}
+/* 左右间距放在 .col 上，不放 .grid ——
+   各屏的 .grid 都带着 inline 的 padding 控制上下留白（padding:44px 0 26px 这种），
+   写在 .grid 上会被那个 0 覆盖掉，内容就贴到屏幕边上了 */
+.grid{display:block}
+.col{padding:0 20px;min-width:0}
+/* 序号原来放在左侧一条 40px 的竖向刻度轨上。拆掉了 ——
+   轨上每个刻度的位置是绝对定位硬编码的（top:560px 这种），
+   而右边内容的高度取决于教案写多长、答了几题，两边永远对不齐。
+   序号本来就在题块和记忆行里各有一个，轨道是重复的。
+   保留 .tick 的样式：记忆列表还在用它做行内序号。 */
+.tick{font-size:11.5px;font-weight:700;color:var(--ink-3);letter-spacing:.01em}
 .tick.on{color:var(--amber-deep)}
-.tick.dot{padding:0}
-.tick.dot::before{content:"";display:block;width:7px;height:7px;border-radius:999px;
-  background:var(--paper);box-shadow:inset 0 0 0 1.5px var(--rule-2);margin:6px auto}
-.tick.dot.on::before{background:var(--amber-deep);box-shadow:inset 0 0 0 1.5px var(--amber-deep)}
-.col{padding-right:20px;min-width:0}
 
 .focus-kicker{font-size:12px;letter-spacing:.02em;color:var(--ink-3);font-weight:600}
 .focus-q{font-weight:700;color:var(--ink);letter-spacing:-.012em;text-wrap:balance}
@@ -630,7 +630,6 @@ function scHome() {
   const seeds = ['浮与沉','影子','搭高塔','磁铁'];
   return `${capsule()}
   <div class="scroll"><div class="grid" style="padding:44px 0 26px">
-    <div class="rail"><div class="tick on" style="top:104px">01</div></div>
     <div class="col">
       ${HERO}
       <div class="focus-kicker" style="margin-bottom:7px">开始新教案</div>
@@ -694,12 +693,9 @@ function scGuide() {
     </div>
   </div>
   <div class="scroll"><div class="grid" style="padding:4px 0 24px">
-    <div class="rail">${qs.map((q,i) =>
-      `<div class="tick ${isAnswered(q.id) ? 'on':''}" style="top:${qTop(i)}px">0${i+1}</div>`).join('')}</div>
     <div class="col">
-      <div class="meta" style="margin-bottom:16px;line-height:1.65">
-        就问这 <b>${TOTAL_Q}</b> 个 —— 都是我猜不到的事。<br>
-        材料、流程、要问孩子什么、安全、评估、延伸，我按${S.age||'这个年龄班'}的规则自己定，写好了你再改。
+      <div class="meta" style="margin-bottom:18px">
+        就问这 <b>${TOTAL_Q}</b> 个，其余的我来定，写好了你再改。
       </div>
       ${qs.map((q,i) => qBlock(q,i)).join('')}
     </div>
@@ -708,19 +704,6 @@ function scGuide() {
     <button class="btn btn-p" onclick="genFromGuide()" ${requiredLeft()?'disabled':''}>
       ${requiredLeft() ? '先选一下年龄班' : `写教案吧${answered<TOTAL_Q?`（${TOTAL_Q-answered} 题没答也行）`:''}`} ${IC.arrow}</button>
   </div>`;
-}
-
-/** 刻度轨上每一题的纵向位置，跟下面 qBlock 的实际高度对齐 */
-function qTop(i) {
-  let top = 92;
-  const qs = qset();
-  for (let k = 0; k < i; k++) top += blockH(qs[k]);
-  return top;
-}
-function blockH(q) {
-  // 题头 62 + 每个选项 58 + 自己说 52 + 间距 22；选项带 sub 的高一点
-  const optH = q.options.some(o => o.s) ? 62 : 52;
-  return 62 + q.options.length * optH + (q.allow_custom ? 52 : 0) + 22;
 }
 
 function qBlock(q, i) {
@@ -745,8 +728,6 @@ function qBlock(q, i) {
            <span class="key">${String.fromCharCode(65+q.options.length)}</span>
            <span class="txt">${a.own ? esc(a.own) : '我自己说 —— 点这里打字'}</span></button>`) : ''}
 
-    ${q.id === 'q1' ? `<div class="q-note">选完年龄班，下面三题的推荐答案会按这个班重新给
-      —— 时长也跟着定（小班 20 / 中班 30 / 大班 40 分钟），不再单独问你。</div>` : ''}
   </div>`;
 }
 
@@ -817,7 +798,6 @@ function scGenerating() {
   return `${capsule()}
   ${topbar(isRev ? '正在按你说的改' : '正在生成教案', isRev ? 'plan' : 'guide')}
   <div class="scroll"><div class="grid" style="padding:12px 0 24px">
-    <div class="rail">${GEN_STEPS.map((_,i)=>`<div class="tick ${i<=S.genStep?'on':''}" style="top:${150+i*34}px">0${i+1}</div>`).join('')}</div>
     <div class="col">
       <div class="focus-kicker" style="margin-bottom:6px">第 ${Math.min(S.genStep+1, GEN_STEPS.length)} 步 / 共 ${GEN_STEPS.length} 步</div>
       <div class="focus-q" style="font-size:20px;line-height:1.45;margin-bottom:12px">
@@ -893,8 +873,6 @@ function scPlan() {
   return `${capsule()}
   ${topbar('教案成稿', 'library')}
   <div class="scroll"><div class="grid" style="padding:8px 0 24px">
-    <div class="rail">${c.flow.map((_,i)=>`<div class="tick" style="top:${560+i*104}px">0${i+1}</div>`).join('')}
-      <div class="tick on" style="top:250px">S</div></div>
     <div class="col">
       <div class="focus-q" style="font-size:21px;line-height:1.4;margin-bottom:9px">${esc(c.title)}</div>
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:${revised?10:16}px;flex-wrap:wrap">
@@ -956,8 +934,6 @@ function scPlan() {
       ${DEMO_IMG[age] ? `<div style="margin-top:18px">
         <div class="sec-h"><span class="h">配图</span><span class="m">MiniMax image-01 · 真实生成</span></div>
         <img class="lesson-img" src="./images/${DEMO_IMG[age]}" alt="${esc(c.title)}的活动配图" loading="lazy">
-        <div class="img-cap">这张是真跑出来的，不是占位图。风格前缀锁死了扁平插画和东亚面孔
-          —— 实测只写「不要画脸」压不住，写实照片风的儿童面孔才是真风险。</div>
       </div>` : `<div class="ph-img" style="height:74px;margin-top:18px">配图待生成</div>`}
     </div>
   </div></div>
@@ -1000,7 +976,6 @@ function reviseAsk() {
   return `${capsule()}
   ${topbar('改一改', 'plan')}
   <div class="scroll"><div class="grid" style="padding:14px 0 24px">
-    <div class="rail"><div class="tick on" style="top:120px">01</div></div>
     <div class="col">
       <div class="focus-kicker" style="margin-bottom:6px">《${esc(p.content_json.title)}》</div>
       <div class="focus-q" style="font-size:20px;line-height:1.5;margin-bottom:8px">哪里不对？说给我听</div>
@@ -1014,10 +989,6 @@ function reviseAsk() {
         </div>
       </div>
 
-      <div class="mem-cap" style="margin-top:14px">
-        接下来这三个问题<b>不会重复问你答过的那五题</b>——除非你这句话明确指向其中某一题
-        （比如「时长还是改回 20 分钟」），那才会重新确认。
-      </div>
     </div>
   </div></div>
   <div class="dock">
@@ -1043,8 +1014,6 @@ function reviseQuestion() {
     <div class="meta">改完直接重写</div>
   </div>
   <div class="scroll"><div class="grid" style="padding:8px 0 24px">
-    <div class="rail">${Array.from({length:n},(_,i)=>
-      `<div class="tick dot ${i<=S.revQi?'on':''}" style="top:${150+i*30}px"></div>`).join('')}</div>
     <div class="col">
       <div class="answered">
         <div class="q">你说的是</div>
@@ -1096,7 +1065,6 @@ function reviseDone() {
   return `${capsule()}
   ${topbar('改好了', 'plan')}
   <div class="scroll"><div class="grid" style="padding:14px 0 24px">
-    <div class="rail"><div class="tick on" style="top:110px">✓</div></div>
     <div class="col">
       <div class="focus-q" style="font-size:20px;line-height:1.45;margin-bottom:8px">按你说的改好了</div>
       <div class="meta" style="margin-bottom:16px">整份重写，版本号 v${b.version} → v${a.version}。原来那版不保留 —— 改稿是覆盖，不是分支。</div>
@@ -1116,10 +1084,6 @@ function reviseDone() {
         <span class="da">${x===y?'没动':'→'}</span>
         <span class="dv ${x===y?'same':'new'}">${x===y?'':esc(y)}</span></div>`).join('')}
 
-      <div class="mem-cap" style="margin-top:14px">
-        改稿意见会一直留着。下次再改时它们也会一并交给模型 ——
-        不然整份重写时，它会把这次改好的地方按默认写法又改回去。
-      </div>
     </div>
   </div></div>
   <div class="dock">
@@ -1199,7 +1163,6 @@ function scLibrary() {
 
   return `${capsule()}
   <div class="scroll"><div class="grid" style="padding:44px 0 24px">
-    <div class="rail">${items.map((_,i)=>`<div class="tick ${i===0?'on':''}" style="top:${186+i*116}px">${16-i*4}</div>`).join('')}</div>
     <div class="col">
       <div class="focus-kicker" style="margin-bottom:5px">我写过的，都在这儿</div>
       <div class="focus-q" style="font-size:23px;margin-bottom:14px">教案库</div>
@@ -1256,7 +1219,6 @@ function scMe() {
   const age = S.age || '小班';
   return `${capsule()}
   <div class="scroll"><div class="grid" style="padding:44px 0 24px">
-    <div class="rail">${S.memories.map((_,i)=>`<div class="tick ${i===0?'on':''}" style="top:${262+i*62}px">0${i+1}</div>`).join('')}</div>
     <div class="col">
       <div class="focus-kicker" style="margin-bottom:5px">我的档案</div>
       <div class="focus-q" style="font-size:23px;margin-bottom:5px">李老师</div>
@@ -1265,17 +1227,12 @@ function scMe() {
       <div class="sec-h"><span class="h">我的记忆</span><span class="m">写教案时会自动带上</span></div>
       <div class="meta" style="margin-bottom:6px">这些是我从你以前的教案里记下来的，随时可以改掉或删掉。</div>
       ${S.memories.map((m,i) => `<div class="mem-row">
-        <span class="tick" style="position:static;transform:none;background:none;padding:0;width:20px;flex:none;margin-top:2px">${String(i+1).padStart(2,'0')}</span>
+        <span class="tick" style="width:20px;flex:none;margin-top:3px">${String(i+1).padStart(2,'0')}</span>
         <span class="fx">${esc(m.fact)}<span class="ty">${esc(m.type)}</span></span>
         <span class="ops"><button onclick="toast('编辑记忆：原型里只展示交互位置')">${IC.edit}</button>
           <button onclick="delMem(${i})">${IC.del}</button></span>
       </div>`).join('')}
       <button class="mem-add" onclick="addMem()">${IC.plus} 再记一条</button>
-      <div class="mem-cap">
-        最多留 <b>10 条</b>。这个工具不贯穿你整个学期，只在需要时打开找协助 ——
-        记这些是为了少问你几遍，不是为了把你的画像绑死。超过 10 条会自动淘汰最不重要的，
-        你手动置顶的和「所带班级」那条永远留着。
-      </div>
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--rule)">
         <div style="display:flex;align-items:center;justify-content:space-between;font-size:14px;color:var(--ink-2);cursor:pointer"
              onclick="go('settings')"><span>设置</span>${IC.chev}</div>
@@ -1311,25 +1268,14 @@ function scSettings() {
   return `${capsule()}
   ${topbar('设置', 'me')}
   <div class="scroll"><div class="grid" style="padding:10px 0 24px">
-    <div class="rail">
-      <div class="tick on" style="top:60px">01</div>
-      <div class="tick" style="top:250px">02</div>
-      <div class="tick" style="top:420px">03</div>
-      <div class="tick" style="top:590px">04</div>
-    </div>
     <div class="col">
       <div class="sec-h"><span class="h">写教案时的默认值</span><span class="m">每次都能改</span></div>
       ${row('默认年龄班', st.defaultAge, "cycleSet('defaultAge')", '开新教案时第 1 题预先选好')}
       ${row('教案格式', st.tplFormat, "cycleSet('tplFormat')", '表格式适合打印，叙述式适合手机看')}
-      <div class="set-note">默认年龄班只是预选，第 1 题<b>还是会问你</b>——万一这次是给别的班写的。</div>
 
       <div class="hr" style="margin:18px 0"></div>
       <div class="sec-h"><span class="h">配图</span><span class="m">今天还能生成 10 张</span></div>
       ${sw('写完自动配图', st.autoImage, "toggleSet('autoImage')", '关着的话，成稿后自己点「生成配图」')}
-      <div class="set-note">
-        图片是这个工具唯一明显要花钱的地方（一张约 2.5 分），所以默认关着，
-        每人每天最多 10 张。用的是 MiniMax 的 image-01。
-      </div>
 
       <div class="hr" style="margin:18px 0"></div>
       <div class="sec-h"><span class="h">通知与记忆</span></div>
@@ -1354,10 +1300,6 @@ function scSettings() {
         图片模型：MiniMax image-01<br>
         教学框架：从台湾 STEAM 教材提炼，已本地化为大陆幼教用语<br>
         版本：原型 · 2026-08-17
-      </div>
-      <div class="set-note" style="margin-top:12px">
-        知识库只做<b>框架提炼</b>，不做原书全文检索——那样会有版权问题。
-        所以教案是按框架现写的，不是从书里抄的。
       </div>
     </div>
   </div></div>
