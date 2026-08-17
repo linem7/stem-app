@@ -33,16 +33,37 @@ function withQuery(path, query) {
   return qs ? `${path}?${qs}` : path
 }
 
+/**
+ * 跳转失败不能没声音。
+ *
+ * uni 的这几个跳转 API 失败时只走 fail 回调，不抛异常 —— 页面路径写错、
+ * 目标页没注册、栈满了，表现全都是「点了没反应」，排查时无从下手。
+ * 统一在这里兜住，出错时把原因说出来。
+ */
+function go(api, name, query, label) {
+  const url = withQuery(ROUTES[name], query)
+  if (!ROUTES[name]) {
+    uni.showToast({ title: `跳转目标不存在：${name}`, icon: 'none', duration: 3000 })
+    return
+  }
+  api({
+    url,
+    fail: (err) => {
+      uni.showToast({ title: `跳不过去（${label}）：${err?.errMsg || '未知原因'}`, icon: 'none', duration: 3000 })
+    },
+  })
+}
+
 export function navTo(name, query) {
-  uni.navigateTo({ url: withQuery(ROUTES[name], query) })
+  go(uni.navigateTo, name, query, 'navigateTo')
 }
 
 export function redirectTo(name, query) {
-  uni.redirectTo({ url: withQuery(ROUTES[name], query) })
+  go(uni.redirectTo, name, query, 'redirectTo')
 }
 
 export function reLaunch(name, query) {
-  uni.reLaunch({ url: withQuery(ROUTES[name], query) })
+  go(uni.reLaunch, name, query, 'reLaunch')
 }
 
 export function back(delta = 1) {
