@@ -489,6 +489,7 @@ const S = {
   // 每题各自的答案：{ q1:{sel:['A'],own:'',ownOpen:false}, ... }
   // 题目一次性全给出来了，所以不再有「当前第几题」这个状态
   ans: {},
+  justOpened: null,   // 刚点开「我自己说」的那题，只有它该拿焦点
   libState: 'all', libAge: 'all',
   genStep: 0,
   // 改一改
@@ -574,22 +575,47 @@ function renderNav() {
   ).join('');
 }
 
+/**
+ * 上一次渲染的是哪一屏。用来区分「同屏重渲染」和「换屏」——
+ * 前者要保住滚动位置，后者必须回到顶部。
+ */
+let lastRendered = null;
+
 function render() {
   renderNav();
+
+  // render 会整个重建 app.innerHTML，.scroll 是新元素，scrollTop 自然归零。
+  // 结果是：老师滚到第 3 题点一个选项，页面「唰」地弹回第 1 题。
+  // 设置页点开关、教案库切筛选、删记忆，全是同一个根因。
+  // 所以同屏重渲染时把滚动位置接过去；换屏则不接（那时回到顶部才对）。
+  const prev = app.querySelector('.scroll');
+  const keepTop = (lastRendered === S.screen && prev) ? prev.scrollTop : 0;
+
   app.innerHTML = ({
     home: scHome, guide: scGuide, generating: scGenerating,
     plan: scPlan, revise: scRevise, library: scLibrary, me: scMe, settings: scSettings,
   })[S.screen]();
+  lastRendered = S.screen;
+
+  if (keepTop) {
+    const next = app.querySelector('.scroll');
+    // 内容可能变短了（比如换年龄班清空了后面三题），超出部分浏览器会自己截到最大值
+    if (next) next.scrollTop = keepTop;
+  }
+
   const fb = app.querySelector('#fbInput');
   if (fb) { fb.value = S.revFeedback; fb.oninput = e => { S.revFeedback = e.target.value; syncFb(); }; }
   const ro = app.querySelector('#revOwnInput');
-  if (ro) { ro.value = S.revOwnText; ro.focus(); ro.oninput = e => { S.revOwnText = e.target.value; }; }
+  if (ro) { ro.value = S.revOwnText; ro.focus({ preventScroll: true }); ro.oninput = e => { S.revOwnText = e.target.value; }; }
   const ta = app.querySelector('#seedInput');
   if (ta) { ta.value = S.seed; ta.oninput = e => { S.seed = e.target.value; syncStart(); }; }
   // 每题各自的「我自己说」输入框
-  app.querySelectorAll('textarea.own-input[data-q]').forEach((el, i) => {
+  app.querySelectorAll('textarea.own-input[data-q]').forEach((el) => {
     const qid = el.dataset.q;
-    if (i === 0) el.focus();
+    // 只聚焦刚刚点开的那一个。原先无条件 focus 第一个展开的输入框 ——
+    // 在第 3 题点「我自己说」会被拽回第 1 题，因为 focus() 自带滚动。
+    // preventScroll 是第二道保险：位置由上面的 keepTop 负责，focus 不要插手。
+    if (S.justOpened === qid) el.focus({ preventScroll: true });
     el.oninput = (e) => {
       S.ans[qid] = { ...ansOf(qid), own: e.target.value };
       // 不整屏重渲染 —— 会打断打字。只把进度和按钮更新掉。
@@ -767,7 +793,12 @@ function syncGuideChrome() {
   }
 }
 
-function openOwn(qid) { S.ans[qid] = { ...ansOf(qid), ownOpen: true }; render(); }
+function openOwn(qid) {
+  S.ans[qid] = { ...ansOf(qid), ownOpen: true };
+  S.justOpened = qid;          // 只让这一个输入框拿焦点，见 render()
+  render();
+  S.justOpened = null;
+}
 function genFromGuide() {
   if (requiredLeft()) { toast('先告诉我这是给哪个年龄班的 —— 没有年龄班，写出来的一定是错的'); return; }
   go('generating');
