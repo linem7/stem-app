@@ -59,7 +59,13 @@
         <text class="sec__m">{{ 5 - skipped.length }} 域有内容{{ skipped.length ? ` · ${skipped.length} 域刻意不做` : ' · 五域齐全' }}</text>
       </view>
 
-      <template v-for="k in STEAM_KEYS" :key="k">
+      <!--
+        这里必须用 <view v-for> 而不是 <template v-for>：
+        <template v-for :key> 会编译成 <block wx:for wx:key>，而 WXML 不允许
+        在 <block> 上写 wx:key —— uni 构建不报错，只有微信开发者工具才会拒，
+        表现是「WXML 文件编译错误」一句话、不说哪一行。
+      -->
+      <view v-for="k in STEAM_KEYS" :key="k">
         <!--
           「刻意不做」不是缺漏，是判断。小班的 STEAM 不必五域齐全，
           模型天然想凑满显得完整，规则是宁可诚实标注缺席也不要虚假齐全。
@@ -77,7 +83,7 @@
           <view class="bd" :class="`bd--${k}`"><text class="bd__t">{{ k }}</text></view>
           <text class="steam__t">{{ steamText(k) }}</text>
         </view>
-      </template>
+      </view>
 
       <!-- ============ 材料 ============ -->
       <view class="hr" />

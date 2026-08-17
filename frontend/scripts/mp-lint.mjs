@@ -85,6 +85,27 @@ for (const file of walk(dist, '.js')) {
 if (dupKeys.length) [...new Set(dupKeys)].forEach((d) => L(`    ✗ ${d}`))
 chk(dupKeys.length === 0, '同一页里没有重复的字面量 handler key')
 
+/* ============ 2.5 <block> 上不许有 wx:key ============ */
+//
+// 事故：成稿页写了 <template v-for="k in STEAM_KEYS" :key="k">，
+// 编译成 <block wx:for wx:key="i">。WXML **不允许**在 <block> 上写 wx:key。
+// uni 构建一声不吭、这边所有测试全绿，只有微信开发者工具会拒，
+// 而且只说一句「WXML 文件编译错误」，不告诉你是哪个文件哪一行。
+// 结论：v-for 要循环一组元素时用 <view v-for>，别用 <template v-for :key>。
+
+L('\n=== 2.5 <block> 上不许有 wx:key ===')
+const blockKeys = []
+for (const file of walk(dist, '.wxml')) {
+  const text = readFileSync(file, 'utf8')
+  for (const m of text.matchAll(/<block\b[^>]*>/g)) {
+    if (/\bwx:key\s*=/.test(m[0])) {
+      blockKeys.push(`${relative(dist, file).replace(/\\/g, '/')}: ${m[0].slice(0, 60)}`)
+    }
+  }
+}
+blockKeys.forEach((b) => L(`    ✗ ${b}`))
+chk(blockKeys.length === 0, '没有 <block wx:key>（微信会拒，uni 不报错）')
+
 /* ============ 3. pages.json 里的每一页都要真的编译出来 ============ */
 
 L('\n=== 3. 路由与编译产物对得上 ===')
