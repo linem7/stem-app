@@ -1,0 +1,58 @@
+{
+  "easycom": {
+    "autoscan": true,
+    "custom": {
+      "^s-(.*)": "@/components/s-$1.vue"
+    }
+  },
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": { "navigationBarTitleText": "首页" }
+    },
+    {
+      "path": "pages/guide/guide",
+      "style": { "navigationBarTitleText": "说说你的想法" }
+    },
+    {
+      "path": "pages/generating/generating",
+      "style": { "navigationBarTitleText": "正在写教案" }
+    },
+    {
+      "path": "pages/plan/plan",
+      "style": { "navigationBarTitleText": "教案" }
+    },
+    {
+      "path": "pages/revise/revise",
+      "style": { "navigationBarTitleText": "改一改" }
+    },
+    {
+      "path": "pages/library/library",
+      "style": { "navigationBarTitleText": "教案库" }
+    },
+    {
+      "path": "pages/me/me",
+      "style": { "navigationBarTitleText": "我的" }
+    },
+    {
+      "path": "pages/settings/settings",
+      "style": { "navigationBarTitleText": "设置" }
+    },
+    {
+      "path": "pages/redeem/redeem",
+      "style": { "navigationBarTitleText": "激活" }
+    },
+    {
+      "path": "pages/agreement/agreement",
+      "style": { "navigationBarTitleText": "使用协议" }
+    }
+  ],
+  "globalStyle": {
+    "navigationStyle": "custom",
+    "navigationBarTextStyle": "black",
+    "navigationBarBackgroundColor": "#FFFDF8",
+    "backgroundColor": "#FFFDF8",
+    "backgroundColorTop": "#FFFDF8",
+    "backgroundColorBottom": "#FFFDF8"
+  }
+}

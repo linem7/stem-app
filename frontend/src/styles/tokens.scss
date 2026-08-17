@@ -1,0 +1,75 @@
+/**
+ * 设计令牌 · CSS 变量 + 全局基底
+ *
+ * 值全部来自 uni.scss 的 SCSS 变量（那份才是源）。这里再导出一份 CSS 变量，
+ * 是为了模板里 :style 动态绑定、以及少数需要在运行时切换的地方能用 var()。
+ *
+ * `page` 选择器在小程序里是根节点；uni-app 编译到 H5 时会把它转成 uni-page-body。
+ * 两端都能命中，所以变量只声明这一处。
+ *
+ * uni.scss 只对「组件里的 style 块」自动注入，@use 进来的文件拿不到，所以这里要显式声明。
+ */
+@use '../uni.scss' as *;
+
+page {
+  --canvas: #{$canvas};
+  --paper: #{$paper};
+  --paper-2: #{$paper-2};
+
+  --amber: #{$amber};
+  --amber-soft: #{$amber-soft};
+  --amber-line: #{$amber-line};
+  --amber-deep: #{$amber-deep};
+
+  --mint: #{$mint};
+  --mint-deep: #{$mint-deep};
+  --mint-soft: #{$mint-soft};
+
+  --sky: #{$sky};
+  --sky-soft: #{$sky-soft};
+  --sky-deep: #{$sky-deep};
+  --coral: #{$coral};
+  --coral-deep: #{$coral-deep};
+
+  --ink: #{$ink};
+  --ink-2: #{$ink-2};
+  --ink-3: #{$ink-3};
+  --rule: #{$rule};
+
+  --r-chip: #{$r-chip};
+  --r-btn: #{$r-btn};
+  --r-card: #{$r-card};
+  --r-input: #{$r-input};
+  --r-sm: #{$r-sm};
+
+  /* 全局基底 */
+  background-color: #{$paper};
+  color: #{$ink};
+  font-family: #{$font-family};
+  font-size: #{$fs-body};
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+view,
+text,
+scroll-view,
+button,
+input,
+textarea {
+  box-sizing: border-box;
+}
+
+/* 小程序的 button 自带一堆样式和 ::after 边框，全局清掉，按钮样式由组件自己定 */
+button {
+  padding: 0;
+  margin: 0;
+  font-size: inherit;
+  font-family: inherit;
+  line-height: normal;
+  background: transparent;
+  border-radius: 0;
+  &::after {
+    border: none;
+  }
+}

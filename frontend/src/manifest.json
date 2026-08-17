@@ -1,0 +1,33 @@
+{
+  "name": "幼儿园STEAM教案",
+  "appid": "",
+  "description": "帮幼儿园老师撰写 STEAM 教案",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "vueVersion": "3",
+  "mp-weixin": {
+    // 真 AppID 还没申请。空着的话微信开发者工具会用「测试号」打开，
+    // 够本地开发，但 wx.login 拿不到真 code、msgSecCheck 也调不通 —— 上线前必须填。
+    "appid": "",
+    "setting": {
+      // 本地后端是 http://localhost:3000，没有 https 域名，必须关掉域名校验。
+      // 开发者工具里「不校验合法域名」那个勾也要同时打上。
+      "urlCheck": false,
+      "es6": true,
+      "minified": true,
+      "postcss": true
+    },
+    "usingComponents": true,
+    "permission": {},
+    "requiredPrivateInfos": []
+  },
+  "h5": {
+    // H5 只用来在电脑浏览器里快速看布局，不是交付目标。
+    "title": "幼儿园STEAM教案",
+    "router": { "mode": "hash" }
+  },
+  "uniStatistics": {
+    "enable": false
+  }
+}
