@@ -267,6 +267,42 @@ if (WITH_GENERATE) {
   const done = await promise
   chk(done.status === 'completed', `轮询 ${ticks} 次拿到结果：${done.status}`)
   chk(Boolean(done.lesson_plan_id), `lesson_plan_id=${done.lesson_plan_id}`)
+
+  L('\n=== 12. 成稿屏要用的字段 ===')
+  // 成稿屏整屏都是按 content_json 渲染的。字段名对不上不会报错，
+  // 只会安静地少一整块（少了「安全事项」这种，老师根本不会发现）。
+  const plansApi = await import('../src/api/lessonPlans.js')
+  const p = await plansApi.getLessonPlan(done.lesson_plan_id)
+  chk(Boolean(p.age_group && p.duration_min), `年龄班=${p.age_group}，时长=${p.duration_min} 分钟`)
+  chk(typeof p.version === 'number', `version=${p.version}（第 2 版起要显示版本胶囊）`)
+  const cj = p.content_json || {}
+  for (const [key, label] of [
+    ['title', '标题'],
+    ['materials', '材料清单'],
+    ['flow', '教学流程'],
+    ['indicators', '学习指标'],
+    ['safety', '安全事项'],
+    ['steam', 'STEAM 五域'],
+  ]) {
+    const v = cj[key]
+    const ok = Array.isArray(v) ? v.length > 0 : Boolean(v)
+    chk(ok, `content_json.${key}（${label}）${Array.isArray(v) ? ` ${v.length} 条` : ''}`)
+  }
+  chk(
+    (cj.flow || []).every((f) => f.stage && f.detail && typeof f.minutes === 'number'),
+    'flow 每一环节都有 stage / minutes / detail'
+  )
+  chk(
+    ['S', 'T', 'E', 'A', 'M'].every((k) => k in (cj.steam || {})),
+    'steam 五个键齐全（缺席的写「本次未涉及」，前端据此画虚线框）'
+  )
+  const skipped = ['S', 'T', 'E', 'A', 'M'].filter((k) => /未涉及|不涉及/.test(String(cj.steam?.[k] || '')))
+  L(`    （本次 ${p.age_group}：${skipped.length ? skipped.join('/') + ' 刻意不做' : '五域齐全'}）`)
+  chk(Array.isArray(p.images), 'images 是数组（没配图时是空数组，不是 null）')
+
+  L('\n=== 13. 教案评价 ===')
+  const rated = await plansApi.rateLessonPlan(done.lesson_plan_id, { rating: 'needs_edit' })
+  chk(Boolean(rated), '评价提交成功（绑这一版，重复提交是覆盖）')
 } else {
   L('\n=== 11. 生成教案 —— 跳过（加 --generate 才跑，会花 DeepSeek 额度）===')
 }

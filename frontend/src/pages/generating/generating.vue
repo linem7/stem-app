@@ -35,9 +35,13 @@
     </view>
 
     <template #dock>
+      <!--
+        写完是**直接跳**的，不在这儿等她再点一下 —— 她本来就是在等结果，
+        多一次点击只是多一道门。这个按钮只在自动跳转没成功时兜底。
+      -->
       <s-button
         v-if="done"
-        label="看看写成什么样"
+        label="看教案"
         arrow
         @press="openPlan"
       />
@@ -128,6 +132,9 @@ function start() {
       stepIndex.value = STEPS.length
       hint.value = '写好了'
       lessonPlanId.value = d.lesson_plan_id || 0
+      // 写完直接进成稿，不让她再点一下 —— 她就是在等这个结果。
+      // 留一小段是为了让最后那个勾能被看见，不然屏幕像是闪了一下。
+      if (lessonPlanId.value) setTimeout(openPlan, 450)
     })
     .catch((err) => {
       failed.value = true
