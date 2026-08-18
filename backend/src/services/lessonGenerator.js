@@ -125,6 +125,8 @@ ${JSON_SHAPE}`;
     // 整份教案比出题慢得多，超时单独放宽到 3 分钟
     timeoutMs: 180000,
     purpose: 'lesson_generate',
+    // 这是最贵的一次调用 —— 在 model_calls 之前它一分钱都没被记下来
+    teacherId: teacher?.id ?? null,
   });
 
   const contentJson = normalizePlan(data, ageGroup, durationTarget);
@@ -145,7 +147,7 @@ ${JSON_SHAPE}`;
   // 模型自检（8 维度）。失败不影响出稿 —— 自检只是内测分析用的附加信息。
   let modelSelfCheck = null;
   try {
-    modelSelfCheck = await selfCheck(contentJson, ageGroup, system);
+    modelSelfCheck = await selfCheck(contentJson, ageGroup, system, teacher?.id ?? null);
   } catch (err) {
     logger.warn('self_check_failed', { conversation_id: conversation.id, code: err?.code });
   }
@@ -250,7 +252,7 @@ function normalizePlan(raw, ageGroup, durationTarget) {
 }
 
 /** 模型自检：8 个维度打分 + 指出问题（system-prompts.md「质量检查」） */
-async function selfCheck(contentJson, ageGroup, systemPrompt) {
+async function selfCheck(contentJson, ageGroup, systemPrompt, teacherId = null) {
   const { data } = await chatJSON({
     system: systemPrompt,
     messages: [
@@ -273,6 +275,7 @@ ${JSON.stringify(contentJson)}
     maxTokens: 800,
     timeoutMs: 90000,
     purpose: 'lesson_self_check',
+    teacherId,
   });
 
   return {
@@ -395,7 +398,7 @@ export function fallbackTitle(seedInput) {
 }
 
 /** 让文本模型给图片描述（system-prompts.md 第 3 节），供豆包使用 */
-export async function buildImagePrompt({ lessonTitle, ageGroup, sectionName, note, system }) {
+export async function buildImagePrompt({ lessonTitle, ageGroup, sectionName, note, system, teacherId = null }) {
   const { text } = await chat({
     system,
     messages: [
@@ -407,6 +410,7 @@ export async function buildImagePrompt({ lessonTitle, ageGroup, sectionName, not
     temperature: 0.6,
     maxTokens: 300,
     purpose: 'image_prompt',
+    teacherId,
   });
   const clean = text.replace(/^["'\s]+|["'\s]+$/g, '');
 

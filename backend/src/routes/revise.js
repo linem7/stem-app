@@ -107,6 +107,7 @@ reviseRouter.post(
         temperature: 0.7,
         maxTokens: 1200,
         purpose: `revise_ask_r${round}`,
+        teacherId: req.teacherId,
       });
       ack = typeof data.ack === 'string' ? data.ack.trim().slice(0, 60) : '';
       questions = normalizeQuestions(data.questions, round);

@@ -12,6 +12,7 @@ import OpenAI from 'openai';
 import { config } from '../config.js';
 import { AppError, ErrorCode } from '../utils/errors.js';
 import { logger, startTimer } from '../utils/logger.js';
+import { recordModelCall } from './costLedger.js';
 
 /**
  * 客户端是**懒加载**的，不在模块顶层 new。
@@ -76,7 +77,8 @@ function classify(err) {
  * @param {number} [o.temperature]
  * @param {number} [o.maxTokens]
  * @param {number} [o.timeoutMs]       覆盖默认超时（生成整份教案要放宽）
- * @param {string} [o.purpose]         只用于日志，标明这次调用是干嘛的
+ * @param {string} [o.purpose]         标明这次调用是干嘛的：进日志，也进 model_calls
+ * @param {number} [o.teacherId]       为谁调的。落进 model_calls，用来算「哪个园花了多少」
  * @returns {Promise<{text:string, tokenIn:number, tokenOut:number, model:string}>}
  */
 export async function chat({
@@ -87,6 +89,7 @@ export async function chat({
   maxTokens = 2048,
   timeoutMs,
   purpose = 'unknown',
+  teacherId = null,
 }) {
   const maxAttempts = config.deepseek.maxRetries + 1;
   let lastErr;
@@ -118,6 +121,25 @@ export async function chat({
         token_in: usage.prompt_tokens,
         token_out: usage.completion_tokens,
         finish_reason: res.choices?.[0]?.finish_reason,
+      });
+
+      /**
+       * 落一笔账。**记在这里，一处覆盖全部调用点**（目前 7 处：引导出题、
+       * 每题的一句回应、生成教案、自检、改稿追问、配图提示词、记忆提取）。
+       *
+       * 在这之前 token 数只进了日志，库里一行都没有 —— 于是「这个月花了多少钱」
+       * 只能算配图那一半，而生成教案恰恰是最贵的那次调用。
+       *
+       * 挂在每个调用点上就一定会漏掉下一个新加的。故意不 await：
+       * 记账是旁路，不该让老师多等一次数据库往返（函数内部自己吞异常）。
+       */
+      recordModelCall({
+        teacherId,
+        purpose,
+        provider: 'deepseek',
+        model: config.deepseek.model,
+        tokenIn: usage.prompt_tokens ?? null,
+        tokenOut: usage.completion_tokens ?? null,
       });
 
       if (!text.trim()) {

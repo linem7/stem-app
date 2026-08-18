@@ -197,6 +197,7 @@ ${ask}
       temperature: 0.8,
       maxTokens: 1200,
       purpose: 'guide_all',
+      teacherId: teacher?.id ?? null,   // 记账用：算「哪个园花了多少文本钱」
     });
     generated = data || {};
   } catch (err) {
@@ -250,6 +251,7 @@ export async function buildAck({ teacher, memories, collected, seedInput, spec, 
       temperature: 0.8,
       maxTokens: 120,
       purpose: `ack_${spec.id}`,
+      teacherId: teacher?.id ?? null,
     });
     const ack = typeof data.ack === 'string' ? data.ack.trim().slice(0, 60) : '';
     if (ack) return ack;

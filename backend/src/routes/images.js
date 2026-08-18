@@ -153,6 +153,7 @@ imagesRouter.post(
           sectionName: materialName(plan.content_json, sectionKey, note),
           note,
           system: buildPurposeSystem(purpose, subjects),
+          teacherId: req.teacherId,
         });
 
         // 第二步：调出图模型（gpt-image-2 或 MiniMax，看 provider），拿 base64 当场解成 buffer。

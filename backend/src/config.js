@@ -59,6 +59,20 @@ export const config = {
     model: str('DEEPSEEK_MODEL', 'deepseek-chat'),
     timeoutMs: num('DEEPSEEK_TIMEOUT_MS', 60000),
     maxRetries: num('DEEPSEEK_MAX_RETRIES', 2),
+
+    /**
+     * 单价，**分 / 百万 token**。后台概览的「花了多少钱」靠这两个数算。
+     *
+     * 为什么放配置而不是写死在代码里：**价格会变**，而且缓存命中/未命中是两个价。
+     * 写死了就会在某次调价之后悄悄算错，还看不出来。
+     * 默认值按 2026-08 DeepSeek 官网 deepseek-chat 的标准价填的，
+     * **上线前去官网核一遍**，别当成事实。
+     *
+     * 算出来的钱在调用当时就存进 model_calls.cost_cents，不留到查询时再乘 ——
+     * 否则改一次这个常量会让全部历史成本集体漂移。
+     */
+    priceInPerMTok: num('DEEPSEEK_PRICE_IN_CENTS_PER_MTOK', 200),
+    priceOutPerMTok: num('DEEPSEEK_PRICE_OUT_CENTS_PER_MTOK', 800),
   },
 
   /**

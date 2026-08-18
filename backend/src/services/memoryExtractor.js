@@ -65,6 +65,7 @@ export async function extractAndSaveMemories({ teacherId, conversationId, transc
     temperature: 0.3,
     maxTokens: 800,
     purpose: 'memory_extract',
+    teacherId,
   });
 
   const candidates = Array.isArray(data?.memories) ? data.memories : [];
