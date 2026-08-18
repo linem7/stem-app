@@ -408,5 +408,24 @@ export async function buildImagePrompt({ lessonTitle, ageGroup, sectionName, not
     maxTokens: 300,
     purpose: 'image_prompt',
   });
-  return text.replace(/^["'\s]+|["'\s]+$/g, '').slice(0, 800);
+  const clean = text.replace(/^["'\s]+|["'\s]+$/g, '');
+
+  /*
+    上限对齐 MiniMax 自己的 1500（见 minimax.js 那行 slice(0, 1500)），不再是 800。
+    800 踩过一次大坑：记录表那套强制前缀本身就有 840 字符，于是**每一次**都在
+    「no captions, no labels, no handwriti」这里被切断 —— 禁止文字那句话被砍成半句，
+    老师要画的东西（描述在最后）整段没了。出来的图顶上印着 "Name ______"、
+    配一条动物花边，表格还是随机列数。表面上看像模型不听话，其实提示词根本没发全。
+
+    而且切的时候要切在句号上，不是切在字母中间：半句 "no handwriti" 对模型只是噪音。
+    真被切了要留个日志 —— 这种事静悄悄发生一次就够难查了。
+  */
+  const LIMIT = 1500;
+  if (clean.length <= LIMIT) return clean;
+
+  const cut = clean.slice(0, LIMIT);
+  const lastStop = cut.lastIndexOf('. ');
+  const out = lastStop > LIMIT * 0.6 ? cut.slice(0, lastStop + 1) : cut;
+  logger.warn('image_prompt_truncated', { from: clean.length, to: out.length });
+  return out;
 }

@@ -32,10 +32,40 @@ const NO_TEXT =
   ' Absolutely no text of any kind: no letters, no words, no numbers, no captions, no labels, ' +
   'no handwriting, no signature, no watermark, no logo.';
 
+/**
+ * 风格前缀分两种，**这是这个文件最要紧的一条**。
+ *
+ * 原来五个用途共用一句「Flat vector illustration in a warm children's picture-book style」，
+ * 记录表和头饰也顶着它。这是自己把「要印出来用的东西」往插画那边推 ——
+ * 而且它是提示词的第一句，权重最高，后面写多少「pure white / thick black gridlines」都掰不回来。
+ *
+ * 实测（2026-08-17，同一句中文描述、同一个模型）：
+ *   带插画前缀的记录表 → 顶上一行手写体乱码（B'se kllgo / Cvre eck hls...）、
+ *     7 列 2 行（要的是 3×4）、细黄线（要的是粗黑线），外加一只猫头鹰和一只摇摇马
+ *   换成 PRINT 前缀 → 干净的 3×4 空格子、粗黑线、纯白底、一个字都没有
+ *
+ * 所以：画给人看的（材料图/展示图/环创背景）走 ILLUSTRATION，
+ * 印出来当东西用的（记录表/头饰）走 PRINT。别再合并回一句。
+ */
+const ILLUSTRATION_PREFIX =
+  "Flat vector illustration in a warm children's picture-book style, simple geometric shapes, " +
+  'no photorealism, no photographic rendering, no 3D.';
+
+/*
+  这段要**短**。它和 style、NO_TEXT 一起是强制前缀，三段加起来必须给老师那句描述
+  留出余量 —— 超过 buildImagePrompt 的上限，被切掉的正是描述（详见那里的注释）。
+  scripts/versions-test.mjs 里有一条长度断言盯着这件事，别把它写长了。
+*/
+const PRINT_PREFIX =
+  'Black and white line drawing on pure white paper, thick solid black outlines, ' +
+  'no colour, no shading, no texture. Plain and utilitarian, like a blank photocopied handout. ' +
+  'No cartoon mascots, no decorative border, no background scenery.';
+
 export const PURPOSES = {
   material: {
     cn: '材料图',
     hint: '单样材料，照着去准备',
+    kind: 'illustration',
     width: 1536,
     height: 1536,
     style:
@@ -50,6 +80,7 @@ export const PURPOSES = {
   worksheet: {
     cn: '记录表',
     hint: '打印发给孩子写写画画',
+    kind: 'print',
     // 竖版对着 A4。白底不是奶油底 —— 打印省墨，孩子写上去也清楚
     width: 1536,
     height: LONG,
@@ -57,36 +88,37 @@ export const PURPOSES = {
     // 标题栏、出版社水印、页脚花边，而这些恰恰是我们写死不许有的
     optimize: false,
     style:
-      'A blank printable worksheet for young children. Pure white background. ' +
-      'One single table with thick clean black gridlines. The first row of the table contains ' +
-      'small simple line-art picture icons as column headers, one icon centered inside each cell. ' +
-      'Every other cell is completely empty white space for children to draw in. ' +
-      'Large cells, generous spacing, portrait orientation, like a photocopiable activity sheet.',
+      'An empty printable chart: one plain table, 3 columns and 4 rows, thick straight black lines, ' +
+      'every cell completely empty white space for children to draw in. Large cells, portrait orientation. ' +
+      'A row of small black pictograms sits directly above the table, one per column.',
     rules: `1. 这是一张**空白的、给孩子写画的表**，不是填好的示意图
 2. **格子里必须是空的**，留出写字画画的地方；线要粗、格子要大（3-4 岁握笔不稳）
-3. 每一列的含义用**简笔图标**表示，图标要画在表格第一行的格子**里面**，不要飘在表格外
-   —— 飘在外面老师就对不上是哪一列了。绝对不要写字
-4. 结构简单：最多 3 列 × 4 行，再多小班孩子对不上格
-5. 描述里要出现 "large empty boxes for children to draw in"`,
+3. 每一列的含义用**简笔图标**表示。图标画在表格**正上方**、每列一个、跟那一列对齐
+   —— 原来要求「画在第一行格子里面」，实测模型做不到，它一律飘到表格外面去；
+   与其要一个它给不了的位置，不如要一个它稳定给得到、老师也对得上的位置。绝对不要写字
+4. 结构简单：3 列 × 4 行，再多小班孩子对不上格
+5. 描述里要出现 "every cell completely empty for children to draw in"`,
   },
 
   headwear: {
     cn: '头饰',
     hint: '打印剪下来戴头上',
+    kind: 'print',
     // 横版。两条长带要够长，宽高比越扁越好用
     width: LONG,
     height: 1024,
+    optimize: false,
+    // 走 PRINT 前缀 = 黑白线稿。三个理由：园里彩打贵、沿线剪要线清楚、
+    // 空心图案孩子能自己涂色（多一个活动环节）。要改回彩色版就把 kind 换成 illustration
     style:
-      'A printable cut-out headband template, laid flat, viewed straight on. ' +
-      'A decorated shape in the center with two long straight horizontal strips that extend all the way ' +
-      'to the very left and right edges of the image, running off the canvas, to wrap around a head. ' +
-      'Plain white background, thick clean outlines suitable for cutting, ' +
-      'flat vector style, soft yellow / mint green / sky blue palette.',
+      'A cut-out headband template, laid flat, viewed straight on: one outlined shape in the center, ' +
+      'with two long horizontal strips running from it all the way off the left and right edges of the image, ' +
+      'to wrap around a head. Outlines only, hollow for children to colour in.',
     rules: `1. 画的是**摊平的头饰纸样**，不是戴在头上的样子 —— 老师要照着剪
-2. 中间是主体图案（动物、植物、角色的正面简笔形象），**左右各接一条水平长带**，
+2. 中间是主体图案（动物、植物、角色的正面简笔轮廓），**左右各接一条水平长带**，
    两条带子必须一直画到画面最左边和最右边、被画面切断，那是绕头一圈用的 ——
    带子没顶到边，印出来就短一截，围不上小孩的头
-3. 轮廓线要粗、要闭合，方便沿线剪
+3. 轮廓线要粗、要闭合，方便沿线剪；图案是空心的，留给孩子涂色
 4. 带子上可以有简单重复花纹，但不要复杂到剪不动
 5. 描述里要出现 "flat cut-out template with two long horizontal side strips"`,
   },
@@ -94,6 +126,7 @@ export const PURPOSES = {
   display: {
     cn: '展示图',
     hint: '一格一样，贴展示板上介绍',
+    kind: 'illustration',
     width: LONG,
     height: 1536,
     style:
@@ -109,6 +142,7 @@ export const PURPOSES = {
   backdrop: {
     cn: '环创背景',
     hint: '贴墙做主题墙，中间留白',
+    kind: 'illustration',
     // 通景，横得越开越像一面墙
     width: LONG,
     height: 1152,
@@ -133,8 +167,63 @@ export function resolvePurpose(value) {
   return PURPOSES[key] ? key : DEFAULT_PURPOSE;
 }
 
-export function purposeSpec(value) {
-  return PURPOSES[resolvePurpose(value)];
+/**
+ * 她这句话里说了几样东西。
+ *
+ * 起因是实测：老师写「我需要准备小狗、小猫和兔子的头饰」，出来的图**只有小狗** ——
+ * 头饰的构图规则里写死了 "one outlined shape in the center"，
+ * 于是 DeepSeek 只能从三个里挑一个，另外两样被悄悄丢掉。
+ * 图片标签上还写着完整那句话，她不一定看得出来少了两样，而配额已经扣掉一张。
+ *
+ * 数出来是为了：一张纸上排几条。**不是**拆成几张 ——
+ * 一份教案总共才 3 张配额，一句话就把配额吃光是另一种糟糕。
+ *
+ * 顿号、逗号、和、跟、与、以及、还有，都算分隔。多算一样最多是纸上多排一条空的，
+ * 少算一样才是真丢东西，所以这里宁可多算。
+ */
+export function countSubjects(note) {
+  const s = String(note || '').trim();
+  if (!s) return 1;
+  const parts = s
+    .split(/[、,，;；]|和|跟|与|以及|还有/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  // 上限 4：再多每条就窄到剪不动了，A4 上一条不到 5 厘米高
+  return Math.min(Math.max(parts.length, 1), 4);
+}
+
+/**
+ * @param {string} value 用途
+ * @param {number} [count] 这张纸上要排几样（只有头饰用得上，见 countSubjects）
+ */
+export function purposeSpec(value, count = 1) {
+  const spec = PURPOSES[resolvePurpose(value)];
+  const n = Math.min(Math.max(Number(count) || 1, 1), 4);
+  if (resolvePurpose(value) !== 'headwear' || n < 2) return spec;
+
+  // 排几条就要多高的纸。一条是 2:1 的横条，三条就得接近方的，
+  // 否则每条被压扁到剪不动。宽度不动 —— 带子要横着通到边
+  const height = { 2: 1280, 3: 1536, 4: LONG }[n];
+  return {
+    ...spec,
+    height,
+    style:
+      `A printable sheet of ${n} separate cut-out headband templates, stacked one above another, ` +
+      'evenly spaced with a clear white gap between them for cutting. Each template has one outlined ' +
+      'shape in the center and two long horizontal strips running from it all the way off the left and ' +
+      'right edges of the image. Outlines only, hollow for children to colour in.',
+    rules: `1. 这是**一张纸上排 ${n} 条**头饰纸样，上下排开，条与条之间留出白边好下剪刀
+2. 老师说了几样就画几样，**一样都不能少**（她说的每一样各占一条）
+3. 每一条都是：中间一个主体图案（那样动物/角色的正面简笔轮廓），左右各接一条水平长带，
+   带子必须一直画到画面最左边和最右边、被画面切断 —— 没顶到边印出来就围不上小孩的头
+4. 轮廓线要粗、要闭合，方便沿线剪；图案空心，留给孩子涂色
+5. 描述里要逐条点明每一条画的是什么，并出现 "stacked cut-out headband templates"`,
+  };
+}
+
+/** 这个用途要的是「印出来当东西用」还是「画出来给人看」 */
+export function isPrintKind(value) {
+  return purposeSpec(value).kind === 'print';
 }
 
 /**
@@ -143,14 +232,21 @@ export function purposeSpec(value) {
  * 风格前缀要求「一字不改」是有理由的：实测这段能稳定压住写实照片风格，
  * 而单靠「不要画成照片」压不住。风格对了就算画歪也只是卡通歪，风格错了会出照片质感 ——
  * 那才是真问题。
+ *
+ * 前缀分插画/线稿两种，选哪一种由 kind 决定，理由见文件头上 PRINT_PREFIX 那段。
  */
-export function buildPurposeSystem(value) {
-  const p = purposeSpec(value);
+export function buildPurposeSystem(value, count = 1) {
+  const p = purposeSpec(value, count);
+  const prefix = p.kind === 'print' ? PRINT_PREFIX : ILLUSTRATION_PREFIX;
+  const useLine =
+    p.kind === 'print'
+      ? '这张图**是要印出来直接给孩子用的东西**（表格、纸样），不是一张插画。'
+      : '这张图是**画给人看的**（照着准备材料、贴出来展示），老师会印出来用。';
   return `请为幼儿园STEAM教案生成一个图片描述提示词，用于AI图像生成。
-这张图**老师会打印出来在活动中使用**，用途是「${p.cn}」（${p.hint}）。
+用途是「${p.cn}」（${p.hint}）。${useLine}
 
 **提示词必须以这段风格前缀开头，一字不改**：
-"Flat vector illustration in a warm children's picture-book style, simple geometric shapes, no photorealism, no photographic rendering, no 3D. ${p.style}${NO_TEXT}"
+"${prefix} ${p.style}${NO_TEXT}"
 
 然后接一到两句英文描述，要求：
 ${p.rules}
