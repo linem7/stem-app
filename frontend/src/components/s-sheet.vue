@@ -51,12 +51,17 @@ defineEmits(['close'])
   background: rgba(58, 54, 48, 0.45);
 }
 
+/*
+  高度由三段相加决定（顶栏 + 滚动区 + 底栏），**不要**在这里加 max-height。
+  加了之后一旦三段之和超过它，被挤出去的是最下面的底栏 —— 主按钮直接跑到屏幕外面。
+  真机上量到过：568 高的屏幕，78vh 的上限把「画这张」压出屏幕 10px。
+  滚动区自己是有上限的（见 .sheet__body），所以面板不会顶穿屏幕。
+*/
 .sheet__panel {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  max-height: 78vh;
   display: flex;
   flex-direction: column;
   background: $paper;
@@ -93,10 +98,17 @@ defineEmits(['close'])
   color: $ink-2;
 }
 
+/*
+  这里**不能**写 flex:1 + height:0（页面级的 s-page 那样写是对的，因为它外层有 height:100vh）。
+  抽屉面板的高度是 max-height 撑出来的，不是确定值 —— scroll-view 内层那个真正滚动的容器
+  于是拿不到高度可继承，退回内容高度，既不裁剪也不滚动：内容直接漫出去压在底部按钮上。
+  实测（H5 里量的）：外层 467px，内层 660px，多出来的 193px 盖住了最后一排选项和输入框。
+  老师看到的就是「最后一个按钮被盖住了」。
+  给一个确定高度才裁得住。flex-shrink 也要关掉，被压缩后同样会退化成不裁剪。
+*/
 .sheet__body {
-  flex: 1;
-  /* 不写这句的话 scroll-view 会被内容撑开，抽屉直接顶穿屏幕 */
-  height: 0;
+  flex: none;
+  height: 46vh;
 }
 
 .sheet__inner {

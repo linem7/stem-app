@@ -5,12 +5,12 @@
     </template>
 
     <view class="hd">
-      <text class="kicker">正在写</text>
-      <text class="q">{{ done ? '写好了' : '给我二三十秒' }}</text>
+      <text class="kicker">{{ isRevise ? '正在改' : '正在写' }}</text>
+      <text class="q">{{ done ? (isRevise ? '改好了' : '写好了') : '给我二三十秒' }}</text>
     </view>
 
     <!-- 阶段清单。progress_hint 由后端按生成阶段推进，等待才有反馈 -->
-    <view v-for="(s, i) in STEPS" :key="s" class="step" :class="stepClass(i)">
+    <view v-for="(s, i) in steps" :key="s" class="step" :class="stepClass(i)">
       <view class="step__ic" :class="stepClass(i)">
         <image v-if="stepIndex > i || done" class="step__check" :src="checkWhite" mode="widthFix" />
       </view>
@@ -72,6 +72,8 @@ const checkWhite = iconCheck(COLORS.white, 2.6)
 // 后端的 progress_hint 是自由文案，这里只用来给一个「走到哪了」的粗略进度条。
 // 真正给老师看的那句话是 hint，原样显示后端给的。
 const STEPS = ['读你答的那几题', '设计活动流程', '按年龄班校一遍']
+// 改稿走的是同一条链路，只有第一步读的东西不一样 —— 她提的意见 + 刚答的三题
+const REVISE_STEPS = ['读你提的意见', '重排活动流程', '按年龄班校一遍']
 
 const conversationId = ref(0)
 const hint = ref('正在准备…')
@@ -81,7 +83,10 @@ const failed = ref(false)
 const failMessage = ref('')
 const restarting = ref(false)
 const lessonPlanId = ref(0)
-const headline = ref('正在写教案')
+/** 从改一改过来的。只影响文案，链路完全一样 */
+const isRevise = ref(false)
+const headline = computed(() => (isRevise.value ? '正在改教案' : '正在写教案'))
+const steps = computed(() => (isRevise.value ? REVISE_STEPS : STEPS))
 
 let handle = null
 
@@ -92,6 +97,7 @@ const stepClass = (i) => ({
 
 onLoad((query) => {
   conversationId.value = Number(query?.id || 0)
+  isRevise.value = String(query?.revise || '') === '1'
   start()
 })
 
@@ -125,12 +131,14 @@ function start() {
     .then((d) => {
       if (d.status === 'failed') {
         failed.value = true
-        failMessage.value = d.message || '这次没写成。换个说法再试一次通常就好。'
+        failMessage.value =
+          d.message ||
+          (isRevise.value ? '这次没改成，再试一次通常就好。' : '这次没写成。换个说法再试一次通常就好。')
         return
       }
       done.value = true
-      stepIndex.value = STEPS.length
-      hint.value = '写好了'
+      stepIndex.value = steps.value.length
+      hint.value = isRevise.value ? '改好了' : '写好了'
       lessonPlanId.value = d.lesson_plan_id || 0
       // 写完直接进成稿，不让她再点一下 —— 她就是在等这个结果。
       // 留一小段是为了让最后那个勾能被看见，不然屏幕像是闪了一下。

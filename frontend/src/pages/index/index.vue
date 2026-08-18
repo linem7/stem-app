@@ -57,6 +57,7 @@
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { ensureSession, gate, session } from '../../stores/session.js'
+import { put } from '../../stores/handoff.js'
 import { createConversation } from '../../api/conversations.js'
 import { illoHero } from '../../utils/illustrations.js'
 import { reLaunch, redirectTo } from '../../utils/nav.js'
@@ -99,15 +100,22 @@ async function start() {
   starting.value = true
   try {
     const data = await createConversation(seed.value.trim())
+    // 开会话的响应里**已经带着那 4 道题**了。直接递给引导页，
+    // 省掉它再 GET 一次 —— 否则老师等完「正在准备问题」，进去还要再看一次骨架屏。
+    // 响应里没有 seed_input（后端那边它是入参不是出参），把她刚打的那句一起递过去，
+    // 否则引导页顶上的标题会退化成「说说你的想法」
+    put(`conversation:${data.conversation_id}`, { ...data, seed_input: seed.value.trim() })
     // 用 redirectTo 而不是 navigateTo：首页留在栈里没意义，
     // 引导页的返回按钮本来就是回首页（s-topbar 的 back 兜底会 reLaunch 回来）
     redirectTo('guide', { id: data.conversation_id })
+    // 这里**不要**在 finally 里解锁。跳转是异步的：解锁之后、页面还没换掉的那一瞬，
+    // 按钮会变回「开始」，老师以为没反应就再点一下 —— 那会再开一个新会话。
+    // 让它保持 loading 直到这一页被替换掉（引导页那边同一个理由，写在 generate() 里）
   } catch (err) {
     // 额度闸门装在这里 —— 在最前面。让老师答完 4 题、等 20 秒生成，
     // 最后才说额度不够，是最糟的时机
-    showApiError(err)
-  } finally {
     starting.value = false
+    showApiError(err)
   }
 }
 </script>

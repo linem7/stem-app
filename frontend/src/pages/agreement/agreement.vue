@@ -1,5 +1,8 @@
 <template>
   <s-page dock>
+    <template v-if="viewOnly" #top>
+      <s-topbar title="使用协议" />
+    </template>
     <text class="kicker">开始之前</text>
     <text class="q">先说清楚我们会记录什么</text>
 
@@ -25,12 +28,29 @@
     <view class="dot dot--safe"><text class="dot__t">不把你的数据给幼儿园、园长或任何第三方</text></view>
     <view class="dot dot--safe"><text class="dot__t">你的手机号和姓名不会出现在这个小程序的任何页面上</text></view>
 
+    <!--
+      这一节是从设置页搬过来的（2026-08-18）。原来那两处各写一份隐私说明，
+      逐条重复 —— 重复的两份迟早不一致，而不一致的隐私说明比没有更糟。
+      协议才是老师首次进来真正签过的那份，所以内容归到这里，设置页只留一个入口。
+    -->
+    <view class="sec"><text class="sec__h">你随时可以</text></view>
+    <view class="dot"><text class="dot__t">在「我的」里改掉或删掉任何一条记忆 —— 它们会被带进每次生成，所以改删权在你手里</text></view>
+    <view class="dot"><text class="dot__t">在教案库里删掉任何一份教案</text></view>
+    <view class="dot">
+      <text class="dot__t">
+        在「我的」里<text class="dot__b">删掉全部数据</text> ——
+        教案、配图、记忆和你的手机号姓名一起删。删完这个账号就不能再用了，
+        已经用于研究的那部分（你提交过的建议和评价）撤不回来，但不再关联到你
+      </text>
+    </view>
+
     <text class="meta">
       你输入的内容和 AI 写的内容会经过微信的内容安全检查，这是小程序平台的要求。
     </text>
 
     <template #dock>
-      <s-button label="知道了，开始用" arrow :loading="submitting" @press="submit" />
+      <s-button v-if="viewOnly" label="看完了" variant="plain" @press="goBack" />
+      <s-button v-else label="知道了，开始用" arrow :loading="submitting" @press="submit" />
     </template>
   </s-page>
 </template>
@@ -39,17 +59,28 @@
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { agree, ensureSession, gate } from '../../stores/session.js'
-import { reLaunch } from '../../utils/nav.js'
+import { back, reLaunch } from '../../utils/nav.js'
 import { showApiError } from '../../utils/ui.js'
 
 const submitting = ref(false)
+/** 只是回头看一眼（从设置页进来），不是走激活流程 */
+const viewOnly = ref(false)
 
-onLoad(async () => {
+onLoad(async (query) => {
+  // 从设置页点进来是**回头看一眼**，不是走激活流程。
+  // 没有这个开关的时候，已经同意过的老师一进来就被 gate 弹回首页 ——
+  // 表现是「点了使用协议什么都没发生」，等于这份协议签完就再也找不到了。
+  viewOnly.value = String(query?.view || '') === '1'
+  if (viewOnly.value) return
   await ensureSession()
   const where = gate()
   if (where === 'redeem') reLaunch('redeem')
   else if (where === 'main') reLaunch('home')
 })
+
+function goBack() {
+  back()
+}
 
 async function submit() {
   if (submitting.value) return

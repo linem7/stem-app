@@ -163,10 +163,9 @@
       <view v-for="img in readyImages" :key="img.id" class="mimg">
         <image class="mimg__i" :src="img.url" mode="widthFix" @tap="preview(img.url)" />
         <view class="mimg__bar">
-          <view class="mimg__meta">
-            <text class="mimg__cap">{{ img.label || '活动材料' }}</text>
-            <text class="mimg__kind">{{ purposeCn(img.purpose) }} · {{ img.width }}×{{ img.height }}</text>
-          </view>
+          <!-- 用途和名字并作一行。像素尺寸删了：老师不看这个，而且没画完时后端还没回宽高，
+               原来会渲染成一个光秃秃的「×」 -->
+          <text class="mimg__cap">{{ imgCap(img) }}</text>
           <!-- 存下来是为了打印，所以给的是原图不是缩略图 -->
           <view class="mimg__save" @tap="saveOne(img)">
             <text class="mimg__save-t">存到相册</text>
@@ -174,16 +173,14 @@
         </view>
         <!-- 教案改过之后材料清单可能已经不含它了。图不删 —— 她当初觉得值得画才画的 ——
              但要标一句，让她自己判断还用不用得上 -->
-        <text v-if="isStale(img)" class="mimg__stale">
-          现在的材料清单里已经没有这一样了，图先留着
-        </text>
+        <text v-if="isStale(img)" class="mimg__stale">清单里已经没这一样了</text>
       </view>
 
       <view v-if="pendingImage" class="imgwait">
-        <text class="imgwait__t">正在画「{{ pendingName }}」…约 45 秒，可以先去忙</text>
+        <text class="imgwait__t">正在画「{{ pendingName }}」…约 45 秒</text>
       </view>
       <view v-else-if="!readyImages.length" class="imgph">
-        <text class="imgph__t">还没有配图。底下点「配图」</text>
+        <text class="imgph__t">还没有配图，点底下「配图」</text>
       </view>
 
       <!-- ============ 评价 ============ -->
@@ -222,24 +219,29 @@
       选择就在拇指够得着的地方。
     -->
     <s-sheet :visible="sheetOpen" title="配一张图" has-foot @close="sheetOpen = false">
-      <text class="sh__lead">这些图是给你打印出来在活动里用的，所以先说印出来干什么</text>
-
+      <!--
+        分成「打印用」和「展示用」两组，不是五个平铺的卡片。
+        这两组出来的东西根本不是一类：打印用的是黑白线稿（要剪、要写、省墨），
+        展示用的是彩色插画（贴墙上看）。后端也是照这个分的（imagePurpose.js 的 kind），
+        选错了拿到的东西没法用 —— 所以这个区分要摆在明面上，而不是靠卡片下面一行小字解释。
+      -->
       <view class="sh__sec"><text class="sh__h">印出来干什么用</text></view>
-      <view class="sh__purposes">
-        <view
-          v-for="p in PURPOSES"
-          :key="p.key"
-          class="sh__p"
-          :class="{ 'sh__p--on': purpose === p.key }"
-          @tap="purpose = p.key"
-        >
-          <text class="sh__p-t" :class="{ 'sh__p-t--on': purpose === p.key }">{{ p.cn }}</text>
-          <text class="sh__p-s">{{ p.hint }}</text>
+      <view v-for="g in PURPOSE_GROUPS" :key="g.key" class="sh__grp">
+        <text class="sh__grp-t">{{ g.label }}</text>
+        <view class="sh__purposes">
+          <view
+            v-for="p in g.items"
+            :key="p.key"
+            class="sh__p"
+            :class="{ 'sh__p--on': purpose === p.key }"
+            @tap="purpose = p.key"
+          >
+            <text class="sh__p-t" :class="{ 'sh__p-t--on': purpose === p.key }">{{ p.cn }}</text>
+          </view>
         </view>
       </view>
 
       <view class="sh__sec"><text class="sh__h">画什么</text></view>
-      <text class="sh__sub">从材料清单里挑一样</text>
       <view class="mats">
         <view
           v-for="(m, i) in c.materials || []"
@@ -253,11 +255,11 @@
         </view>
       </view>
 
-      <text class="sh__sub sh__sub--gap">或者自己说要什么</text>
+      <text class="sh__sub sh__sub--gap">或者自己写</text>
       <textarea
         :value="custom"
         class="sh__ta"
-        placeholder="例：海洋主题的背景墙，中间留白贴孩子的画"
+        placeholder="例：海洋主题背景墙，中间留白"
         placeholder-class="sh__ph"
         :maxlength="200"
         :auto-height="true"
@@ -265,15 +267,16 @@
       />
 
       <template #foot>
+        <!-- 45 秒留着：不说她会以为卡住了。分钱成本是我的事，不是她的 -->
         <s-button
-          :label="`画这张（约 45 秒）`"
+          label="画这张 · 约 45 秒"
           arrow
           :disabled="!canDraw"
           :loading="pendingImage"
           loading-text="正在画"
           @press="draw"
         />
-        <text class="sh__foot">还能配 {{ leftImages }} 张 · 一张约 2.5 分钱</text>
+        <text class="sh__foot">还能配 {{ leftImages }} 张</text>
       </template>
     </s-sheet>
   </s-page>
@@ -316,15 +319,29 @@ const currentVersion = ref(1)
 /* ============ 配图抽屉 ============ */
 // 用途决定构图：记录表要能写字的大格子，头饰要两条能绕头的长带，
 // 展示图要网格分隔，背景墙要中间留白。这些不是风格微调，是完全不同的图。
-// 键必须跟后端 imagePurpose.js 对上。
-const PURPOSES = [
-  { key: 'material', cn: '材料图', hint: '照着去准备' },
-  { key: 'worksheet', cn: '记录表', hint: '发给孩子写画' },
-  { key: 'headwear', cn: '头饰', hint: '剪下来戴头上' },
-  { key: 'display', cn: '展示图', hint: '一格一样，贴展示板' },
-  { key: 'backdrop', cn: '环创背景', hint: '贴墙，中间留白' },
+// 键必须跟后端 imagePurpose.js 对上，分组也跟那边的 kind 对上。
+const PURPOSE_GROUPS = [
+  {
+    key: 'print',
+    label: '打印用',
+    items: [
+      { key: 'worksheet', cn: '记录表' },
+      { key: 'headwear', cn: '头饰' },
+    ],
+  },
+  {
+    key: 'show',
+    label: '展示用',
+    items: [
+      { key: 'material', cn: '材料图' },
+      { key: 'display', cn: '展示图' },
+      { key: 'backdrop', cn: '环创背景' },
+    ],
+  },
 ]
-const PURPOSE_CN = Object.fromEntries(PURPOSES.map((p) => [p.key, p.cn]))
+const PURPOSE_CN = Object.fromEntries(
+  PURPOSE_GROUPS.flatMap((g) => g.items).map((p) => [p.key, p.cn])
+)
 const purposeCn = (k) => PURPOSE_CN[k] || '配图'
 
 const sheetOpen = ref(false)
@@ -416,11 +433,27 @@ const shortMat = (m) => String(m).replace(/（.*?）/g, '').split('，')[0]
 const hasImageFor = (m) => readyImages.value.some((i) => i.label && i.label === shortMat(m))
 
 /**
+ * 图下面那行字。
+ *
+ * label 是后端回的 prompt_cn，长度不设上限：老师自己描述能写 200 字，
+ * 早期挂在流程段上的图更是整段教学文字。原样渲染会在图下面堆出一大段，
+ * 还把「存到相册」挤成两行。这里截断 —— 她要认的是哪张图，不是读一遍提示词。
+ */
+const imgCap = (img) => {
+  const raw = String(img.label || '活动材料').trim()
+  const name = raw.length > 12 ? `${raw.slice(0, 12)}…` : raw
+  return `${name} · ${purposeCn(img.purpose)}`
+}
+
+/**
  * 这张图对不上现在的材料清单了。
- * 只对材料图判断 —— 自由描述画的背景墙、头饰本来就不在材料清单里，标它「过时」是错的。
+ *
+ * 必须同时满足「挂在某样材料上」（section_key = material.N）——
+ * 只看 purpose 会误判：老师自己描述的图 purpose 也可能是材料图，
+ * 但它本来就不在材料清单里，标它「过时」是错的。
  */
 const isStale = (img) =>
-  img.purpose === 'material' &&
+  String(img.section_key || '').startsWith('material.') &&
   Boolean(img.label) &&
   !(c.value.materials || []).some((m) => shortMat(m) === img.label)
 
@@ -778,14 +811,6 @@ async function doExport() {
   margin-left: 10rpx;
 }
 
-.pickhint {
-  display: block;
-  font-size: $fs-sub;
-  color: $amber-deep;
-  line-height: 1.6;
-  margin-bottom: 16rpx;
-}
-
 /* ============ 版本条 ============ */
 .ver {
   background: $sky-soft;
@@ -852,11 +877,11 @@ async function doExport() {
 }
 
 .mimg__cap {
-  display: block;
+  flex: 1;
+  min-width: 0;
   font-size: 26rpx;
   color: $ink-2;
   font-weight: 600;
-  margin-top: 12rpx;
 }
 
 .mimg__stale {
@@ -894,13 +919,6 @@ async function doExport() {
   font-size: 27rpx;
   line-height: 1.75;
   color: $ink-2;
-}
-
-.flow__img {
-  width: 100%;
-  border-radius: 24rpx;
-  border: 2rpx solid $rule-2;
-  margin-top: 16rpx;
 }
 
 /* ============ 列表 ============ */
@@ -1120,14 +1138,6 @@ async function doExport() {
 }
 
 /* ============ 配图抽屉 ============ */
-.sh__lead {
-  display: block;
-  font-size: $fs-sub;
-  color: $ink-2;
-  line-height: 1.7;
-  margin-bottom: 24rpx;
-}
-
 .sh__sec {
   padding: 8rpx 0 14rpx;
 }
@@ -1150,6 +1160,17 @@ async function doExport() {
   }
 }
 
+.sh__grp {
+  margin-bottom: 8rpx;
+}
+
+.sh__grp-t {
+  display: block;
+  font-size: $fs-tag;
+  color: $ink-3;
+  margin-bottom: 12rpx;
+}
+
 .sh__purposes {
   display: flex;
   flex-wrap: wrap;
@@ -1159,8 +1180,8 @@ async function doExport() {
   border: 2rpx solid $rule-2;
   border-radius: 24rpx;
   background: $white;
-  padding: 16rpx 22rpx;
-  margin: 0 14rpx 14rpx 0;
+  padding: 18rpx 28rpx;
+  margin: 0 14rpx 16rpx 0;
 
   &--on {
     background: $amber-soft;
@@ -1170,7 +1191,6 @@ async function doExport() {
 }
 
 .sh__p-t {
-  display: block;
   font-size: 27rpx;
   color: $ink-2;
 
@@ -1178,13 +1198,6 @@ async function doExport() {
     color: $ink;
     font-weight: 600;
   }
-}
-
-.sh__p-s {
-  display: block;
-  font-size: 22rpx;
-  color: $ink-3;
-  margin-top: 2rpx;
 }
 
 .sh__ta {
@@ -1228,18 +1241,6 @@ async function doExport() {
   align-items: center;
   justify-content: space-between;
   margin-top: 12rpx;
-}
-
-.mimg__meta {
-  flex: 1;
-  min-width: 0;
-}
-
-.mimg__kind {
-  display: block;
-  font-size: 22rpx;
-  color: $ink-3;
-  margin-top: 2rpx;
 }
 
 .mimg__save {

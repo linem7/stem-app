@@ -10,7 +10,6 @@ export const ROUTES = {
   revise: '/pages/revise/revise',
   library: '/pages/library/library',
   me: '/pages/me/me',
-  settings: '/pages/settings/settings',
   redeem: '/pages/redeem/redeem',
   agreement: '/pages/agreement/agreement',
 }

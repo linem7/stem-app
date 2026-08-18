@@ -122,6 +122,7 @@ import {
   startGenerate,
 } from '../../api/conversations.js'
 import { session } from '../../stores/session.js'
+import { take } from '../../stores/handoff.js'
 import { iconCheck } from '../../utils/icons.js'
 import { COLORS } from '../../utils/colors.js'
 import { redirectTo } from '../../utils/nav.js'
@@ -149,7 +150,8 @@ const answers = reactive({})
 
 const headline = computed(() => {
   if (title.value) return title.value
-  const s = seedInput.value.replace(/^我想做个/, '').replace(/活动$/, '')
+  // 「的」要连着「活动」一起去掉，否则「我想做个影子的活动」会推出「影子的的活动」
+  const s = seedInput.value.replace(/^我想做个/, '').replace(/的?活动$/, '')
   return s ? `${s}的活动` : '说说你的想法'
 })
 
@@ -211,7 +213,11 @@ onLoad((query) => {
 async function load() {
   loadError.value = null
   try {
-    const data = await getConversation(conversationId.value)
+    // 首页开会话时后端已经把这 4 道题连同推荐答案一起给过了，直接用，
+    // 不再多打一趟 —— 老师刚等完「正在准备问题」，进来不该再看一次骨架屏。
+    // 拿不到（从教案库点进来、或页面被系统回收后重建）就照常自己拉
+    const data =
+      take(`conversation:${conversationId.value}`) || (await getConversation(conversationId.value))
     seedInput.value = data.seed_input || ''
     title.value = data.title || ''
     questions.value = data.questions || []
