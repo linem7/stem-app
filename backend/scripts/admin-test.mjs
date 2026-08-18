@@ -36,8 +36,19 @@ const dupPhone=await adm('POST','/codes',{phone:PHONE,real_name:'王老师'});
 chk(!dupPhone.ok, `同手机号重复发码被拒：${dupPhone.error?.message}`);
 const badPhone=await adm('POST','/codes',{phone:'123',real_name:'x'});
 chk(!badPhone.ok, `手机号格式校验：${badPhone.error?.message}`);
-const noName=await adm('POST','/codes',{phone:`139${RND}`,real_name:''});
-chk(!noName.ok, `姓名必填：${noName.error?.message}`);
+// 2026-08-18 起手机号姓名都可以不填：不填就是**匿名码**，谁拿到谁能兑。
+// 用来批量发给园所、或灌进问卷星当奖励 —— 「问卷 ↔ 账号」的对应关系那时在问卷星那边
+const anon=await adm('POST','/codes',{});
+chk(anon.ok, `什么都不填 = 匿名码：${anon.data?.code}`);
+const batch=await adm('POST','/codes/batch',{count:3,grant_reason:'回归测试批量'});
+chk(batch.ok && batch.data.created.length===3, `批量建码不需要名单：一次拿到 ${batch.data?.created?.length} 个`);
+// 匿名码照样能兑，兑完额度到账
+const anonUser=await call(B+'/v1','POST','/auth/login',null,{code:`dev:anon_${RND}`});
+const anonRedeem=await call(B+'/v1','POST','/auth/redeem',anonUser.data.token,{code:anon.data.code});
+chk(anonRedeem.ok, `匿名码能激活：+${anonRedeem.data?.granted?.text} 教案 / +${anonRedeem.data?.granted?.image} 配图`);
+// 这批老师没有手机号，后台只能靠码找人 —— 所以搜索必须认码
+const byCode=await adm('GET',`/teachers?q=${anon.data.code.replace(/-/g,'')}`);
+chk(byCode.ok && byCode.data.items.length===1, '后台能按兑换码搜到用匿名码激活的老师');
 
 L('=== 老师用这个码激活 ===');
 const red=await usr('POST','/auth/redeem',{code:c1.data.code});

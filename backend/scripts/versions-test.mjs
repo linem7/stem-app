@@ -16,6 +16,7 @@
  *
  * 自造隔离数据，可反复跑。
  */
+import { readFileSync } from 'node:fs';
 import { query, queryOne, closePool } from '../src/db/pool.js';
 
 const BASE = process.env.API_BASE || 'http://localhost:3000';
@@ -211,15 +212,112 @@ chk(
 chk(resolvePurpose('乱填的') === 'material', '不认识的用途退回材料图，不报错');
 chk(resolvePurpose(undefined) === 'material', '没传用途也退回材料图');
 
+/** 从系统提示词里抠出那段被引号包着的强制英文前缀 */
+const prefixOf = (k) => (buildPurposeSystem(k).match(/"([^]*?)"\n\n然后/) || [, ''])[1];
+
 // 最重要的一条：否定约束必须落在**英文风格前缀**里。
 // 中文那几条只有 DeepSeek 看得到，图片模型从头到尾没见过 —— 第一版就是这么翻的车，
 // 中文写着「一个字都不许画」，出来的记录表上却印着 BOAT / HEAVY STONE 和一个假签名。
-const missingNoText = Object.keys(PURPOSES).filter((k) => {
-  const prefix = buildPurposeSystem(k).split('\n').find((l) => l.trim().startsWith('"Flat vector')) || '';
-  return !/no letters, no words, no numbers/.test(prefix);
-});
+const missingNoText = Object.keys(PURPOSES).filter(
+  (k) => !/no letters, no words, no numbers/.test(prefixOf(k))
+);
 chk(missingNoText.length === 0, `五种用途的英文前缀里都写死了「一个字都不许画」${missingNoText.length ? '：缺 ' + missingNoText.join('/') : ''}`);
 chk(PURPOSES.worksheet.optimize === false, '记录表关掉了 MiniMax 的提示词润色（它会把标题栏和水印补回来）');
+
+// 印出来当东西用的（记录表/头饰）不许顶着「图画书插画风」那句前缀。
+// 它是提示词第一句、权重最高，后面写多少 pure white / thick black lines 都掰不回来 ——
+// 实测带插画前缀的记录表：手写体乱码 + 猫头鹰 + 随机列数；换成线稿前缀就干净了。
+const wrongPrefix = Object.keys(PURPOSES).filter((k) => {
+  const isPrint = PURPOSES[k].kind === 'print';
+  const looksIllustration = /picture-book style/.test(prefixOf(k));
+  return isPrint === looksIllustration;
+});
+chk(wrongPrefix.length === 0, `线稿类用线稿前缀、插画类用插画前缀${wrongPrefix.length ? '：串了 ' + wrongPrefix.join('/') : ''}`);
+
+// 强制前缀太长会把**老师那句描述**顶出上限，被 buildImagePrompt 静默切掉 ——
+// 记录表就这么坏过：前缀 840 字符、上限 800，每一次都在半个单词处断，
+// 描述整段丢失，出来的图顶着 "Name ______"。这条断言就是防它复发的。
+const PROMPT_LIMIT = 1500;
+const tooLong = Object.keys(PURPOSES).filter((k) => PROMPT_LIMIT - prefixOf(k).length < 400);
+chk(
+  tooLong.length === 0,
+  `每种用途的强制前缀都给描述留了 400+ 字符余量${tooLong.length ? '：太长了 ' + tooLong.map((k) => `${k}(${prefixOf(k).length})`).join('/') : ''}`
+);
+
+// ---------------------------------------------------------------
+L('\n=== 10. 配图模型注册表（不花钱，直接查配置）===');
+const { FORMATS, listModels, publicShape, pickModel } = await import('../src/services/imageModels.js');
+const { resolveImageProvider } = await import('../src/services/imageGen.js');
+const { nearestRatio } = await import('../src/services/geminiImage.js');
+const { config: cfg } = await import('../src/config.js');
+
+chk(
+  Object.values(FORMATS).every((f) => typeof f.generate === 'function'),
+  `${Object.keys(FORMATS).length} 种接口格式都实现了 generate：${Object.keys(FORMATS).join('/')}`
+);
+
+const models = await listModels();
+chk(models.length > 0, `有 ${models.length} 个可用模型：${models.map((m) => m.key).join('/')}`);
+chk(models.every((m) => FORMATS[m.format]), '每个模型的格式都认识');
+chk(models.every((m) => m.account?.apiKey && m.account?.baseURL), '每个模型都有地址和密钥');
+
+// 老师那边不该出现「模型选错了」这种事：认不出来的值要静悄悄退回去，不是报错
+chk(Boolean(await resolveImageProvider('乱填的')), '不认识的模型退回到能用的一个');
+chk(Boolean(await resolveImageProvider(undefined)), '没传模型也退回到能用的一个');
+chk((await pickModel()).key === cfg.imageProvider, `没指定时用 .env 的默认值（现在是 ${cfg.imageProvider}）`);
+
+// 这条是安全红线：给小程序的形状里**绝不能**出现密钥或地址。
+// 破了它等于把钥匙串挂在门上 —— 加模型之所以放在后台而不是设置页，就是为了这条
+const leaked = models
+  .map((m) => JSON.stringify(publicShape(m)))
+  .filter((s) => /apiKey|api_key|sk-|http/i.test(s));
+chk(leaked.length === 0, '下发给小程序的模型信息里没有密钥、没有地址');
+
+// 用哪个模型**由后台定**，老师不选（2026-08-18）。
+// 这条要是破了，等于把技术选型的开关交到客户端手上，而客户端是可以被随便改的。
+const { getSetting, setSetting, SETTING_KEYS } = await import('../src/services/appSettings.js');
+// 注释里会出现「刻意不读 req.body.provider」这句话，先把注释剥掉再查，
+// 否则这条断言会被自己的注释绊倒（第一次写就是这么挂的）
+const imagesSrc = readFileSync(new URL('../src/routes/images.js', import.meta.url), 'utf8')
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/\/\/.*$/gm, '');
+chk(
+  !/req\.body\s*\??\.\s*provider/.test(imagesSrc),
+  '配图路由不读请求里的 provider（传了也不算数）'
+);
+
+// 后台设完要**立刻生效**，不用重启 —— 否则还是得进服务器改 .env，白做
+const savedDefault = await getSetting(SETTING_KEYS.imageProvider, '');
+const other = (await listModels()).map((m) => m.key).find((k) => k !== savedDefault);
+if (other) {
+  await setSetting(SETTING_KEYS.imageProvider, other);
+  chk((await pickModel()).key === other, `后台改默认后立刻生效（临时切到 ${other}）`);
+  await setSetting(SETTING_KEYS.imageProvider, savedDefault);
+  chk((await pickModel()).key === savedDefault, `改回来也立刻生效（还原成 ${savedDefault}）`);
+}
+
+// Gemini 那套没有宽高，只有比例。我们按打印定的宽高要能落到最近的一档
+chk(nearestRatio(1536, 2048) === '3:4', '记录表 1536×2048 → 3:4');
+chk(nearestRatio(2048, 1152) === '16:9', '环创背景 2048×1152 → 16:9');
+chk(nearestRatio(1536, 1536) === '1:1', '材料图 1536×1536 → 1:1');
+
+// 一句话里说了好几样。
+// 实测坑：老师写「我需要准备小狗、小猫和兔子的头饰」，出来的图**只有小狗** ——
+// 头饰构图规则里写死了 "one outlined shape in the center"，模型只能从三个里挑一个，
+// 另外两样被悄悄丢掉，而配额已经扣了一张。现在改成一张纸上排三条。
+const { countSubjects, purposeSpec } = await import('../src/services/imagePurpose.js');
+chk(countSubjects('小鱼头饰') === 1, '「小鱼头饰」= 1 样');
+chk(countSubjects('我需要准备小狗、小猫和兔子的头饰') === 3, '「小狗、小猫和兔子」= 3 样');
+chk(countSubjects('') === 1, '没写描述时按 1 样');
+chk(countSubjects('一、二、三、四、五、六') === 4, '再多也封顶 4 条（每条会窄到剪不动）');
+
+const hw1 = purposeSpec('headwear', 1);
+const hw3 = purposeSpec('headwear', 3);
+chk(hw3.height > hw1.height, `排 3 条时画布要更高（${hw1.height} → ${hw3.height}）`);
+chk(hw3.width === hw1.width, '宽度不变 —— 带子要横着通到画面边缘');
+chk(/sheet of 3 separate cut-out headband templates/.test(hw3.style), '构图规则改成「一张纸上 3 条」');
+chk(/one outlined shape in the center/.test(hw1.style), '只说一样时还是单条那套');
+chk(purposeSpec('worksheet', 3).height === purposeSpec('worksheet', 1).height, '记录表不受这条影响');
 
 L(`\n${failed === 0 ? '全部通过' : `${failed} 项没过`}`);
 await closePool();
