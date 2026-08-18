@@ -30,22 +30,57 @@ L('=== 他能做的（日常运营）===');
 chk((await call('GET','/overview',NOR)).ok, '看概览');
 const tl=await call('GET','/teachers',NOR);
 chk(tl.ok, '看老师列表');
-chk(tl.data.items.every(t=>t.phone===undefined && /\*\*\*\*/.test(t.phone_masked||'')), '列表手机号是打码的');
+// 真正的不变量是「列表里一个全号都没有」。
+// 别写成「每个人的 phone_masked 都长得像 138****1234」——
+// 匿名码激活的老师**根本没有手机号**（2026-08-18 起这是合法数据），
+// 那条断言会因为测试数据里多了一位匿名老师而红，红了两轮就没人当真了
+chk(tl.data.items.every(t=>t.phone===undefined), '列表里没有 phone 字段（全号不出现）');
+const withPhone=tl.data.items.filter(t=>t.phone_masked);
+chk(withPhone.every(t=>/^\d{3}\*{4}\d{4}$/.test(t.phone_masked)), `有手机号的 ${withPhone.length} 位全是打码的`);
 chk((await call('GET','/kindergartens',NOR)).ok, '看园所');
 chk((await call('GET','/codes',NOR)).ok, '看兑换码');
 chk((await call('GET','/feedback',NOR)).ok, '看反馈');
 
 L('=== 他不能做的 ===');
-const tid=tl.data.items[0]?.id;
+// 挑一位**有手机号**的老师来测打码，否则测的是 null vs null，什么都没验到
+const tid=(withPhone[0] || tl.data.items[0])?.id;
 if(tid){
   const det=await call('GET',`/teachers/${tid}`,NOR);
   chk(det.ok, '能开老师详情（要发额度）');
-  chk(/\*\*\*\*/.test(det.data.teacher.phone||''), `详情里手机号仍是打码：${det.data.teacher.phone}`);
   chk(det.data.can_view_content===false, 'can_view_content=false');
-  chk(det.data.conversations.every(c=>c.title===undefined), '看不到教案标题');
+  chk(det.data.plans.every(p=>p.title===undefined && p.plan_id===undefined && p.versions===undefined),
+    '看不到教案标题，也拿不到 plan_id / versions（拿到 plan_id 就能自己去敲 /plans/:id）');
+  chk(det.data.plans.every(p=>typeof p.version==='number' || p.version===null),
+    '但看得到出到第几版 —— 判断使用情况必需，且不含她写的内容');
+  chk(det.data.feedback.every(f=>f.plan_title===undefined), '反馈里看不到教案标题');
+  // 数量和成本是用量不是内容，一般管理员该看得到 —— 否则她判断不了这位老师用得怎么样
+  chk(det.data.images && typeof det.data.images.total==='number', `看得到配图用量：${det.data.images?.total} 张`);
   const detS=await call('GET',`/teachers/${tid}`,SUP);
-  chk(!/\*\*\*\*/.test(detS.data.teacher.phone||''), `超管看到全号：${detS.data.teacher.phone}`);
+  if(withPhone[0]){
+    chk(/^\d{3}\*{4}\d{4}$/.test(det.data.teacher.phone||''), `详情里手机号仍是打码：${det.data.teacher.phone}`);
+    chk(det.data.teacher.phone_masked===true, 'phone_masked=true 告诉前端这是打过码的');
+    chk(/^\d{11}$/.test(detS.data.teacher.phone||''), `超管看到全号：${detS.data.teacher.phone}`);
+  } else {
+    L('    （库里没有带手机号的老师，打码这几条跳过）');
+  }
+  chk(detS.data.plans.every(p=>'title' in p), '超管看得到教案标题');
 }
+// 园长的电话跟老师手机号同一条纪律：一般管理员只看打码。
+// 它不是老师的号，但「每多一个人看到一个真实号码」的道理一样
+const kgN=await call('GET','/kindergartens',NOR);
+const kgS=await call('GET','/kindergartens',SUP);
+const kgWithPhone=kgS.data.items.filter(k=>k.contact_phone);
+if(kgWithPhone.length){
+  const one=kgN.data.items.find(k=>k.id===kgWithPhone[0].id);
+  chk(/^\d{3}\*{4}\d{4}$/.test(one.contact_phone||''), `园长电话对一般管理员打码：${one.contact_phone}`);
+  chk(one.contact_phone_masked===true, 'contact_phone_masked=true，前端据此知道输入框留空 ≠ 清空');
+  chk(/^\d{11}$/.test(kgWithPhone[0].contact_phone), `超管看到全号：${kgWithPhone[0].contact_phone}`);
+} else {
+  L('    （没有园填过联系电话，打码这几条跳过）');
+}
+// 一般管理员不许按版本翻正文 —— /plans/:id 整条都锁着，加了 ?version= 也一样
+const pv=await call('GET','/plans/1?version=1',NOR);
+chk(!pv.ok && pv.status===401, `带 ?version= 也进不去：${pv.error?.message}`);
 const plan=await call('GET','/plans/1',NOR);
 chk(!plan.ok && plan.status===401, `看不了教案正文：${plan.error?.message}`);
 const adl=await call('GET','/admins',NOR);

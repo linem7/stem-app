@@ -83,25 +83,36 @@
 
 **响应里永远没有 phone 和 real_name**，包括老师自己的。手机号和姓名只活在服务端与管理后台。
 
-### `POST /auth/redeem` · 兑换码激活
+### `POST /auth/redeem` · 兑换码：首次激活 **和** 后续续兑
 
 ```json
 { "code": "stem 4k7p qx3m" }
-// → { "ok": true, "data": { "teacher": {...}, "quota": {...}, "granted": { "text": 20, "image": 10 } } }
+// → { "ok": true, "data": { "teacher": {...}, "quota": {...},
+//      "granted": { "text": 20, "image": 10 }, "first_time": true } }
 ```
 
+**兑换码是额度唯一的入口**（2026-08-18 用户定）。后台的「发额度」按钮撤掉了，
+所以这一个接口要管两件事：
+
+| 场景 | 做什么 |
+|---|---|
+| `activated_at` 为空 | **首次激活**：绑身份 + 标记码已用 + 发首笔额度，一个事务同生共死 |
+| 已经激活过 | **续兑**：只加额度，**身份一个字段都不动**。`first_time: false` |
+
+续兑时**码上的手机号姓名一律忽略**，连查重都不做 —— 她已经是这个账号了，
+再拿码上的信息去覆盖只会把她的资料改坏。
+这也意味着一个绑定码被别人续兑掉是可能的，而这正是用户的原话：
+**「任何手机都可以使用这个兑换码，兑换完之后会落到这个手机号所在的账户上而已」**。
+
 - 输入**宽容**：大小写、空格、下划线、各种横线都认。认不出来是我们的问题，不是老师的
-- 码只用于**首次激活**；之后的任务奖励不发新码，后台直接加额度
+- **一个码只能兑一次**，这是唯一的防线（`status = 'used'` + `FOR UPDATE` 挡并发）
 - **码分两种**（2026-08-18）：
-  - **匿名码**：不带手机号姓名，谁拿到谁能兑。后台「批量建码」一次要 N 个，
-    导出 CSV 灌进问卷星当奖励发、或整批交给园所。默认 20 教案 / 10 配图
-  - **绑定码**：填了手机号才有，老规矩 —— 一人一码、建码时查重、
-    激活时校验「一个手机号只能激活一个账号」
+  - **匿名码**：不带手机号姓名，谁拿到谁能兑。后台「批量建码」一次要 N 个。默认 20 教案 / 10 配图
+  - **绑定码**：填了手机号才有，首次激活时仍走老规矩（查重、一个手机号一个账号）。
+    留着是为了「批量名单注册」那条路，见 CLAUDE.md 待定项 —— **这一轮不动它**
 - **匿名码的代价**：库里没有「问卷答卷 ↔ 小程序账号」的对应关系了，
   它在问卷星那边（谁领了哪个码）。所以后台按手机号搜不到这批老师，
-  改成**按兑换码搜**（老师列表带上她兑的那个码）。
-  「一个手机号只激活一个账号」对匿名码天然不成立，真正的防线是**一个码只能兑一次**
-- 激活是一个事务：绑身份 + 标记码已用 + 发首笔额度，三件事同生共死
+  改成**按兑换码搜**（老师列表带上她兑的那个码）
 
 ### `POST /me/agree` · 同意协议
 
@@ -125,7 +136,7 @@
 所以**换一个微信 + 同一个手机号可以重新报名** —— 要堵死这条得留手机号哈希，
 那就跟「删除全部数据」自相矛盾了。
 
-### `GET /me/quota` · 余额与台账
+### `GET /me/quota` · 余额
 
 ```json
 // → { "quota": { "text": {"granted":20,"used":3,"left":17}, "image": {...} },
@@ -133,7 +144,13 @@
 //     "free_revisions": 2 }
 ```
 
-`grants` 是给老师自己看的台账 —— 能对账，额度就不是黑箱。
+**「我的」页不再展开台账**（2026-08-18 用户定）。原来那块可展开的发放明细
+换成了**兑换入口** —— 老师在这一屏真正要做的是「我拿到码了，兑进来」，
+而不是核对历史。对账用一个 **`n/m`** 就够（用了 n，一共 m）：
+数字本身就是台账的结论，展开一列明细是把我的对账需求摊给她看。
+
+`grants` **仍然在响应里**（不删接口字段），只是界面不用了。
+真要查某一笔的来历，后台的老师详情页有完整台账。
 
 ### 额度闸门装在哪
 
@@ -600,6 +617,273 @@
 - 限流：单用户 `POST /conversations` 每小时 10 次、`generate` 每小时 20 次、配图每天 10 张
 - 内容安全：老师输入和 AI 输出都要过微信内容安全接口（`security.msgSecCheck`）。小程序有 UGC 的必须做，否则审核不过
 - 日志不记录完整对话正文，只记 id、耗时、token 数、错误码
+
+---
+
+## 11. 管理后台（`/admin/api`）
+
+和小程序**完全隔离**：老师的 token 打不开这里，管理员的 token 也调不了 `/v1`。
+标 **超** 的只有超级管理员能调（`requireSuper`）——判据只有一条：
+**这个接口能不能读到老师写的东西或她的手机号全号**。能读到就锁。
+新增接口时默认加 `requireSuper`，想开给一般管理员要先说清为什么运营工作需要它。
+
+| 方法 | 路径 | 作用 | 超 |
+|---|---|---|---|
+| POST | `/login` | 用户名密码换 token（12 小时） | |
+| GET | `/overview` | 概览：钱、谁在用、按园所消耗、等我处理。见下 | |
+| GET | `/topups` | 充值台账 | |
+| POST | `/topups` | 记一笔充值 | |
+| GET | `/kindergartens` | 园所列表：**特征 ＋ 用量汇总**，见下 | |
+| POST | `/kindergartens` | 建园所（重名拒绝） | |
+| POST | `/kindergartens/:id/update` | 改名字 / 备注 / **全部特征字段** | |
+| GET | `/teachers` | 列表。`q` 搜手机号/姓名/**兑换码**，`kindergarten_id` 筛园所 | |
+| GET | `/teachers/:id` | 详情，见下 | |
+| POST | `/teachers/:id/grant` | 发额度。**界面上已经没有入口了**，见下 | |
+| POST | `/teachers/:id/status` | 停用 / 恢复 | |
+| GET | `/codes` | 兑换码列表，`status=all\|unused\|used\|void` | |
+| POST | `/codes` | 建一个码。手机号姓名可留空 = 匿名码 | |
+| POST | `/codes/batch` | 批量建 N 个匿名码（最多 200），返回**整批的码** | |
+| POST | `/codes/:id/void` | 作废（只能作废还没被用的） | |
+| GET | `/codes/export` | 导出 CSV（可能带手机号全号，所以锁超管） | ✓ |
+| GET | `/plans/:id` | **教案正文 + 对话记录**，`?version=` 看历史版本 | ✓ |
+| GET | `/feedback` | 反馈，`kind=all\|lesson_rating\|suggestion` | |
+| POST | `/feedback/:id/handled` | 标已处理 / 未处理 | |
+| GET | `/tasks` | 任务列表（带覆盖人数、已读数） | |
+| POST | `/tasks` | 建任务（草稿） | |
+| POST | `/tasks/:id/update` | 改 | |
+| POST | `/tasks/:id/publish` | 发布（draft → open） | |
+| POST | `/tasks/:id/close` | 收（→ closed） | |
+| POST | `/tasks/preview` | **试算覆盖人数**：传 target，回会发给几位老师 | |
+| GET/POST | `/admins`、`/admins/:id/*` | 管理员账号 | ✓ |
+| POST | `/me/password` | 改自己的密码（一般管理员也能改自己的） | |
+| GET | `/logs` | 操作审计，带筛选与分页，见下 | ✓ |
+| — | `/image-models*` | 见第 6 节 | ✓ |
+
+### `GET /teachers/:id` · 老师详情
+
+一个老师页要回答四件事：**她是谁**（匿名码激活的老师没有手机号，只有码）、
+**额度用到哪了**、**她用得怎么样**、**她说了什么**。
+
+**不再回答「给她加点额度」**（2026-08-18 用户定）：额度只走兑换码一条路 ——
+我建码，通过别的渠道发给她，她自己兑。所以这一页没有发放表单。
+`POST /teachers/:id/grant` 这个接口**保留**，作为出错时的应急通道（回归脚本也在测它），
+但界面上不给入口 —— 能力留着不等于要摆在最常用的那一页上。
+
+```jsonc
+{
+  "teacher": {
+    "id": 12,
+    "phone": "13800001234",      // 超管是全号；一般管理员是 138****1234
+    "phone_masked": false,       // true = 上面那个是打过码的
+    "real_name": "王老师",
+    "redeem_code": "STEM-A3F9-K7QD",   // 她兑的是哪个码 —— 匿名码老师唯一的身份锚点
+    "kindergarten": "阳光幼儿园", "class_name": "小一班",
+    "position": "主班", "age_group": "小班",
+    "status": "active",
+    "activated_at": "...", "agreed_at": "...", "last_login_at": "..."
+  },
+  "quota":  { "text": {...}, "image": {...} },
+  "grants": [ { "delta_text": 20, "delta_image": 10, "reason": "完成9月问卷", "created_at": "..." } ],
+
+  // **只有写完的教案**（conversations.status = 'completed'）。
+  // 答题中的草稿不列 —— 那是她被打断留下的半截，不是「她写过的教案」。
+  // 注意：库里那些 draft 一行都不动，只是这个视图不显示（断点续写依赖它们）
+  "plans": [
+    { "conversation_id": 1, "plan_id": 8, "title": "浮与沉",   // title / plan_id 只给超管
+      "age_group": "小班", "created_at": "...",
+      "version": 3,            // 一共出到第几版
+      "current_version": 2,    // 现在她屏幕上是哪一版（回退过就不一样）
+      "versions": [            // 全部版本，超管才有
+        { "version": 1, "revise_note": null,             "created_at": "..." },
+        { "version": 2, "revise_note": "材料太多了",       "created_at": "..." },
+        { "version": 3, "revise_note": "加一次户外参观",   "created_at": "..." }
+      ] }
+  ],
+  "drafts": 4,                 // 还在答题中的有几个。只给个数，不列内容
+
+  "images": {                      // 配图统计。**数量和成本给所有管理员**，
+    "total": 5, "ready": 4, "failed": 1,   // 因为它是用量与成本，不是老师写的内容
+    "cost_cents": 12,
+    "by_purpose": [ { "purpose": "worksheet", "n": 2 } ]
+  },
+  "feedback": [ { "kind": "lesson_rating", "rating": "needs_edit", "text": "...",
+                  "lesson_plan_id": 8, "plan_version": 2, "plan_title": "浮与沉" } ],
+  "can_view_content": true
+}
+```
+
+一般管理员那边：`plans` 的每一项**去掉 `title`、`plan_id` 和 `versions`**
+（不是置空，是这个字段不存在——前端据此显示「超管可见」而不是显示一个空标题），
+`feedback[].plan_title` 同理。她写完几份、什么时候写的、出到第几版仍然给，
+那是判断使用情况必需的，且不含她写的内容。
+**`plan_id` 必须一起拿掉**：给了它，一般管理员就能自己去敲 `/plans/:id`。
+
+`plans` 最多 50 条，超过时带 `plans_truncated: true` ——
+界面必须说出「只显示了最近 50 份」，否则那个数字会被当成总数。
+
+### `GET /plans/:id` · 教案正文（超管）
+
+`?version=2` 从 `lesson_plan_versions` 取那一版的快照；不传就是当前内容。
+响应里带 `versions`（全部版本号 + 改稿意见），界面据此给一条版本切换。
+
+**对话记录直接给结构化数组**，界面上以 JSON 呈现（2026-08-18 用户定）：
+这一屏的用处是拿去做研究分析，一个能整块选中复制的 JSON 比一张排好的表更有用。
+`system` 那条不在库里（每次实时拼装，见 `001_init.sql` 的注释），所以本来就不会出现。
+
+### `GET /logs` · 操作审计（超管）
+
+`?admin_id=&action=&from=&to=&page=`，每页 100 条，响应带 `total` / `page` / `pages`。
+**保留这一页**（2026-08-18 用户定：不是删掉，是加筛选和翻页）——
+攒到几百条之后一张倒序裸表翻不动，而「这 20 次额度是谁发的」要查得到才算数。
+
+### `GET /kindergartens` · 园所：特征 + 用量
+
+园所在信息架构里**排在老师前面**（2026-08-18 用户定，紧跟概览）：
+合作是按园谈的，老师是园带进来的。
+
+这一页的重心是**园所特征**，不是用量。特征不只是档案，它是**任务定向的依据**——
+「只发给农村园」「只发给广东的公办园」这些条件全部落在这几个字段上。
+
+```jsonc
+{ "items": [ {
+  "id": 1, "name": "阳光幼儿园", "note": "9 月起合作",
+
+  // ---- 特征（010 迁移）----
+  "province": "广东", "city": "广州",
+  "area_type": "rural",        // city 城市 | county 县镇 | rural 农村
+  "ownership": "public",       // public 公办 | private 民办
+  "teacher_count": 24,         // 在园教师总数（不是在本平台注册的人数）
+  "child_count": 210,          // 在园幼儿总数 —— 机构规模，不是幼儿个体信息，见 CLAUDE.md
+  "contact_name": "李园长",
+  "contact_phone": "138****1234",   // **一般管理员看到打码的，全号只给超管**
+
+  // ---- 用量汇总 ----
+  "teachers": 6,          // 在本平台已激活的
+  "active_7d": 2,         // 近 7 天登录过
+  "codes_unused": 4,      // 还没被兑的码 —— 配上 teachers 就知道发出去的码有没有人用
+  "plans": 23, "images": 9,
+  "granted_text": 120, "used_text": 23,     // 台账 Σ发放 − 事实表数消耗，跟老师页同一套算法
+  "cost_cents": 210,
+  "last_active_at": "..."  // 这个园最近一次有人登录
+} ] }
+```
+
+`contact_phone` 打码的规则跟老师手机号一致：**一般管理员只看打码**。
+它是园长的号，不是老师的，但同一条纪律——永不下发老师端、永不进日志。
+**有联系人不等于给园方开账号**：仍然没有「园所管理员」这种角色。
+
+点园所跳「老师」页并预设园所筛选 —— 不为「这个园的老师列表」再做一份界面。
+
+### `POST /kindergartens/:id/update`
+
+`{ name, note, province, city, area_type, ownership, teacher_count, child_count, contact_name, contact_phone }`
+全部可选，只传哪项改哪项（`undefined` = 不动，空字符串 = 清空）。
+改名字会查重；进 `admin_logs`。
+
+省市**不做级联下拉**：合作园有几个就有几行，一份维护不动的行政区划全量表
+带来的错误（漏更新、名称不一致）比手填多。填错了在详情里改。
+
+（用 `POST .../update` 而不是 `PATCH`：后台自己不受小程序那条限制，
+但整个项目统一走这一种形状，省得两套约定并存。）
+
+### `GET /overview` · 概览
+
+原来是「今天写了几份 / 累计多少老师 / 最近写的六份」。全删了（2026-08-18 用户定）：
+**累计数看一眼就没用了，最近写的没有实际意义**。这一屏改成回答四句话：
+
+```jsonc
+{
+  // 1. 我的钱。账面剩余 = Σ充值 − (配图成本 + 文本成本)
+  "money": {
+    "topup_cents": 50000,
+    "spent_image_cents": 210, "spent_text_cents": 1840,
+    "left_cents": 47950,
+    "month_image_cents": 72, "month_text_cents": 640,
+    // 成本数据从哪天起才完整。**必须显示出来** ——
+    // 早期 12 张图没有成本记录、文本成本是 011 迁移之后才开始记的，
+    // 不说的话这个「花了多少」会被当成全部历史
+    "text_tracked_since": "2026-08-18",
+    "images_missing_cost": 12
+  },
+
+  // 2. 谁在用
+  "usage": { "kindergartens": 2, "kindergartens_active_7d": 1,
+             "teachers": 23, "teachers_active_7d": 6 },
+
+  // 3. 哪个园用了多少（复用 /kindergartens 的聚合，只取要用的列）
+  "by_kindergarten": [
+    { "id": 1, "name": "童心幼儿园", "teachers": 19,
+      "granted_text": 680, "used_text": 16, "images": 31, "cost_cents": 72 }
+  ],
+
+  // 4. 等我处理
+  "todo": { "feedback_new": 8, "gen_failed_7d": 0, "images_failed_7d": 1,
+            "codes_unused": 4, "low_quota": [ { "id": 12, "name": "王老师", "text_left": 1 } ] },
+
+  // 教案能不能直接用 —— 这个产品最大未知数的唯一持续数据源，留着
+  "quality": { "usable": 1, "needs_edit": 2, "unusable": 0 }
+}
+```
+
+⚠️ **`quality` 那一段以前永远是零**，因为查的是 `kind = 'rating'` 而真实值是 `'lesson_rating'`
+（2026-08-18 查出来的 typo）。库里其实一直有数据。修好了。
+
+### `GET /topups`、`POST /topups` · 充值台账
+
+```jsonc
+// POST  { "amount_cents": 20000, "channel": "12ai", "note": "8月充值", "occurred_on": "2026-08-10" }
+```
+
+只追加，不修改：记错了记一笔**负数**冲账，不改历史 —— 跟额度台账同一个纪律。
+`occurred_on` 由人填而不是用 `created_at`：常常隔几天才补录，按月对账要按实际发生的日子算。
+账面余额**是算出来的**，不存字段。
+
+### 任务 · `/tasks*`
+
+```jsonc
+// POST /tasks
+{
+  "title": "9 月教研问卷",
+  "body": "填完这份问卷，我会给你发一个兑换码。",
+  "survey_url": "https://www.wjx.cn/vm/xxxx.aspx",
+  "reward_text": 20, "reward_image": 10,
+  "deadline": "2026-09-30",
+  "target": {
+    "provinces": ["广东"], "cities": [],
+    "area_types": ["rural"], "ownerships": [],
+    "kindergarten_ids": [], "age_groups": ["小班"]
+  }
+}
+```
+
+**`target` 的规则只有两条**：空数组 = 这一维不限；非空维度之间是 **AND**（都要命中）。
+上面这个例子 = 广东 + 农村园 + 带小班的老师。
+
+- **没有园所的老师**（匿名码激活、没填园所）只匹配「园所相关维度全空」的任务。
+  否则她会永远收不到任何定向任务，而我们不知道
+- `POST /tasks/preview` 传一个 `target` 回 `{ "teachers": 12 }`。
+  **不是锦上添花**：条件叠到六层之后不试算没法确认筛对了，而发错是发给真人的
+- 匹配逻辑写在 `backend/src/services/tasks.js`，做成一个 SQL 谓词构造器，
+  `/preview` 和老师端 `GET /tasks` **共用同一个函数**。写两份迟早分叉，
+  分叉的表现是「后台说发给 12 个人，实际只有 8 个人看到」
+- `draft` 老师看不到；`deadline` 过了自动不出现（查询里带 `deadline >= current_date`）
+
+### 老师端：`GET /tasks`、`POST /tasks/:id/read`
+
+```jsonc
+// GET /tasks → 我能看到的、还没过期的
+{ "items": [ { "id": 3, "title": "9 月教研问卷", "body": "...",
+               "survey_url": "https://...", "reward_text": 20, "reward_image": 10,
+               "deadline": "2026-09-30", "days_left": 12, "unread": true } ],
+  "unread": 1 }
+```
+
+`unread` 那个数是首页那条条带的开关：**为 0 就不显示条带**，不占地方。
+`POST /tasks/:id/read` 标已读（没有记录就是未读，不存 unread 字段）。
+
+**任务和奖励是断开的**：任务只承诺，到账靠我事后建码、她自己兑。
+系统不去猜「她是不是真填了问卷」—— 答卷在问卷星，我们库里没有。
+小程序里打不开外部网页，所以问卷链接要**给复制按钮**，不是一个点不动的链接。
 
 ---
 

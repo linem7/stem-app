@@ -30,6 +30,7 @@ import {
 import { listModels, generateWith, FORMATS, isKnownFormat } from '../services/imageModels.js';
 import { uploadImage, buildImageUrl } from '../services/imageStore.js';
 import { getSetting, setSetting, SETTING_KEYS } from '../services/appSettings.js';
+import { getMoney, listTopups, addTopup, TOPUP_CHANNELS } from '../services/costLedger.js';
 import { logger } from '../utils/logger.js';
 
 export const adminRouter = Router();
@@ -111,37 +112,50 @@ function requireSuper(req, res, next) {
 // 概览
 // ---------------------------------------------------------------
 /**
- * 概览。
+ * 概览。2026-08-18 按用户的要求重做了一遍。
  *
- * 原来是六个累计数（老师/园所/教案/配图…）。累计数**看一眼就没用了** ——
- * 它只会一直变大，不告诉你今天该做什么。这一屏要回答的是三个问题：
- *   1. 这东西还有人用吗（今天/近七天的量、活跃老师）
- *   2. 有什么在等我处理（反馈、失败的生成、快没额度的老师、码不够了）
- *   3. 我做的东西好不好、花了多少钱（教案评价分布、本月配图成本）
+ * 删掉的：**「最近写的」**（用户原话「没有实际意义」）、以及「今天写了几份 /
+ * 今天几张配图 / 累计多少老师」这类只会一直变大的累计数 ——
+ * 它们看一眼就没用了，不告诉你今天该做什么。
+ *
+ * 现在这一屏只回答四句话：
+ *   1. **我的钱** —— 充了多少、花了多少、还剩多少（配图 + 文本分开列）
+ *   2. **谁在用** —— 几个园、几位老师，近 7 天各是多少
+ *   3. **哪个园用了多少额度** —— 合作是按园谈的，钱也该按园看
+ *   4. **等我处理** —— 反馈、失败、快没额度的老师、码不够了
+ *
+ * 顺手修了一个真 bug：教案评价分布原来查 `kind = 'rating'`，
+ * 而库里的真实值是 `'lesson_rating'` —— 所以那一屏**永远显示「还没有人评价过」**，
+ * 而实际上早就有数据了。这是这个产品最大未知数的唯一数据源，
+ * 一个 typo 让它静静地消失，看起来还完全正常。
  */
 adminRouter.get(
   '/overview',
   asyncRoute(async (req, res) => {
-    const [s, quality, lowQuota, recent] = await Promise.all([
+    const [money, usage, quality, lowQuota, todo, byKg] = await Promise.all([
+      getMoney(),
+      // 「几位老师 / 近 7 天来过几位」这两个数**必须同一个口径**，
+      // 否则会出现「33 位老师，近 7 天来过 41 位」这种读不通的话。
+      // 原来活跃那个 count 没排掉未激活和已注销的账号（联调脚本造了一堆），
+      // 于是分子比分母大 —— 这类错不会报警，只会让人不再相信这一屏
       queryOne(`
         SELECT
-          (SELECT COUNT(*) FROM teachers WHERE activated_at IS NOT NULL AND status <> 'deleted')::int AS teachers,
-          (SELECT COUNT(*) FROM teachers t WHERE t.last_login_at > now() - interval '7 days')::int    AS active_7d,
-          (SELECT COUNT(*) FROM lesson_plans WHERE created_at::date = current_date)::int              AS plans_today,
-          (SELECT COUNT(*) FROM lesson_plans WHERE created_at > now() - interval '7 days')::int       AS plans_7d,
-          (SELECT COUNT(*) FROM lesson_images WHERE status = 'ready' AND created_at::date = current_date)::int AS images_today,
-          (SELECT COUNT(*) FROM lesson_images WHERE status = 'failed' AND created_at > now() - interval '7 days')::int AS images_failed_7d,
-          (SELECT COUNT(*) FROM conversations WHERE status = 'failed' AND updated_at > now() - interval '7 days')::int AS gen_failed_7d,
-          (SELECT COUNT(*) FROM feedback WHERE handled = false)::int                                  AS feedback_new,
-          (SELECT COUNT(*) FROM redemption_codes WHERE status = 'unused')::int                        AS codes_unused,
-          -- 配图是主要成本项，按月看才有意义（cost_cents 是整数分，直接 SUM 不担心浮点）
-          (SELECT COALESCE(SUM(cost_cents),0) FROM lesson_images
-            WHERE status = 'ready' AND created_at >= date_trunc('month', now()))::int                 AS cost_cents_month
+          (SELECT COUNT(*) FROM kindergartens)::int AS kindergartens,
+          (SELECT COUNT(DISTINCT t.kindergarten_id) FROM teachers t
+            WHERE t.kindergarten_id IS NOT NULL
+              AND t.activated_at IS NOT NULL AND t.status <> 'deleted'
+              AND t.last_login_at > now() - interval '7 days')::int AS kindergartens_active_7d,
+          (SELECT COUNT(*) FROM teachers
+            WHERE activated_at IS NOT NULL AND status <> 'deleted')::int AS teachers,
+          (SELECT COUNT(*) FROM teachers
+            WHERE activated_at IS NOT NULL AND status <> 'deleted'
+              AND last_login_at > now() - interval '7 days')::int AS teachers_active_7d
       `),
       // 教案评价分布 —— 「AI 写的教案是否真的适龄可用」是这个产品最大的未知数，
-      // 这一行是它唯一的持续数据源，必须摆在概览上
+      // 这一行是它唯一的持续数据源，必须摆在概览上。
+      // **kind 是 'lesson_rating' 不是 'rating'**（原来写错了，这一屏一直是空的）
       query(`SELECT rating, COUNT(*)::int n FROM feedback
-              WHERE kind = 'rating' AND rating IS NOT NULL GROUP BY rating`),
+              WHERE kind = 'lesson_rating' AND rating IS NOT NULL GROUP BY rating`),
       // 快没额度的老师：她下一次点「写教案」就会撞墙，而那时才发现就晚了
       query(`
         SELECT t.id, t.real_name, k.name AS kindergarten,
@@ -153,37 +167,96 @@ adminRouter.get(
          WHERE t.activated_at IS NOT NULL AND t.status = 'active'
            AND COALESCE(g.text,0) - COALESCE(p.n,0) <= 2
          ORDER BY text_left ASC LIMIT 8`),
-      // 最近几份教案：光看数字不知道老师在写什么，这几行是「这东西被拿去干嘛了」的直观答案
+      queryOne(`
+        SELECT
+          (SELECT COUNT(*) FROM feedback WHERE handled = false)::int AS feedback_new,
+          (SELECT COUNT(*) FROM conversations
+            WHERE status = 'failed' AND updated_at > now() - interval '7 days')::int AS gen_failed_7d,
+          (SELECT COUNT(*) FROM lesson_images
+            WHERE status = 'failed' AND created_at > now() - interval '7 days')::int AS images_failed_7d,
+          (SELECT COUNT(*) FROM redemption_codes WHERE status = 'unused')::int AS codes_unused
+      `),
+      // 哪个园用了多少。跟 /kindergartens 同一套算法，这里只取要显示的几列 ——
+      // 「合作是按园谈的，钱也该按园看」
       query(`
-        SELECT p.id, p.title, p.age_group, p.created_at, k.name AS kindergarten
-          FROM lesson_plans p
-          LEFT JOIN teachers t ON t.id = p.teacher_id
-          LEFT JOIN kindergartens k ON k.id = t.kindergarten_id
-         ORDER BY p.created_at DESC LIMIT 6`),
+        SELECT k.id, k.name, k.province, k.city,
+          (SELECT COUNT(*)::int FROM teachers t
+            WHERE t.kindergarten_id = k.id AND t.activated_at IS NOT NULL
+              AND t.status <> 'deleted')                                     AS teachers,
+          (SELECT COALESCE(SUM(g.delta_text),0)::int FROM quota_grants g
+             JOIN teachers t ON t.id = g.teacher_id
+            WHERE t.kindergarten_id = k.id)                                  AS granted_text,
+          (SELECT COALESCE(SUM(1 + GREATEST(0, p.version - 3)),0)::int
+             FROM lesson_plans p JOIN teachers t ON t.id = p.teacher_id
+            WHERE t.kindergarten_id = k.id)                                  AS used_text,
+          (SELECT COUNT(*)::int FROM lesson_images i
+             JOIN lesson_plans p ON p.id = i.lesson_plan_id
+             JOIN teachers t ON t.id = p.teacher_id
+            WHERE t.kindergarten_id = k.id AND i.status = 'ready')           AS images,
+          -- 配图成本 + 文本成本，按园算。文本成本靠 model_calls.teacher_id 归到园上
+          (SELECT COALESCE(SUM(i.cost_cents),0)::int FROM lesson_images i
+             JOIN lesson_plans p ON p.id = i.lesson_plan_id
+             JOIN teachers t ON t.id = p.teacher_id
+            WHERE t.kindergarten_id = k.id AND i.status = 'ready')           AS image_cost_cents,
+          (SELECT COALESCE(SUM(m.cost_cents),0)::int FROM model_calls m
+             JOIN teachers t ON t.id = m.teacher_id
+            WHERE t.kindergarten_id = k.id)                                  AS text_cost_cents
+          FROM kindergartens k
+         ORDER BY used_text DESC, k.name`),
     ]);
 
     const byRating = Object.fromEntries(quality.rows.map((r) => [r.rating, r.n]));
     return ok(res, {
-      ...s,
+      money,
+      usage,
+      by_kindergarten: byKg.rows,
+      todo: {
+        ...todo,
+        low_quota: lowQuota.rows.map((r) => ({
+          id: r.id,
+          // 姓名也算身份信息，一般管理员只看得到姓氏
+          name: req.isSuper ? r.real_name : `${String(r.real_name || '').slice(0, 1)}老师`,
+          kindergarten: r.kindergarten,
+          text_left: r.text_left,
+        })),
+      },
       quality: {
         usable: byRating.usable || 0,
         needs_edit: byRating.needs_edit || 0,
         unusable: byRating.unusable || 0,
       },
-      low_quota: lowQuota.rows.map((r) => ({
-        id: r.id,
-        // 姓名也算身份信息，一般管理员只看得到姓氏
-        name: req.isSuper ? r.real_name : `${String(r.real_name || '').slice(0, 1)}老师`,
-        kindergarten: r.kindergarten,
-        text_left: r.text_left,
-      })),
-      recent_plans: recent.rows.map((r) => ({
-        id: r.id, title: r.title, age_group: r.age_group,
-        kindergarten: r.kindergarten, created_at: r.created_at,
-      })),
     });
   })
 );
+
+// ---------------------------------------------------------------
+// 充值台账 —— 概览那块「我的钱」的收入侧
+// ---------------------------------------------------------------
+adminRouter.get('/topups', asyncRoute(async (req, res) => {
+  return ok(res, { items: await listTopups(), channels: TOPUP_CHANNELS });
+}));
+
+adminRouter.post('/topups', asyncRoute(async (req, res) => {
+  const b = req.body || {};
+  // 元 → 分。界面上填的是「200」这样的元，库里一律整数分
+  const yuan = Number(b.amount_yuan);
+  const cents = Number.isFinite(yuan) ? Math.round(yuan * 100) : Number(b.amount_cents);
+  // 允许负数（记错了冲一笔账），但不允许 0 —— 0 是一条没有意义的记录
+  if (!Number.isFinite(cents) || cents === 0) throw badRequest('填一下充了多少钱');
+  const channel = String(b.channel || '').trim();
+  if (!TOPUP_CHANNELS.includes(channel)) {
+    throw badRequest(`充到哪家？只能是 ${TOPUP_CHANNELS.join(' / ')}`);
+  }
+  const row = await addTopup({
+    amountCents: cents, channel,
+    note: String(b.note || '').trim().slice(0, 128) || null,
+    occurredOn: String(b.occurred_on || '').trim() || null,
+    adminId: req.adminId,
+  });
+  await logAction({ adminId: req.adminId, action: 'add_topup', target: `topup:${row.id}`,
+    detail: { amount_cents: cents, channel } });
+  return ok(res, row);
+}));
 
 // ---------------------------------------------------------------
 // 老师
@@ -257,27 +330,80 @@ adminRouter.get(
   })
 );
 
+/**
+ * 老师详情。这一页要回答四件事，缺哪一件都得跳出去查：
+ *   1. **她是谁** —— 匿名码激活的老师**没有手机号**，只有一个兑换码。
+ *      不把码铺出来，这批人在后台就是一行无名氏（这是匿名码的既定代价，
+ *      「问卷答卷 ↔ 账号」的对应关系在问卷星那边，靠码去对）
+ *   2. **额度用到哪了** —— 台账。**不再有发放表单**（2026-08-18）：
+ *      额度只走兑换码一条路，我建码发给她，她自己兑
+ *   3. **她用得怎么样** —— 写完几份、每份出到第几版、画了几张、花了多少钱
+ *   4. **她说了什么** —— 评价与建议，附带那份教案的标题
+ *
+ * 教案那张表**只列写完的**（2026-08-18 用户提）：答题中的草稿不是「她写过的教案」，
+ * 是她被叫走留下的半截。库里那些 draft 一行都不动 —— 断点续写依赖它们，
+ * 只是这个视图不显示，另外给一个「还在答题中的有几个」的计数。
+ */
 adminRouter.get(
   '/teachers/:id',
   asyncRoute(async (req, res) => {
     const id = Number(req.params.id);
     const t = await queryOne(
-      `SELECT t.*, k.name AS kindergarten FROM teachers t
-         LEFT JOIN kindergartens k ON k.id = t.kindergarten_id WHERE t.id = $1`, [id]);
+      `SELECT t.*, k.name AS kindergarten, rc.code AS redeem_code
+         FROM teachers t
+         LEFT JOIN kindergartens k ON k.id = t.kindergarten_id
+         LEFT JOIN redemption_codes rc ON rc.used_by = t.id
+        WHERE t.id = $1`, [id]);
     if (!t) throw notFound('没有这位老师');
 
-    const [quota, grants, convs, fb] = await Promise.all([
+    const PLAN_LIMIT = 50;
+    const [quota, grants, plans, drafts, fb, img, purposes] = await Promise.all([
       getQuota(id),
       query(`SELECT delta_text, delta_image, reason, created_at FROM quota_grants
               WHERE teacher_id = $1 ORDER BY created_at DESC`, [id]),
-      query(`SELECT c.id, c.title, c.status, c.age_group, c.created_at,
-                    p.id AS plan_id, p.version
-               FROM conversations c LEFT JOIN lesson_plans p ON p.conversation_id = c.id
+      // 每份教案连它的全部版本一起取：一次查询，用 json_agg 把版本卷进去 ——
+      // 分两次查再在 JS 里拼，会变成「N+1 次查询」，而这一页本来就慢
+      query(`SELECT c.id AS conversation_id, c.title, c.age_group, c.created_at,
+                    p.id AS plan_id, p.version, p.current_version,
+                    COALESCE((
+                      SELECT json_agg(json_build_object(
+                               'version', v.version,
+                               'revise_note', v.revise_note,
+                               'created_at', v.created_at) ORDER BY v.version)
+                        FROM lesson_plan_versions v WHERE v.lesson_plan_id = p.id
+                    ), '[]'::json) AS versions
+               FROM conversations c JOIN lesson_plans p ON p.conversation_id = c.id
               WHERE c.teacher_id = $1 AND c.deleted_at IS NULL
-              ORDER BY c.created_at DESC LIMIT 50`, [id]),
-      query(`SELECT id, kind, category, rating, text, lesson_plan_id, plan_version, created_at
-               FROM feedback WHERE teacher_id = $1 ORDER BY created_at DESC`, [id]),
+                AND c.status = 'completed'
+              ORDER BY c.created_at DESC LIMIT ${PLAN_LIMIT + 1}`, [id]),
+      // 答题中的只给个数。她开了 12 个草稿只写完 2 份，这本身是个信号
+      // （题目太长？被打断太多？），但列出 12 行半截的东西没有用
+      queryOne(`SELECT COUNT(*)::int AS n FROM conversations
+                 WHERE teacher_id = $1 AND deleted_at IS NULL AND status <> 'completed'`, [id]),
+      // 反馈带上那份教案的标题：光看「用不了」不知道是哪一份，得去翻教案表对 id
+      query(`SELECT f.id, f.kind, f.category, f.rating, f.text,
+                    f.lesson_plan_id, f.plan_version, f.handled, f.created_at,
+                    p.title AS plan_title
+               FROM feedback f LEFT JOIN lesson_plans p ON p.id = f.lesson_plan_id
+              WHERE f.teacher_id = $1 ORDER BY f.created_at DESC`, [id]),
+      // 配图统计。配图是成本的主要变量（CLAUDE.md 说上线后要盯采用率），
+      // 而「这位老师画了几张」只在这一页看得到
+      queryOne(`
+        SELECT COUNT(*)::int AS total,
+               COUNT(*) FILTER (WHERE i.status = 'ready')::int  AS ready,
+               COUNT(*) FILTER (WHERE i.status = 'failed')::int AS failed,
+               COALESCE(SUM(i.cost_cents) FILTER (WHERE i.status = 'ready'), 0)::int AS cost_cents
+          FROM lesson_images i JOIN lesson_plans p ON p.id = i.lesson_plan_id
+         WHERE p.teacher_id = $1`, [id]),
+      query(`
+        SELECT i.purpose, COUNT(*)::int AS n
+          FROM lesson_images i JOIN lesson_plans p ON p.id = i.lesson_plan_id
+         WHERE p.teacher_id = $1 AND i.status = 'ready'
+         GROUP BY i.purpose ORDER BY n DESC`, [id]),
     ]);
+
+    const truncated = plans.rows.length > PLAN_LIMIT;
+    const planRows = plans.rows.slice(0, PLAN_LIMIT);
 
     return ok(res, {
       teacher: {
@@ -287,6 +413,9 @@ adminRouter.get(
         phone: req.isSuper ? t.phone : maskPhone(t.phone),
         phone_masked: !req.isSuper,
         real_name: t.real_name,
+        // 码不是身份信息（它不指向某个自然人），一般管理员也能看 ——
+        // 否则她们连「这是谁」都答不上来，运营就做不了
+        redeem_code: t.redeem_code,
         kindergarten: t.kindergarten,
         class_name: t.class_name,
         position: t.position,
@@ -298,12 +427,20 @@ adminRouter.get(
       },
       quota,
       grants: grants.rows,
-      // 一般管理员只看到「写了几份、什么时候写的」，看不到标题和内容
-      conversations: req.isSuper ? convs.rows : convs.rows.map((c) => ({
-        id: c.id, status: c.status, age_group: c.age_group,
-        created_at: c.created_at, version: c.version,
+      // 一般管理员只看到「写完几份、什么时候写的、出到第几版」，看不到标题和内容。
+      // 是**删掉字段**而不是置空：前端靠 title === undefined 判断该显示
+      // 「超管可见」，置空会变成一个看不出原因的空格。
+      // **plan_id 和 versions 必须一起拿掉** —— 给了 plan_id 她就能自己去敲 /plans/:id
+      plans: req.isSuper ? planRows : planRows.map((p) => ({
+        conversation_id: p.conversation_id, age_group: p.age_group,
+        created_at: p.created_at, version: p.version, current_version: p.current_version,
       })),
-      feedback: fb.rows,
+      // 界面必须说出「只显示了最近 50 份」，否则那个数字会被当成总数
+      plans_truncated: truncated,
+      drafts: drafts.n,
+      feedback: req.isSuper ? fb.rows : fb.rows.map(({ plan_title, ...f }) => f),
+      // 数量和成本是用量，不是老师写的内容，所以不锁超管
+      images: { ...img, by_purpose: purposes.rows },
       can_view_content: req.isSuper,
     });
   })
@@ -447,42 +584,219 @@ adminRouter.post(
 // ---------------------------------------------------------------
 // 园所
 // ---------------------------------------------------------------
+/**
+ * 园所列表 —— 带用量汇总。
+ *
+ * 原来只有名字、备注、老师数，回答不了唯一真正要问的问题：
+ * **这个园到底在不在用**。发出去 20 个码、兑了 1 个、那一个人写了 2 份就停了 ——
+ * 这三个数摆在一行才看得出来，分散在三个页面就永远看不出来。
+ *
+ * 全部是聚合数，**不含任何老师个人信息**，所以一般管理员也能看全部。
+ *
+ * 写法上用标量子查询而不是多个 LEFT JOIN + GROUP BY：join 一多就会互相放大
+ * （老师 × 教案 × 配图 的笛卡尔积让 COUNT 全部虚高），这是这类统计最常见的错。
+ * 园所是几十行的表，多几个子查询无所谓。
+ */
 adminRouter.get('/kindergartens', asyncRoute(async (req, res) => {
   const rows = (await query(`
-    SELECT k.*, COUNT(t.id)::int AS teachers
-      FROM kindergartens k LEFT JOIN teachers t ON t.kindergarten_id = k.id AND t.activated_at IS NOT NULL
-     GROUP BY k.id ORDER BY k.name`)).rows;
-  return ok(res, { items: rows });
+    SELECT k.id, k.name, k.note, k.created_at,
+      -- 特征（010 迁移）。这不只是档案：**任务定向就筛这几个字段**
+      k.province, k.city, k.area_type, k.ownership,
+      k.teacher_count, k.child_count, k.contact_name, k.contact_phone,
+      (SELECT COUNT(*)::int FROM teachers t
+        WHERE t.kindergarten_id = k.id AND t.activated_at IS NOT NULL
+          AND t.status <> 'deleted')                                        AS teachers,
+      (SELECT COUNT(*)::int FROM teachers t
+        WHERE t.kindergarten_id = k.id
+          AND t.last_login_at > now() - interval '7 days')                  AS active_7d,
+      (SELECT MAX(t.last_login_at) FROM teachers t
+        WHERE t.kindergarten_id = k.id)                                     AS last_active_at,
+      -- 码是挂在园所上发的，兑没兑得看这个：发了一批没人兑 = 这次合作没落地
+      (SELECT COUNT(*)::int FROM redemption_codes c
+        WHERE c.kindergarten_id = k.id AND c.status = 'unused')             AS codes_unused,
+      (SELECT COUNT(*)::int FROM lesson_plans p JOIN teachers t ON t.id = p.teacher_id
+        WHERE t.kindergarten_id = k.id)                                     AS plans,
+      -- 额度跟老师页同一套算法：台账 Σ发放 −（教案数 + 超过 3 版的改稿次数）。
+      -- 那个 3 是 quota.js 的 FREE_VERSION_CEILING（初稿 + 2 次免费改稿），
+      -- 本文件的老师列表也硬写着同一个数 —— 改免费次数时三处一起改
+
+      (SELECT COALESCE(SUM(g.delta_text),0)::int FROM quota_grants g
+         JOIN teachers t ON t.id = g.teacher_id
+        WHERE t.kindergarten_id = k.id)                                     AS granted_text,
+      (SELECT COALESCE(SUM(1 + GREATEST(0, p.version - 3)),0)::int
+         FROM lesson_plans p JOIN teachers t ON t.id = p.teacher_id
+        WHERE t.kindergarten_id = k.id)                                     AS used_text,
+      (SELECT COUNT(*)::int FROM lesson_images i
+         JOIN lesson_plans p ON p.id = i.lesson_plan_id
+         JOIN teachers t ON t.id = p.teacher_id
+        WHERE t.kindergarten_id = k.id AND i.status = 'ready')              AS images,
+      (SELECT COALESCE(SUM(i.cost_cents),0)::int FROM lesson_images i
+         JOIN lesson_plans p ON p.id = i.lesson_plan_id
+         JOIN teachers t ON t.id = p.teacher_id
+        WHERE t.kindergarten_id = k.id AND i.status = 'ready')              AS cost_cents
+      FROM kindergartens k ORDER BY k.name`)).rows;
+  // 园长的号跟老师手机号同一条纪律：一般管理员只看打码。
+  // 它不是老师的号，但「每多一个人能看到一个真实号码」的道理一样
+  return ok(res, {
+    items: rows.map((r) => ({
+      ...r,
+      contact_phone: req.isSuper ? r.contact_phone : maskPhone(r.contact_phone),
+      contact_phone_masked: !req.isSuper,
+    })),
+  });
 }));
+
+/** 城乡与办园性质的合法值。定向要按它们筛，写歪一个字那个园就永远筛不到 */
+const AREA_TYPES = ['city', 'county', 'rural'];
+const OWNERSHIPS = ['public', 'private'];
+
+/**
+ * 从请求体里挑出园所特征字段。
+ *
+ * 语义是**只传哪项改哪项**：`undefined` = 不动，空字符串 = 清空。
+ * 这两者必须分开——园所常常是先建一行，过几天才补齐省市和联系人，
+ * 中间那些请求不该把没提到的字段刷成 null。
+ */
+function pickKgProfile(b, cur = {}) {
+  const str = (k, max) => (b[k] === undefined
+    ? cur[k] ?? null
+    : String(b[k]).trim().slice(0, max) || null);
+  const num = (k) => {
+    if (b[k] === undefined) return cur[k] ?? null;
+    const n = Number(b[k]);
+    return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+  };
+  const enumOf = (k, allowed) => {
+    if (b[k] === undefined) return cur[k] ?? null;
+    const v = String(b[k]).trim();
+    if (!v) return null;
+    if (!allowed.includes(v)) throw badRequest(`${k} 只能是 ${allowed.join(' / ')}`);
+    return v;
+  };
+  return {
+    province: str('province', 16),
+    city: str('city', 32),
+    area_type: enumOf('area_type', AREA_TYPES),
+    ownership: enumOf('ownership', OWNERSHIPS),
+    teacher_count: num('teacher_count'),
+    child_count: num('child_count'),
+    contact_name: str('contact_name', 32),
+    contact_phone: str('contact_phone', 20),
+  };
+}
+
+const KG_PROFILE_COLS = [
+  'province', 'city', 'area_type', 'ownership',
+  'teacher_count', 'child_count', 'contact_name', 'contact_phone',
+];
 
 adminRouter.post('/kindergartens', asyncRoute(async (req, res) => {
   const name = String(req.body?.name || '').trim();
   if (!name) throw badRequest('填个园所名字');
   const dup = await queryOne(`SELECT id FROM kindergartens WHERE name = $1`, [name]);
   if (dup) throw badRequest('这个园所已经有了');
+
+  const p = pickKgProfile(req.body || {});
   const row = await queryOne(
-    `INSERT INTO kindergartens (name, note) VALUES ($1,$2) RETURNING *`,
-    [name, String(req.body?.note || '').trim() || null]);
+    `INSERT INTO kindergartens (name, note, ${KG_PROFILE_COLS.join(', ')})
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    [name, String(req.body?.note || '').trim() || null, ...KG_PROFILE_COLS.map((c) => p[c])]);
+  await logAction({ adminId: req.adminId, action: 'create_kindergarten', target: `kg:${row.id}`,
+    detail: { name: row.name } });
+  return ok(res, row);
+}));
+
+/**
+ * 改园所。
+ *
+ * 一开始只能改名字和备注（备注写的是「合作起止、联系人」这类会变的东西，
+ * 原来建完就永远改不了 —— 联系人换了只能建第二个园，
+ * 而「同一个园不能有两行」正是这张表存在的全部理由）。
+ *
+ * 现在把**全部特征字段**也放进来：园所往往是先建一行占位，
+ * 过几天才从园长那儿问齐省市、城乡、办园性质、人数。
+ * 而这几个字段是**任务定向的依据** —— 填不上就意味着这个园收不到任何定向任务。
+ */
+adminRouter.post('/kindergartens/:id/update', asyncRoute(async (req, res) => {
+  const id = Number(req.params.id);
+  const cur = await queryOne(`SELECT * FROM kindergartens WHERE id = $1`, [id]);
+  if (!cur) throw notFound('没有这个园所');
+
+  const b = req.body || {};
+  const name = b.name === undefined ? cur.name : String(b.name).trim();
+  if (!name) throw badRequest('园所名字不能空');
+  if (name !== cur.name) {
+    const dup = await queryOne(`SELECT id FROM kindergartens WHERE name = $1 AND id <> $2`, [name, id]);
+    if (dup) throw badRequest('这个名字已经有别的园在用了');
+  }
+  const note = b.note === undefined ? cur.note : (String(b.note).trim() || null);
+  const p = pickKgProfile(b, cur);
+
+  const sets = KG_PROFILE_COLS.map((c, i) => `${c} = $${i + 4}`).join(', ');
+  const row = await queryOne(
+    `UPDATE kindergartens SET name = $2, note = $3, ${sets} WHERE id = $1 RETURNING *`,
+    [id, name, note, ...KG_PROFILE_COLS.map((c) => p[c])]);
+  await logAction({ adminId: req.adminId, action: 'update_kindergarten', target: `kg:${id}`,
+    detail: { renamed: name !== cur.name } });
   return ok(res, row);
 }));
 
 // ---------------------------------------------------------------
 // 内容与反馈
 // ---------------------------------------------------------------
-// 教案正文和对话记录 —— **只有超管**。
-// 这是老师写的东西，运营工作（发额度、建码、看反馈）根本用不到。
+/**
+ * 教案正文和对话记录 —— **只有超管**。
+ * 这是老师写的东西，运营工作（建码、看反馈）根本用不到。
+ *
+ * `?version=2` 看历史版本（2026-08-18 加）。为什么要按版本看：
+ * 老师标「用不了」是标在**某一个版本**上的（feedback 绑 plan_version），
+ * 而 lesson_plans 那一行只存当前内容 —— 她改过之后，
+ * 当前内容已经不是她当初评价的那一份了。看错版本等于看错了证据。
+ */
 adminRouter.get('/plans/:id', requireSuper, asyncRoute(async (req, res) => {
+  const planId = Number(req.params.id);
   const p = await queryOne(
     `SELECT p.*, t.real_name, k.name AS kindergarten
        FROM lesson_plans p
        JOIN teachers t ON t.id = p.teacher_id
        LEFT JOIN kindergartens k ON k.id = t.kindergarten_id
-      WHERE p.id = $1`, [Number(req.params.id)]);
+      WHERE p.id = $1`, [planId]);
   if (!p) throw notFound('没有这份教案');
+
+  const versions = (await query(
+    `SELECT version, revise_note, created_at FROM lesson_plan_versions
+      WHERE lesson_plan_id = $1 ORDER BY version`, [planId])).rows;
+
+  // 要看哪一版。不传 = 当前内容（lesson_plans 那一行）
+  const want = req.query.version ? Number(req.query.version) : null;
+  let shown = p;
+  let shownVersion = p.current_version ?? p.version;
+  if (want) {
+    const snap = await queryOne(
+      `SELECT * FROM lesson_plan_versions WHERE lesson_plan_id = $1 AND version = $2`,
+      [planId, want]);
+    if (!snap) throw notFound(`这份教案没有第 ${want} 版`);
+    // 用快照覆盖内容字段，但**保留身份字段**（谁写的、哪个园）——
+    // 那些不在版本快照里，它们不随版本变
+    shown = { ...p, title: snap.title, age_group: snap.age_group,
+      duration_min: snap.duration_min, content_md: snap.content_md,
+      content_json: snap.content_json, quality_self: snap.quality_self };
+    shownVersion = snap.version;
+  }
+
+  // 对话记录**给结构化数组**，界面上以 JSON 呈现（2026-08-18 用户定）：
+  // 这一屏的用处是拿去做研究分析，一个能整块选中复制的 JSON 比排好的表更有用。
+  // system 那条不在库里（每次实时拼装，见 001_init.sql 的注释），所以本来就不会出现
   const msgs = (await query(
     `SELECT role, content, payload, created_at FROM messages
       WHERE conversation_id = $1 ORDER BY id`, [p.conversation_id])).rows;
-  return ok(res, { plan: p, messages: msgs });
+
+  return ok(res, {
+    plan: shown,
+    shown_version: shownVersion,
+    versions,
+    messages: msgs,
+  });
 }));
 
 adminRouter.get('/feedback', asyncRoute(async (req, res) => {
@@ -579,13 +893,56 @@ adminRouter.post('/me/password', asyncRoute(async (req, res) => {
   } catch (e) { throw badRequest(e.message); }
 }));
 
-/** 操作审计。多人之后「这笔额度是谁发的」必须能查。 */
+/**
+ * 操作审计。多人之后「这笔额度是谁发的」必须能查。
+ *
+ * 2026-08-18 加了筛选和分页。一开始只是一张倒序裸表 LIMIT 200 ——
+ * 攒到几百条之后它就废了：翻不动，而且第 201 条起根本看不到，
+ * 也就是说「查得到」这件事在数据变多之后自己失效了，还不出声。
+ *
+ * `?admin_id=&action=&from=&to=&page=`，每页 100。
+ * 也回一份 `admins` 和 `actions` 让筛选下拉只列**真正出现过的**值 ——
+ * 列一堆从来没发生过的动作，筛选框自己就变成噪音。
+ */
 adminRouter.get('/logs', requireSuper, asyncRoute(async (req, res) => {
-  const rows = (await query(`
-    SELECT l.*, a.username, a.display_name
-      FROM admin_logs l LEFT JOIN admins a ON a.id = l.admin_id
-     ORDER BY l.created_at DESC LIMIT 200`)).rows;
-  return ok(res, { items: rows });
+  const PER = 100;
+  const page = Math.max(1, Number(req.query.page) || 1);
+
+  const where = [];
+  const params = [];
+  const add = (sql, val) => { params.push(val); where.push(sql.replace('$?', `$${params.length}`)); };
+
+  if (req.query.admin_id) add('l.admin_id = $?', Number(req.query.admin_id));
+  if (req.query.action) add('l.action = $?', String(req.query.action));
+  if (req.query.from) add('l.created_at >= $?::date', String(req.query.from));
+  // to 那天本身要算在里面，所以是「< 次日零点」而不是 <= 那天零点 ——
+  // 写成 <= 会让当天的记录一条都筛不出来，而这种错很难看出来
+  if (req.query.to) add("l.created_at < ($?::date + interval '1 day')", String(req.query.to));
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const [total, rows, admins, actions] = await Promise.all([
+    queryOne(`SELECT COUNT(*)::int AS n FROM admin_logs l ${clause}`, params),
+    query(`
+      SELECT l.*, a.username, a.display_name
+        FROM admin_logs l LEFT JOIN admins a ON a.id = l.admin_id
+      ${clause}
+       ORDER BY l.created_at DESC
+       LIMIT ${PER} OFFSET ${(page - 1) * PER}`, params),
+    query(`SELECT DISTINCT l.admin_id, a.username, a.display_name
+             FROM admin_logs l LEFT JOIN admins a ON a.id = l.admin_id
+            WHERE l.admin_id IS NOT NULL ORDER BY a.username`),
+    query(`SELECT action, COUNT(*)::int AS n FROM admin_logs GROUP BY action ORDER BY n DESC`),
+  ]);
+
+  return ok(res, {
+    items: rows.rows,
+    total: total.n,
+    page,
+    pages: Math.max(1, Math.ceil(total.n / PER)),
+    per_page: PER,
+    admins: admins.rows,
+    actions: actions.rows,
+  });
 }));
 
 // ---------------------------------------------------------------
@@ -802,21 +1159,48 @@ adminRouter.post('/codes/batch', asyncRoute(async (req, res) => {
   await logAction({ adminId: req.adminId, action: 'create_codes_batch', target: `codes:${created.length}`,
     detail: { count: created.length, init_text: initText, init_image: initImage } });
   logger.info('codes_batch_created', { by: req.adminId, count: created.length });
-  return ok(res, { created });
+
+  // 把这一批的参数一起回给前端：建完要在弹框里**一行一个**铺出来，
+  // 还要能就地生成一份 CSV 发给某个园或某个平台。
+  // 参数是整批共用的（都是刚才那张表单填的），所以不用每行都查一遍库
+  const kg = kgId
+    ? (await queryOne(`SELECT name FROM kindergartens WHERE id = $1`, [kgId]))?.name || null
+    : null;
+  return ok(res, {
+    created,
+    batch: { count: created.length, init_text: initText, init_image: initImage,
+      grant_reason: reason, kindergarten: kg },
+  });
 }));
+
+/** 状态一律出中文。这份 CSV 是给人看的，unused / void 印在上面等于没写 */
+const CODE_STATUS_CN = { unused: '未使用', used: '已使用', void: '已作废' };
 
 /**
  * 导出 CSV。
  *
- * **超管专属**：里面是手机号全号。一般管理员在列表里看到的是遮住的，
+ * **超管专属**：可能带手机号全号。一般管理员在列表里看到的是遮住的，
  * 导出要是不设限，那道遮挡就形同虚设。
+ *
+ * 2026-08-18 修了三处实测出来的毛病（用户说「格式不对」，查出来是这三条）：
+ *   1. **手机号那列印着字面的 `null`** —— 原来写的是 `` `\t${r.phone}` ``，
+ *      匿名码的 phone 是 NULL，模板字符串把它变成了 "null" 四个字母。
+ *      匿名码是现在的主路径，所以这一列绝大多数行都是 "null"
+ *   2. **状态印英文** unused / void
+ *   3. **匿名码那 6 列永远是空的**（手机号/姓名/班级/岗位/年龄班），11 列里 6 列白占。
+ *      所以按内容动态决定列：这一批全是匿名码就只导 5 列
  */
 adminRouter.get('/codes/export', requireSuper, asyncRoute(async (req, res) => {
   const status = String(req.query.status || 'unused');
   const only = String(req.query.code || '').trim();
+  // codes=A,B,C —— 刚建的那一批，只导这几个。
+  // 「发给某个园或某个平台」要的就是这一批，不是历史上所有未使用的码
+  const list = String(req.query.codes || '').split(',').map((s) => s.trim()).filter(Boolean);
+
   const params = [];
   let where = '';
-  if (only) { params.push(only); where = `WHERE c.code = $${params.length}`; }
+  if (list.length) { params.push(list); where = `WHERE c.code = ANY($${params.length}::text[])`; }
+  else if (only) { params.push(only); where = `WHERE c.code = $${params.length}`; }
   else if (status !== 'all') { params.push(status); where = `WHERE c.status = $${params.length}`; }
 
   const rows = (await query(`
@@ -826,20 +1210,44 @@ adminRouter.get('/codes/export', requireSuper, asyncRoute(async (req, res) => {
       LEFT JOIN kindergartens k ON k.id = c.kindergarten_id
     ${where} ORDER BY c.created_at DESC LIMIT 2000`, params)).rows;
 
-  const head = ['兑换码', '手机号', '姓名', '幼儿园', '班级', '岗位', '年龄班', '教案额度', '配图额度', '状态', '创建时间'];
-  // 手机号前面加制表符，否则 Excel 会把 13800000000 显示成 1.38E+10
-  const csv = [head.join(',')].concat(
-    rows.map((r) => [
-      r.code, `\t${r.phone}`, r.real_name || '', r.kindergarten || '', r.class_name || '',
-      r.position || '', r.age_group || '', r.init_text, r.init_image,
-      r.status, new Date(r.created_at).toISOString().slice(0, 10),
-    ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))
-  ).join('\r\n');
+  // 这一批里有没有绑定码？一个都没有就不导那 6 列
+  const hasIdentity = rows.some((r) => r.phone || r.real_name || r.class_name || r.position || r.age_group);
+
+  const cols = hasIdentity
+    ? [
+      ['兑换码', (r) => r.code],
+      // 手机号前面加制表符，否则 Excel 会把 13800000000 显示成 1.38E+10。
+      // 空就真的留空 —— 不能让模板字符串把 null 印出来
+      ['手机号', (r) => (r.phone ? `\t${r.phone}` : '')],
+      ['姓名', (r) => r.real_name || ''],
+      ['幼儿园', (r) => r.kindergarten || ''],
+      ['班级', (r) => r.class_name || ''],
+      ['岗位', (r) => r.position || ''],
+      ['年龄班', (r) => r.age_group || ''],
+      ['教案额度', (r) => r.init_text],
+      ['配图额度', (r) => r.init_image],
+      ['状态', (r) => CODE_STATUS_CN[r.status] || r.status],
+      ['创建时间', (r) => new Date(r.created_at).toISOString().slice(0, 10)],
+    ]
+    : [
+      ['兑换码', (r) => r.code],
+      ['幼儿园', (r) => r.kindergarten || ''],
+      ['教案额度', (r) => r.init_text],
+      ['配图额度', (r) => r.init_image],
+      ['状态', (r) => CODE_STATUS_CN[r.status] || r.status],
+      ['创建时间', (r) => new Date(r.created_at).toISOString().slice(0, 10)],
+    ];
+
+  const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = [cols.map(([h]) => h).join(',')]
+    .concat(rows.map((r) => cols.map(([, get]) => cell(get(r))).join(',')))
+    .join('\r\n');
 
   await logAction({ adminId: req.adminId, action: 'export_codes', target: `codes:${rows.length}`,
-    detail: { status, count: rows.length, single: Boolean(only) } });
+    detail: { status, count: rows.length, batch: list.length || undefined, single: Boolean(only) } });
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="codes-${status}.csv"`);
+  res.setHeader('Content-Disposition',
+    `attachment; filename="codes-${list.length ? 'batch' : status}.csv"`);
   // BOM：没有它 Excel 打开中文列头是乱码
   res.send('﻿' + csv);
 }));

@@ -12,8 +12,9 @@
  * 保留名单默认包含 KEEP_OPENIDS 里那个开发者自己在用的账号：
  * 它虽然也是 dev_ 开头，但它是**当前真正在用的那个**，删了下次进小程序就是新账号。
  *
- * 一并清掉：没人认领的兑换码（是给这些假账号建的）、假账号名下的教案配图文件。
- * 不动：园所、管理员账号、app_settings、image_models。
+ * 一并清掉：没人认领的兑换码（是给这些假账号建的）、假账号名下的教案配图文件、
+ * 回归脚本自建的管理员和园所（都按**脚本的命名规律**认，不猜）。
+ * 不动：真实园所、admin 账号、app_settings、image_models。
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -104,6 +105,9 @@ if (process.argv.includes('--codes')) {
 // 回归脚本每跑一次就建一个同事账号和一个第二超管，攒了十几个。
 // 只留 admin 和真正给人用的 —— 按「测试脚本的命名规律」删，不猜
 await query(`DELETE FROM admins WHERE username ~ '^(colleague|sup2)_[0-9]+$'`);
+// admin-test 自建的园（它不许改真实园所，所以每跑一次留一个）。
+// 名字带 ON DELETE SET NULL 的外键，删了不会连累老师和码
+await query(`DELETE FROM kindergartens WHERE name ~ '^(回归测试园|改过名)_[0-9]+$'`);
 
 let removed = 0;
 for (const key of keys) {
