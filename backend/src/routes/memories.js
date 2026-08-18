@@ -80,9 +80,19 @@ memoriesRouter.post(
   })
 );
 
-memoriesRouter.patch(
-  '/:id',
-  asyncRoute(async (req, res) => {
+/**
+ * 改一条记忆。
+ *
+ * **两个方法指向同一个 handler**：
+ *   PATCH /memories/:id          —— 语义正确的那个，给非小程序客户端用
+ *   POST  /memories/:id/update   —— 给小程序用，因为 **wx.request 发不出 PATCH**
+ *
+ * 这不是洁癖问题：老师的记忆会被喂进模型，「只能删不能改」逼她删掉再重打一遍，
+ * 而她要改的往往只是一个数字（「12 个孩子」→「15 个孩子」）。
+ * 请求层拦下 PATCH 之后，这条路一直是断的（CLAUDE.md 里记着这个缺口）。
+ * 加一个 POST 别名比让小程序发 PATCH 现实 —— 后者微信根本不支持。
+ */
+const updateMemory = asyncRoute(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) throw notFound('没有找到这条记忆');
 
@@ -131,8 +141,11 @@ memoriesRouter.patch(
       params
     );
     return ok(res, toDTO(updated));
-  })
-);
+  });
+
+memoriesRouter.patch('/:id', updateMemory);
+memoriesRouter.post('/:id/update', updateMemory);
+
 
 memoriesRouter.delete(
   '/:id',
