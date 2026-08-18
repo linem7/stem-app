@@ -7,7 +7,7 @@ import { Router } from 'express';
 import { code2Session } from '../services/wechat.js';
 import { queryOne } from '../db/pool.js';
 import { signToken, toTeacherDTO } from '../middleware/auth.js';
-import { ok, asyncRoute, badRequest } from '../utils/errors.js';
+import { ok, asyncRoute, badRequest, AppError, ErrorCode } from '../utils/errors.js';
 import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
 
@@ -38,6 +38,18 @@ authRouter.post(
        RETURNING *`,
       [openid, unionid, nickname?.slice(0, 64) || null, avatar_url?.slice(0, 500) || null]
     );
+
+    // 注销过的账号不许再登录。这是「删完就不能再用这个平台」那句承诺的技术兑现 ——
+    // teachers 那一行是**留壳去身份**的：身份字段已经清空，只留 id 和 openid 用来认出她。
+    // 拦在这里而不是等 requireAuth：那样她会先拿到一个 token、进到首页再被弹出来，
+    // 看起来像「时好时坏」，而不是「这个账号注销了」。
+    if (teacher.status === 'deleted') {
+      logger.warn('login_rejected_deleted', { teacher_id: teacher.id });
+      throw new AppError(ErrorCode.UNAUTHORIZED, {
+        message: '这个账号已经注销，数据都删掉了，没法再用了',
+        detail: { reason: 'account_deleted' },
+      });
+    }
 
     // created_at 和 updated_at 是 Date 对象，必须比时间戳；直接用 === 比的是引用，永远 false
     const isNew = teacher.created_at?.getTime() === teacher.updated_at?.getTime();
