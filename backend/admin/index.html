@@ -118,11 +118,11 @@ label{font-size:12.5px;color:var(--ink-2);display:block;margin-bottom:4px}
 .empty{text-align:center;padding:40px 20px;color:var(--ink-3);font-size:13.5px}
 .note{background:var(--sky-soft);border-radius:10px;padding:10px 13px;font-size:12.5px;
   color:var(--ink-2);line-height:1.65;margin-bottom:14px}
-.navsec{font-size:11px;color:var(--ink-3);padding:14px 10px 5px;letter-spacing:.05em;
+.navsec{font-size:13px;color:var(--ink-3);padding:16px 10px 6px;letter-spacing:.03em;
   border-top:1px solid var(--rule);margin-top:10px}
-.who{margin-top:18px;padding-top:12px;border-top:1px solid var(--rule);font-size:12.5px;color:var(--ink-2)}
+.who{margin-top:18px;padding-top:12px;border-top:1px solid var(--rule);font-size:13px;color:var(--ink-2)}
 .who .pill{display:inline-block;margin:5px 0}
-.lnk{display:block;background:none;border:none;font:inherit;font-size:12px;color:var(--ink-3);
+.lnk{display:block;background:none;border:none;font:inherit;font-size:13px;color:var(--ink-3);
   cursor:pointer;padding:3px 0;text-align:left}
 .lnk:hover{color:var(--amber-deep)}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);
@@ -133,6 +133,9 @@ label{font-size:12.5px;color:var(--ink-2);display:block;margin-bottom:4px}
 </head>
 <body>
 <div id="app"></div>
+<!-- 配图模型那一页拆在单独文件里（app.js 已经够长了）。都是普通脚本、共用全局作用域，
+     引用顺序无所谓：里面的函数要到点击时才被调用 -->
+<script src="./image-models.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>

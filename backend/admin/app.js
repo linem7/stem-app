@@ -71,7 +71,7 @@ const PAGES = {
   feedback: '反馈',
 };
 /** 只有超级管理员看得到的页 */
-const SUPER_PAGES = { admins: '管理员', logs: '操作记录' };
+const SUPER_PAGES = { imagemodels: '配图模型', admins: '管理员', logs: '操作记录' };
 
 function shell(inner) {
   const n = S.data.overview?.feedback_new || 0;
@@ -105,27 +105,69 @@ window.closeModal = () => { S.modal = null; render(); };
 /* ============ 概览 ============ */
 function overviewView() {
   const o = S.data.overview || {};
+  const q = o.quality || {};
+  const rated = (q.usable || 0) + (q.needs_edit || 0) + (q.unusable || 0);
+  const yuan = ((o.cost_cents_month || 0) / 100).toFixed(2);
+
+  // 要处理的事排在最前面。累计数看一眼就没用了，待办才决定你今天做什么
+  const todo = [
+    o.feedback_new ? `<b>${o.feedback_new}</b> 条反馈没看` : '',
+    o.gen_failed_7d ? `<b>${o.gen_failed_7d}</b> 次生成失败（近 7 天）` : '',
+    o.images_failed_7d ? `<b>${o.images_failed_7d}</b> 张配图失败（近 7 天）` : '',
+    (o.codes_unused ?? 0) < 5 ? `没用的兑换码只剩 <b>${o.codes_unused ?? 0}</b> 个，该批量建一批了` : '',
+    (o.low_quota || []).length ? `<b>${o.low_quota.length}</b> 位老师额度快用完` : '',
+  ].filter(Boolean);
+
   const cards = [
-    ['teachers', '激活的老师'], ['kindergartens', '合作园'], ['codes_unused', '待用兑换码'],
-    ['plans', '生成的教案'], ['images', '生成的配图'], ['feedback_new', '待处理反馈'],
+    ['plans_today', '今天写的教案'], ['images_today', '今天的配图'],
+    ['active_7d', '7 天活跃老师'], ['plans_7d', '7 天教案'],
+    ['teachers', '激活的老师'],
   ];
+
   return `<h2>概览</h2><div class="sub">这些数只有你看得到</div>
+    ${todo.length
+      ? `<div class="note" style="background:var(--amber-soft)"><b>要处理</b><br>${todo.join('<br>')}</div>`
+      : '<div class="note"><b>没有待处理的事</b></div>'}
     <div class="stats">${cards.map(([k, l]) =>
-      `<div class="stat"><div class="n">${o[k] ?? '—'}</div><div class="l">${l}</div></div>`).join('')}</div>
-    <div class="note">
-      <b>发额度的日常流程</b>：问卷星导出答卷 → 用手机号在「老师」页搜 →
-      搜得到就直接加一笔额度（不用发新码）；搜不到就是新老师，去「兑换码」页建一个。
-      每笔额度都要写原因，那既是对账依据也是研究记录。
-    </div>`;
+      `<div class="stat"><div class="n">${o[k] ?? '—'}</div><div class="l">${l}</div></div>`).join('')}
+      <div class="stat"><div class="n">￥${yuan}</div><div class="l">本月配图成本</div></div>
+    </div>
+
+    <div class="row" style="align-items:flex-start;gap:16px">
+      <div style="flex:1;min-width:260px">
+        <div class="sub" style="margin-bottom:8px"><b>教案能不能直接用</b>（老师自己标的）</div>
+        ${rated
+          ? `<table><tr><th>直接能用</th><th>改改能用</th><th>用不了</th></tr>
+             <tr><td class="num">${q.usable}</td><td class="num">${q.needs_edit}</td>
+             <td class="num ${q.unusable > q.usable ? 'low' : ''}">${q.unusable}</td></tr></table>`
+          : '<div class="empty" style="padding:18px">还没有人评价过 —— 这是产品最大的未知数，有了数据第一时间看这里</div>'}
+      </div>
+      <div style="flex:1;min-width:260px">
+        <div class="sub" style="margin-bottom:8px"><b>额度快用完的老师</b></div>
+        ${(o.low_quota || []).length
+          ? `<table>${o.low_quota.map((t) =>
+              `<tr><td>${esc(t.name || '—')}</td><td>${esc(t.kindergarten || '—')}</td>
+               <td class="num low">还剩 ${t.text_left} 次</td>
+               <td><button class="btn-sm" onclick="goto('teachers')">去发额度</button></td></tr>`).join('')}</table>`
+          : '<div class="empty" style="padding:18px">都还够用</div>'}
+      </div>
+    </div>
+
+    <div class="sub" style="margin:18px 0 8px"><b>最近写的</b></div>
+    ${(o.recent_plans || []).length
+      ? `<table>${o.recent_plans.map((p) =>
+          `<tr><td>${esc(p.title || '未命名')}</td><td>${esc(p.age_group || '—')}</td>
+           <td>${esc(p.kindergarten || '—')}</td><td>${fmtDate(p.created_at)}</td></tr>`).join('')}</table>`
+      : '<div class="empty">还没有人写过教案</div>'}`;
 }
 
 /* ============ 老师 ============ */
 function teachersView() {
   const items = S.data.teachers?.items || [];
   const kgs = S.data.kindergartens?.items || [];
-  return `<h2>老师</h2><div class="sub">共 ${items.length} 位已激活</div>
+  return `<h2>老师</h2><div class="sub">共 ${items.length} 位已激活。批量码激活的老师没有手机号，按<b>兑换码</b>找她</div>
     <div class="row">
-      <input type="text" id="q" placeholder="搜手机号或姓名" value="${esc(S.filter.q)}"
+      <input type="text" id="q" placeholder="搜手机号 / 姓名 / 兑换码" value="${esc(S.filter.q)}"
         onkeydown="if(event.key==='Enter')doSearch()" style="width:200px">
       <select id="kg" onchange="doSearch()">
         <option value="">全部园所</option>
@@ -134,11 +176,11 @@ function teachersView() {
       <button class="btn-sm" onclick="doSearch()">搜索</button>
     </div>
     ${items.length ? `<table>
-      <tr><th>姓名</th><th>手机号</th><th>园所</th><th>班级 / 岗位</th>
+      <tr><th>姓名</th><th>手机号 / 兑换码</th><th>园所</th><th>班级 / 岗位</th>
           <th>教案额度</th><th>配图额度</th><th>最近登录</th><th></th></tr>
       ${items.map((t) => `<tr>
         <td>${esc(t.real_name || '—')} ${t.status === 'disabled' ? '<span class="pill p-off">已停用</span>' : ''}</td>
-        <td class="mono">${esc(t.phone_masked || '—')}</td>
+        <td class="mono">${t.phone_masked ? esc(t.phone_masked) : esc(t.redeem_code || '—')}</td>
         <td>${esc(t.kindergarten || '—')}</td>
         <td>${esc(t.class_name || '—')} · ${esc(t.position || '—')}</td>
         <td class="num ${t.quota.text.left <= 2 ? 'low' : ''}">${t.quota.text.left} / ${t.quota.text.granted}</td>
@@ -244,6 +286,8 @@ function codesView() {
   return `<h2>兑换码</h2><div class="sub">码只用于首次激活。老师完成新任务不用发新码，去「老师」页直接加额度</div>
     <div class="row">
       <button class="btn" onclick="openNewCode()">＋ 新建兑换码</button>
+      <button class="btn-sm" onclick="openBatchCodes()">批量建码</button>
+      <button class="btn-sm" onclick="exportCodes()">导出 CSV</button>
       <select onchange="S.filter.codeStatus=this.value;load()">
         ${[['all', '全部'], ['unused', '未使用'], ['used', '已使用'], ['void', '已作废']].map(([k, l]) =>
           `<option value="${k}" ${S.filter.codeStatus === k ? 'selected' : ''}>${l}</option>`).join('')}
@@ -253,8 +297,8 @@ function codesView() {
       <tr><th>兑换码</th><th>发给谁</th><th>手机号</th><th>园所 / 班级</th><th>初始额度</th><th>状态</th><th></th></tr>
       ${items.map((c) => `<tr>
         <td class="mono"><b>${esc(c.code)}</b></td>
-        <td>${esc(c.real_name)}</td>
-        <td class="mono">${esc(c.phone_masked)}</td>
+        <td>${esc(c.real_name || '—')}</td>
+        <td class="mono">${esc(c.phone_masked || '—')}</td>
         <td>${esc(c.kindergarten || '—')} · ${esc(c.class_name || '—')}</td>
         <td class="num">${c.init_text} 教案 / ${c.init_image} 配图</td>
         <td>${c.status === 'unused' ? '<span class="pill p-warn">待使用</span>'
@@ -262,6 +306,7 @@ function codesView() {
             : '<span class="pill p-off">已作废</span>'}</td>
         <td>${c.status === 'unused'
             ? `<button class="btn-sm" onclick="copyCode('${c.code}')">复制</button>
+               <button class="btn-sm" onclick="exportCodes('${c.code}')">导出</button>
                <button class="btn-sm btn-danger" onclick="voidCode(${c.id})">作废</button>` : ''}</td>
       </tr>`).join('')}
     </table>` : `<div class="empty">还没有兑换码</div>`}`;
@@ -273,8 +318,8 @@ window.openNewCode = () => {
     <h3>新建兑换码</h3>
     <div class="note">从问卷星的答卷里把这几项抄过来。生成后把码用微信发给她。</div>
     <div class="grid2">
-      <div class="field"><label>手机号（必填）</label><input type="text" id="c_phone" placeholder="11 位" style="width:100%"></div>
-      <div class="field"><label>姓名（必填）</label><input type="text" id="c_name" style="width:100%"></div>
+      <div class="field"><label>手机号（可不填）</label><input type="text" id="c_phone" placeholder="留空 = 谁拿到谁能兑" style="width:100%"></div>
+      <div class="field"><label>姓名（可不填）</label><input type="text" id="c_name" placeholder="留空 = 匿名码" style="width:100%"></div>
     </div>
     <div class="grid2">
       <div class="field"><label>园所</label>
@@ -400,6 +445,7 @@ async function load() {
     }
     if (S.page === 'codes') jobs.codes = api('GET', `/codes?status=${S.filter.codeStatus}`);
     if (S.page === 'feedback') jobs.feedback = api('GET', `/feedback?kind=${S.filter.fbKind}`);
+    if (S.page === 'imagemodels' && isSuper()) jobs.imagemodels = api('GET', '/image-models');
     if (S.page === 'admins' && isSuper()) jobs.admins = api('GET', '/admins');
     if (S.page === 'logs' && isSuper()) jobs.logs = api('GET', '/logs');
 
@@ -415,7 +461,7 @@ function render() {
   const view = ({
     overview: overviewView, teachers: teachersView, codes: codesView,
     kindergartens: kgView, feedback: feedbackView,
-    admins: adminsView, logs: logsView,
+    imagemodels: imageModelsView, admins: adminsView, logs: logsView,
   })[S.page];
   // 一般管理员手动改 URL 也进不去超管页 —— 后端还有一道守卫，这里只是不让界面出错
   const body = (SUPER_PAGES[S.page] && !isSuper()) ? (S.page = 'overview', overviewView()) : view();
@@ -560,3 +606,70 @@ function logsView() {
 }
 
 load();
+
+/* ============ 批量建码与导出 ============ */
+//
+// 一次只能建一个的时候，实际流程是「问卷星导出一批答卷 → 一个个建」，
+// 二十个老师就要点二十遍。这里收一份名册，一行一个人。
+//
+// **码依然绑手机号**：它是对账问卷与小程序账号的唯一锚点，
+// 也是「换个微信重登不能白拿一份额度」那条约束的依据。
+
+window.openBatchCodes = () => {
+  const kgs = S.data.kindergartens?.items || [];
+  S.modal = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="box">
+    <h3>批量建码</h3>
+    <div class="grid2">
+      <div class="field"><label>建几个</label>
+        <input type="number" id="b_count" value="20" min="1" max="200" style="width:100%"></div>
+      <div class="field"><label>园所（可不填）</label>
+        <select id="b_kg" style="width:100%"><option value="">不指定</option>
+          ${kgs.map((k) => `<option value="${k.id}">${esc(k.name)}</option>`).join('')}</select></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>每个码给多少教案</label>
+        <input type="number" id="b_text" value="20" style="width:100%"></div>
+      <div class="field"><label>每个码给多少配图</label>
+        <input type="number" id="b_image" value="10" style="width:100%"></div>
+    </div>
+    <div class="field"><label>原因</label>
+      <input type="text" id="b_reason" value="批量发放" style="width:100%"></div>
+    <div class="foot">
+      <button class="btn btn-plain" onclick="closeModal()">取消</button>
+      <button class="btn" onclick="saveBatchCodes()">建码</button>
+    </div>
+  </div></div>`;
+  render();
+};
+
+window.saveBatchCodes = async () => {
+  try {
+    const d = await api('POST', '/codes/batch', {
+      count: Number(document.getElementById('b_count').value) || 20,
+      init_text: Number(document.getElementById('b_text').value) || 20,
+      init_image: Number(document.getElementById('b_image').value) || 10,
+      kindergarten_id: document.getElementById('b_kg').value || null,
+      grant_reason: document.getElementById('b_reason').value.trim(),
+    });
+    closeModal();
+    toast(`建了 ${d.created.length} 个`);
+    load();
+  } catch (e) { toast(e.message); }
+};
+
+/** 导出 CSV。带手机号全号，所以后端只让超管调；单个码也走同一条路 */
+window.exportCodes = (code) => {
+  const q = code ? `code=${encodeURIComponent(code)}` : `status=${S.filter.codeStatus}`;
+  // 用 fetch 而不是直接开新窗口：这个接口要带 Authorization 头
+  fetch(`${API}/codes/export?${q}`, { headers: { Authorization: `Bearer ${S.token}` } })
+    .then((r) => (r.ok ? r.blob() : r.json().then((j) => Promise.reject(new Error(j.error?.message || '导出失败')))))
+    .then((blob) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = code ? `code-${code}.csv` : `codes-${S.filter.codeStatus}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast('导出好了');
+    })
+    .catch((e) => toast(e.message));
+};
