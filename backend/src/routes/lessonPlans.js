@@ -9,7 +9,7 @@ import { Router } from 'express';
 import { query, queryOne } from '../db/pool.js';
 import { ok, asyncRoute, badRequest, notFound, AppError, ErrorCode } from '../utils/errors.js';
 import { renderMarkdown } from '../services/lessonGenerator.js';
-import { buildImageUrl } from '../services/minimax.js';
+import { buildImageUrl } from '../services/imageStore.js';
 import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
 import { rateHandler } from './feedback.js';
 import { logger } from '../utils/logger.js';
@@ -286,7 +286,7 @@ lessonPlansRouter.post(
     //   1. npm i docx          —— 纯 JS 生成 .docx，不需要装 Office
     //      文档：https://docx.js.org/  按 content_json 的结构逐段建 Paragraph
     //      注意教案里有表格（STEAM 知识概念），用 docx 的 Table 组件
-    //   2. 用 services/minimax.js 里的 uploadImage 同款方式传到对象存储
+    //   2. 用 services/imageStore.js 里的 uploadImage 同款方式传到对象存储
     //   3. 生成 1 小时有效的**预签名 URL**（不能给公开永久链接，教案是老师的私有内容）
     //      腾讯云 COS: cos.getObjectUrl({ Sign: true, Expires: 3600 })
     //      阿里云 OSS: client.signatureUrl(key, { expires: 3600 })

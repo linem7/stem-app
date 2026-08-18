@@ -14,9 +14,10 @@ import { ok, asyncRoute, notFound, badRequest, AppError, ErrorCode } from '../ut
 import { assertImageQuota } from '../middleware/rateLimit.js';
 import { assertQuota } from '../services/quota.js';
 import { taskQueue } from '../services/taskQueue.js';
-import { generateImage, uploadImage, buildImageUrl } from '../services/minimax.js';
+import { generateImage, resolveImageProvider, anyModelReady } from '../services/imageGen.js';
+import { uploadImage, buildImageUrl } from '../services/imageStore.js';
 import { buildImagePrompt } from '../services/lessonGenerator.js';
-import { buildPurposeSystem, purposeSpec, resolvePurpose } from '../services/imagePurpose.js';
+import { buildPurposeSystem, countSubjects, purposeSpec, resolvePurpose } from '../services/imagePurpose.js';
 import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
 import { logger } from '../utils/logger.js';
 
@@ -66,24 +67,32 @@ imagesRouter.post(
     // 用途决定构图规则和画布比例。不认识的值一律当材料图 ——
     // 老师那边不该出现「用途填错了」这种事
     const purpose = resolvePurpose(req.body?.purpose);
-    const spec = purposeSpec(purpose);
+    // 她一句话里说了几样（「小狗、小猫和兔子的头饰」= 3）。
+    // 只影响头饰：一张纸上排几条、画布要多高。**不拆成几张** ——
+    // 一份教案总共 3 张配额，一句话吃光配额是另一种糟糕
+    const subjects = countSubjects(note);
+    const spec = purposeSpec(purpose, subjects);
+    // 用哪家模型**由后台定**，不看请求里传了什么（2026-08-18 定：老师不选模型）。
+    // 这里刻意不读 req.body.provider —— 读了就等于把技术选型的开关交到客户端手上，
+    // 而客户端是可以被随便改的；老师也没有判断依据去选。
+    const provider = await resolveImageProvider();
 
     // 自由描述时没有 section_key，那 note 就是唯一的信息来源，必须有
     if (!sectionKey && !note) throw badRequest('说说要画什么？');
 
-    // 没配 MiniMax 就在这里挡掉，别往下走。
+    // 两家模型一家都没配就在这里挡掉，别往下走。
     // 往下走的代价是实打实的：会先调一次 DeepSeek 把中文描述翻成英文提示词
     // （每次约 250 token），再到出图那步必然失败；而且 assertImageQuota 在下面，
     // 老师每天 10 张的额度会被这些注定失败的请求白白吃掉。
     //
-    // 这里只查 MiniMax，不查对象存储：没配对象存储时 uploadImage 会存到本地磁盘，
-    // 单机开发照样能把「生成→落地→显示」跑通（见 minimax.js 的 uploadImage）。
-    if (!config.minimax.configured) {
+    // 这里不查对象存储：没配对象存储时 uploadImage 会存到本地磁盘，
+    // 单机开发照样能把「生成→落地→显示」跑通（见 imageStore.js 的 uploadImage）。
+    if (!(await anyModelReady())) {
       throw new AppError(ErrorCode.NOT_IMPLEMENTED, {
         message: '配图功能还没开通，先用文字教案吧',
         detail: {
-          reason: 'minimax_not_configured',
-          hint: '在 .env 里填 MINIMAX_API_KEY',
+          reason: 'no_image_provider_configured',
+          hint: '在 .env 里填 IMG_API_KEY（gpt-image-2）或 MINIMAX_API_KEY',
         },
       });
     }
@@ -126,10 +135,10 @@ imagesRouter.post(
     // object_key 先落空串：这一列是 NOT NULL（db-schema.md），
     // 而 key 要等图片真生成出来、上传成功才知道。用空串占位比改表结构划算。
     const row = await queryOne(
-      `INSERT INTO lesson_images (lesson_plan_id, section_key, purpose, prompt_cn, object_key, status)
-       VALUES ($1, $2, $3, $4, '', 'pending')
+      `INSERT INTO lesson_images (lesson_plan_id, section_key, purpose, provider, prompt_cn, object_key, status)
+       VALUES ($1, $2, $3, $4, $5, '', 'pending')
        RETURNING id`,
-      [plan.id, sectionKey, purpose, note || null]
+      [plan.id, sectionKey, purpose, provider, note || null]
     );
 
     const teacher = req.teacher;
@@ -143,14 +152,20 @@ imagesRouter.post(
           ageGroup: plan.age_group,
           sectionName: materialName(plan.content_json, sectionKey, note),
           note,
-          system: buildPurposeSystem(purpose),
+          system: buildPurposeSystem(purpose, subjects),
         });
 
-        // 第二步：调 MiniMax image-01 出图，拿 base64 当场解成 buffer。
+        // 第二步：调出图模型（gpt-image-2 或 MiniMax，看 provider），拿 base64 当场解成 buffer。
         // 尺寸按用途给：记录表竖版、头饰横长条、背景墙通景，长边一律 2048 ——
         // 这图的终点是打印机，屏幕上根本不需要这么大
         const img = await generateImage({
-          prompt, width: spec.width, height: spec.height, optimize: spec.optimize,
+          provider,
+          prompt,
+          width: spec.width,
+          height: spec.height,
+          // optimize 只有 MiniMax 认，quality 只有 gpt-image-2 认，各取所需
+          optimize: spec.optimize,
+          quality: spec.quality,
         });
 
         // 第三步：落地。配了对象存储就传云上，没配就存本地磁盘；两种都只回 object_key
@@ -174,6 +189,8 @@ imagesRouter.post(
           image_id: row.id,
           lesson_plan_id: plan.id,
           teacher_id: teacher.id,
+          provider: img.provider,
+          purpose,
           bytes,
           cost_cents: img.costCents,
         });
@@ -186,7 +203,7 @@ imagesRouter.post(
       },
     });
 
-    return ok(res, { image_id: row.id, status: 'pending', purpose });
+    return ok(res, { image_id: row.id, status: 'pending', purpose, provider });
   })
 );
 
@@ -210,6 +227,7 @@ imagesRouter.get(
       image_id: img.id,
       section_key: img.section_key,
       purpose: img.purpose,
+      provider: img.provider,
       // 老师看到的那句话（材料名或她自己的描述），界面上拿它当这张图的标签
       label: img.prompt_cn || null,
       status: img.status,

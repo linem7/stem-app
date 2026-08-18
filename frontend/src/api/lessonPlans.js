@@ -54,13 +54,24 @@ export function rollback(lessonPlanId, version) {
 /* ============ 配图 ============ */
 
 /**
- * 给一样**材料**画图（不是活动场景）。老师要的是照着能去准备东西。
- * sectionKey 形如 material.3，note 是材料名 —— 后端拿它当图片标签，
- * 因为教案改过之后材料清单可能已经变了，靠下标认不出来。
+ * 画一张给老师打印出来用的图（不是活动场景示意图）。
+ *
+ * 用**哪个模型**画不在这里传：由管理后台统一定（老师不选模型，小程序里也没这个开关）。
+ * 就算传了后端也不看 —— 客户端是可以被改的，技术选型的开关不该交出去。
+ *
+ * purpose 决定构图和画布比例（材料图/记录表/头饰/展示图/环创背景），后端默认 material。
+ * **一定要传**：漏了它，老师在抽屉里选的「记录表」会被画成一张材料图 ——
+ * 界面上选得好好的，后端根本没收到，这种错最难查。
+ * sectionKey 形如 material.3（自由描述时为 null），note 是材料名或她自己写的描述
+ * —— 后端拿它当图片标签，因为教案改过之后材料清单可能已经变了，靠下标认不出来。
  * 每份教案最多 3 张，超了返回 IMAGE_LIMIT_EXCEEDED。
  */
-export function requestImage(lessonPlanId, { sectionKey, note }) {
-  return post(`/lesson-plans/${lessonPlanId}/images`, { section_key: sectionKey, note })
+export function requestImage(lessonPlanId, { purpose, sectionKey, note }) {
+  return post(`/lesson-plans/${lessonPlanId}/images`, {
+    purpose,
+    section_key: sectionKey,
+    note,
+  })
 }
 
 export function getImage(lessonPlanId, imageId) {

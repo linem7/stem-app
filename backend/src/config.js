@@ -61,12 +61,37 @@ export const config = {
     maxRetries: num('DEEPSEEK_MAX_RETRIES', 2),
   },
 
+  /**
+   * 默认用哪家出图。老师能在设置页里改，这里是她没选过时的默认值。
+   * 默认 gpt 的理由：记录表（表格线条）MiniMax 稳定画不对，而那张图的用途就是印出来填。
+   */
+  imageProvider: str('IMAGE_PROVIDER', 'gpt'),
+
+  /** gpt-image-2，经 12ai 中转，OpenAI images 接口形状 */
+  gptImage: {
+    apiKey: str('IMG_API_KEY'),
+    // 注意这个地址本身已经带 /v1，代码里只拼 /images/generations。
+    // 服务商文档写的是 POST /v1/images/generations，照抄会变成 /v1/v1/...
+    baseURL: str('IMG_BASE_URL', 'https://cdn.12ai.org/v1'),
+    model: str('IMG_MODEL', 'gpt-image-2'),
+    quality: str('IMG_QUALITY', 'medium'),
+    // 实测 medium + 1536×2048 要 71 秒，比 MiniMax 还慢。给到 150 秒，
+    // 仍在小程序轮询的 180 秒之内
+    timeoutMs: num('IMG_TIMEOUT_MS', 150000),
+    get configured() {
+      return Boolean(this.apiKey);
+    },
+  },
+
   minimax: {
     apiKey: str('MINIMAX_API_KEY'),
     // 大陆走 api.minimaxi.com，海外是 api.minimax.io。老师都在大陆，默认前者。
     baseURL: str('MINIMAX_BASE_URL', 'https://api.minimaxi.com'),
     model: str('MINIMAX_MODEL', 'image-01'),
-    timeoutMs: num('MINIMAX_TIMEOUT_MS', 60000),
+    // 60 秒不够。实测竖版记录表（1536×2048）出图要 49–71 秒，正好压在 60 上，
+    // 同一个提示词三次里能超时两次 —— 老师看到的是「配图超时了」，而钱已经花了。
+    // 前端轮询给到 180 秒，这里放到 120 仍在它里面。
+    timeoutMs: num('MINIMAX_TIMEOUT_MS', 120000),
     dailyLimit: num('IMAGE_DAILY_LIMIT', 10),
     get configured() {
       return Boolean(this.apiKey);
