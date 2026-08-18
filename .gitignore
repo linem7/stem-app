@@ -27,9 +27,11 @@ desktop.ini
 .vscode/
 .idea/
 
-# 原书 PDF —— 有版权且体积大（22MB×2），不入库
-# 框架已提炼到 docs/design/framework-extraction.md，后续开发用不到原书
-research/*.pdf
+# 原书与研究资料 —— 有版权且体积大（research/ 共 189MB），**不入库**
+# 框架已提炼到 docs/design/framework-extraction.md，后续开发用不到原书。
+# 挡整个目录，不只挡 *.pdf：2026-08-18 发现里面还有一份别人的教案 docx，
+# 只写 research/*.pdf 时它是"未跟踪"状态，git add -A 会把它传到这个**公开**仓库里。
+research/
 
 # 临时文件
 *.tmp
