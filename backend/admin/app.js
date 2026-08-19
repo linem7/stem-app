@@ -15,6 +15,7 @@ const S = {
   filter: {
     kg: '', q: '', codeStatus: 'all', fbKind: 'suggestion',
     log: { admin_id: '', action: '', from: '', to: '', page: 1 },
+    roster: { status: 'all', q: '' },
   },
 };
 
@@ -75,6 +76,9 @@ const isSuper = () => S.me?.role === 'super';
 const PAGES = {
   overview: '概览',
   kindergartens: '园所',
+  // 名单紧跟园所：它是园所给的，也是激活的第二把钥匙。
+  // 排在「老师」前面，因为名单里的人还不是老师 —— 她们要先激活才会出现在那一页
+  roster: '名单',
   teachers: '老师',
   codes: '兑换码',
   feedback: '反馈',
@@ -396,13 +400,55 @@ window.openTeacher = async (id) => {
           <td>${fmtDay(f.created_at)}</td></tr>`).join('')}
       </table>` : ''}
 
+      <!-- 已经有一把没用的换绑钥匙在外面时**显示它**，而不是让人又生成一把。
+           两把钥匙同时能接管同一个账号，而我不知道另一把在谁手上 -->
+      ${d.pending_rebind ? `<div class="note" style="margin-top:14px">
+        有一个换绑码还没用：<b class="mono">${esc(d.pending_rebind.code)}</b>
+        （${fmtDay(d.pending_rebind.expires_at)} 过期）
+        <button class="btn-sm" style="margin-left:8px" onclick="copyCode('${esc(d.pending_rebind.code)}')">复制</button>
+        <button class="btn-sm btn-danger" onclick="voidRebind(${d.pending_rebind.id},${id})">作废</button>
+      </div>` : ''}
+
       <div class="foot">
+        ${t.status === 'active' && d.pending_rebind === null
+          ? `<button class="btn-sm" onclick="askRebind(${id})">她换微信了</button>` : ''}
         <button class="btn-sm btn-danger" onclick="toggleStatus(${id},'${t.status === 'active' ? 'disabled' : 'active'}')">
           ${t.status === 'active' ? '停用这个账号' : '恢复账号'}</button>
         <button class="btn" onclick="closeModal()">关闭</button>
       </div>
     </div></div>`;
     render();
+  } catch (e) { toast(e.message); }
+};
+
+/**
+ * 生成换绑码。
+ *
+ * 这把钥匙能把一整个账号（教案、额度、记忆）交给另一个微信，所以：
+ *   · 后端锁超管
+ *   · 生成前先确认一次 —— 这一步的意义是提醒我**线下核实这个人真是她**
+ *
+ * 怎么核：不收手机号验证，只能问她只有她知道的东西 ——
+ * 她兑的是哪个码（这一页上就有），或者她最近写的教案标题（也在这一页上）。
+ * 见 operations.md 第 1.7 节。
+ */
+window.askRebind = (id) => {
+  if (!confirm('生成之前先确认这个人真是她：问她兑的是哪个码，或者她最近写的教案标题。\n\n这个码能把整个账号交给另一个微信。确定生成？')) return;
+  doRebind(id);
+};
+async function doRebind(id) {
+  try {
+    const d = await api('POST', `/teachers/${id}/rebind-code`);
+    toast(d.reused ? '已经有一个没用的，就用它' : '生成好了');
+    await load();
+    await openTeacher(id);
+  } catch (e) { toast(e.message); }
+}
+window.voidRebind = async (rebindId, teacherId) => {
+  try {
+    await api('POST', `/rebind-codes/${rebindId}/void`);
+    toast('已作废');
+    await load(); await openTeacher(teacherId);
   } catch (e) { toast(e.message); }
 };
 
@@ -808,6 +854,12 @@ async function load() {
       if (S.filter.kg) qs.set('kindergarten_id', S.filter.kg);
       jobs.teachers = api('GET', `/teachers?${qs}`);
     }
+    if (S.page === 'roster') {
+      const q = new URLSearchParams();
+      if (S.filter.roster.status !== 'all') q.set('status', S.filter.roster.status);
+      if (S.filter.roster.q) q.set('q', S.filter.roster.q);
+      jobs.roster = api('GET', `/roster?${q}`);
+    }
     if (S.page === 'codes') jobs.codes = api('GET', `/codes?status=${S.filter.codeStatus}`);
     if (S.page === 'feedback') jobs.feedback = api('GET', `/feedback?kind=${S.filter.fbKind}`);
     if (S.page === 'imagemodels' && isSuper()) jobs.imagemodels = api('GET', '/image-models');
@@ -829,7 +881,7 @@ function render() {
   if (!S.token) { app.innerHTML = loginView(); document.getElementById('pwd')?.focus(); return; }
   const view = ({
     overview: overviewView, teachers: teachersView, codes: codesView,
-    kindergartens: kgView, feedback: feedbackView,
+    kindergartens: kgView, roster: rosterView, feedback: feedbackView,
     imagemodels: imageModelsView, admins: adminsView, logs: logsView,
   })[S.page];
   // 一般管理员手动改 URL 也进不去超管页 —— 后端还有一道守卫，这里只是不让界面出错
@@ -958,6 +1010,8 @@ const ACTIONS = {
   teacher_status: '停用/恢复老师',
   create_kindergarten: '建园所', update_kindergarten: '改园所',
   add_topup: '记充值',
+  import_roster: '导入名单', void_roster: '作废名单一行',
+  create_rebind_code: '生成换绑码', void_rebind_code: '作废换绑码',
   create_admin: '建管理员',
   admin_status: '停用/恢复管理员', reset_password: '重置密码',
   change_own_password: '改自己密码',

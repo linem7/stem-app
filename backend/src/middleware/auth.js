@@ -10,8 +10,13 @@ import { config } from '../config.js';
 import { queryOne } from '../db/pool.js';
 import { AppError, ErrorCode, unauthorized } from '../utils/errors.js';
 
-export function signToken(teacherId) {
-  return jwt.sign({ tid: teacherId }, config.jwt.secret, {
+/**
+ * @param {number} teacherId
+ * @param {number} [tokenVersion] teachers.token_version。换绑时会 +1，
+ *   于是旧设备上那个 token 当场失效 —— 见 015 迁移的注释
+ */
+export function signToken(teacherId, tokenVersion = 0) {
+  return jwt.sign({ tid: teacherId, tv: tokenVersion }, config.jwt.secret, {
     expiresIn: config.jwt.expiresInSeconds,
   });
 }
@@ -50,6 +55,13 @@ export async function requireAuth(req, res, next) {
     }
     if (teacher.status !== 'active') {
       throw unauthorized('这个账号已被停用，如有疑问请联系我们');
+    }
+    // 换绑之后旧设备上那个 token 要立刻失效。
+    // 换绑不改 status（那一行还是同一个活账号），所以上面那道拦不住它 ——
+    // 而「换绑」的常见起因之一就是手机丢了。
+    // 老 token 里没有 tv，读出来 undefined 当 0 看，跟列默认值一致：现有登录不会被踢。
+    if ((payload.tv ?? 0) !== (teacher.token_version ?? 0)) {
+      throw unauthorized('这个账号换过登录方式了，请重新进入');
     }
 
     req.teacher = teacher;

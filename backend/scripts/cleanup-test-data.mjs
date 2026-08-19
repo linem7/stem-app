@@ -4,6 +4,8 @@
  *   node scripts/cleanup-test-data.mjs           # 只看要删什么，**不动数据**
  *   node scripts/cleanup-test-data.mjs --yes     # 真删
  *   node scripts/cleanup-test-data.mjs --yes --keep 33,41   # 额外保留这几个老师 id
+ *   node scripts/cleanup-test-data.mjs --yes --codes         # 连未使用的兑换码一起删
+ *   node scripts/cleanup-test-data.mjs --yes --roster        # 连还没被认领的名单一起删
  *
  * 判定「这是假账号」的依据只有一条**硬证据**：openid 以 `dev_` 开头。
  * 那是 DEV_FAKE_LOGIN 造出来的（真微信 openid 不长这样），所以不会误伤真老师。
@@ -108,6 +110,32 @@ await query(`DELETE FROM admins WHERE username ~ '^(colleague|sup2)_[0-9]+$'`);
 // admin-test 自建的园（它不许改真实园所，所以每跑一次留一个）。
 // 名字带 ON DELETE SET NULL 的外键，删了不会连累老师和码
 await query(`DELETE FROM kindergartens WHERE name ~ '^(回归测试园|改过名)_[0-9]+$'`);
+
+/**
+ * 名单里的**孤儿认领**。
+ *
+ * 上面删掉假账号之后，teacher_roster.claimed_by 被外键 ON DELETE SET NULL 清空，
+ * 但 status 还是 'claimed' —— 于是那个手机号**永远占着**，
+ * 再也没法激活，而且看不出为什么。这不是「测试数据」，是清理动作造成的不一致。
+ *
+ * 判定依据是**硬证据**：已认领，但认领人不存在了。不猜姓名手机号。
+ * 放回 pending 而不是删掉那一行：名单本身可能是真的（园长给的），
+ * 丢掉它等于让那位老师从名单里消失。
+ */
+const orphan = await query(
+  `UPDATE teacher_roster SET status = 'pending', claimed_by = NULL,
+          claimed_openid = NULL, claimed_at = NULL
+    WHERE status = 'claimed' AND claimed_by IS NULL
+    RETURNING id`
+);
+if (orphan.rowCount) L(`  名单里 ${orphan.rowCount} 行的认领人已经不在了，放回「等她来激活」`);
+
+// 还没被认领的名单要单独确认才删（--roster）：它们可能是刚从园长那儿录进来的真名单。
+// account_rebinds 不用管 —— 它挂在 teacher_id 上，ON DELETE CASCADE 跟着账号一起走
+if (process.argv.includes('--roster')) {
+  const r = await query(`DELETE FROM teacher_roster WHERE status = 'pending' RETURNING id`);
+  L(`  删掉 ${r.rowCount} 行还没被认领的名单（--roster）`);
+}
 
 let removed = 0;
 for (const key of keys) {

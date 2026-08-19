@@ -56,7 +56,8 @@ authRouter.post(
     logger.info('login', { teacher_id: teacher.id, is_new: isNew });
 
     return ok(res, {
-      token: signToken(teacher.id),
+      // 带上 token_version：换绑之后它 +1 了，新签的 token 必须用当前那个值
+      token: signToken(teacher.id, teacher.token_version),
       expires_in: config.jwt.expiresInSeconds,
       teacher: toTeacherDTO(teacher),
     });

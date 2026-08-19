@@ -44,11 +44,15 @@ export async function login(profile = {}) {
 }
 
 /**
- * 兑换码激活。输入宽容由后端负责（大小写、空格、下划线、各种横线都认），
- * 前端不做任何格式校验 —— 认不出来是我们的问题，不是老师的。
+ * 兑一个码。后端按码的类型决定做哪件事（api-spec 第 1.5 节）：
+ * 首次激活（要手机号）、续兑（只要码）、换绑（挪 openid，回一个新 token）。
+ *
+ * 输入宽容由后端负责（大小写、空格、下划线、各种横线、手机号里的空格都认），
+ * 前端**不做任何格式校验** —— 认不出来是我们的问题，不是老师的。
+ * 尤其别在前端拦「手机号必须 11 位」：她填的可能带空格，后端会清洗。
  */
-export function redeem(code) {
-  return post('/auth/redeem', { code })
+export function redeem(code, phone) {
+  return post('/auth/redeem', { code, phone })
 }
 
 /** 同意协议。激活后、进主流程前必须调一次。 */

@@ -14,35 +14,25 @@
         <text v-if="profileLine" class="hd__sub">{{ profileLine }}</text>
       </view>
 
-      <!-- 额度。不能是黑箱：给了多少、用了多少、还剩多少，一行看完 -->
+      <!--
+        额度。**用了多少 / 一共多少** 直接摆出来（n/m），不再藏在可展开的台账里 ——
+        那个数字本身就是台账的结论，展开一列明细是把我的对账需求摊给她看。
+        右边那个按钮换成「兑换」：额度只走兑换码这一条路，
+        她在这一屏真正要做的是「我拿到码了，兑进来」。
+      -->
       <view class="quota">
         <view class="quota__z">
-          <text class="quota__n">{{ quota.text.left }}</text>
+          <text class="quota__n">{{ quota.text.used }}/{{ quota.text.granted }}</text>
           <text class="quota__u">次教案</text>
         </view>
         <view class="quota__sep" />
         <view class="quota__z">
-          <text class="quota__n">{{ quota.image.left }}</text>
+          <text class="quota__n">{{ quota.image.used }}/{{ quota.image.granted }}</text>
           <text class="quota__u">张配图</text>
         </view>
-        <view class="quota__more" @tap="toggleGrants">
-          <text class="quota__more-t">{{ showGrants ? '收起' : '台账' }}</text>
+        <view class="quota__more" @tap="goRedeem">
+          <text class="quota__more-t">兑换</text>
         </view>
-      </view>
-
-      <!-- 台账默认收着。要看的时候必须看得到「哪来的、什么时候给的」，
-           否则「我的额度怎么少了」这种事没法自己查 -->
-      <view v-if="showGrants" class="grants">
-        <view v-for="(g, i) in grants" :key="i" class="grant">
-          <text class="grant__t">{{ g.reason || '发放' }}</text>
-          <text class="grant__n">+{{ g.text }} 教案 · +{{ g.image }} 配图</text>
-          <text class="grant__d">{{ fmtDate(g.at) }}</text>
-        </view>
-        <text v-if="!grants.length" class="grants__none">还没有发放记录</text>
-        <text class="grants__used">
-          已用 {{ quota.text.used }} 次教案 · {{ quota.image.used }} 张配图。每份教案还送
-          {{ freeRevisions }} 次免费改稿。
-        </text>
       </view>
 
       <!-- ============ 记忆 ============ -->
@@ -230,9 +220,6 @@ const CATEGORIES = [
 
 const loading = ref(true)
 const quota = reactive({ text: { granted: 0, used: 0, left: 0 }, image: { granted: 0, used: 0, left: 0 } })
-const grants = ref([])
-const freeRevisions = ref(2)
-const showGrants = ref(false)
 const memories = ref([])
 
 const adding = ref(false)
@@ -271,8 +258,8 @@ async function load() {
     const [q, m] = await Promise.allSettled([getQuota(), listMemories()])
     if (q.status === 'fulfilled') {
       Object.assign(quota, q.value.quota || {})
-      grants.value = q.value.grants || []
-      freeRevisions.value = q.value.free_revisions ?? 2
+      // 响应里还有 grants（发放明细）和 free_revisions，界面上不用了 ——
+      // 真要查某一笔的来历，后台的老师详情有完整台账
     }
     if (m.status === 'fulfilled') memories.value = m.value.items || []
     if (q.status === 'rejected' && m.status === 'rejected') showApiError(q.reason)
@@ -284,8 +271,9 @@ async function load() {
 /* ============ 记忆 ============ */
 
 // 都用具名函数，不写内联箭头：内联的在编译产物里更容易跟别处撞同一个 handler key
-function toggleGrants() {
-  showGrants.value = !showGrants.value
+function goRedeem() {
+  // topup=1：她已经激活过了，兑换页据此不问手机号、也不把她弹回首页
+  navTo('redeem', { topup: 1 })
 }
 
 function startAdd() {
@@ -463,11 +451,6 @@ function goAgreement() {
   navTo('agreement', { view: 1 })
 }
 
-function fmtDate(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  return `${d.getMonth() + 1} 月 ${d.getDate()} 日`
-}
 </script>
 
 <style lang="scss" scoped>
@@ -537,53 +520,6 @@ function fmtDate(iso) {
   font-size: $fs-tag;
   color: $amber-deep;
   font-weight: 600;
-}
-
-.grants {
-  background: $paper-2;
-  border: 2rpx solid $rule-2;
-  border-radius: 24rpx;
-  padding: 20rpx 24rpx;
-  margin-top: 14rpx;
-}
-
-.grant {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  margin-bottom: 10rpx;
-}
-
-.grant__t {
-  font-size: 25rpx;
-  color: $ink;
-  font-weight: 600;
-  margin-right: 12rpx;
-}
-
-.grant__n {
-  font-size: $fs-tag;
-  color: $mint-deep;
-  margin-right: 12rpx;
-}
-
-.grant__d {
-  font-size: 22rpx;
-  color: $ink-3;
-}
-
-.grants__none,
-.grants__used {
-  display: block;
-  font-size: $fs-tag;
-  color: $ink-3;
-  line-height: 1.65;
-}
-
-.grants__used {
-  border-top: 2rpx solid $rule;
-  margin-top: 8rpx;
-  padding-top: 12rpx;
 }
 
 /* ============ 分节 ============ */

@@ -7,7 +7,7 @@
 import { reactive } from 'vue'
 import { login as apiLogin, redeem as apiRedeem, agree as apiAgree } from '../api/auth.js'
 import { getMe } from '../api/me.js'
-import { clearToken, getToken, onAuthExpired } from '../utils/request.js'
+import { clearToken, getToken, setToken, onAuthExpired } from '../utils/request.js'
 
 export const session = reactive({
   /** null 表示还没登录成功 */
@@ -79,8 +79,18 @@ export async function refreshTeacher() {
   return session.teacher
 }
 
-export async function redeem(code) {
-  const data = await apiRedeem(code)
+/**
+ * 兑一个码。这一个动作在后端是三件事（api-spec 第 1.5 节）：
+ * 首次激活（要手机号）、续兑（只要码）、**换绑**（她换了微信）。
+ *
+ * `data.token` 必须存下来 —— **换绑靠这一行才成立**：
+ * 换绑把旧账号挪到新 openid 上，她手上那个 token 指向的行已经被删了，
+ * 而且目标账号的 token_version 刚 +1。不存新 token，下一个请求就 401，
+ * 表现是「换绑好像成功了，但一进去就被踢出来」。
+ */
+export async function redeem(code, phone) {
+  const data = await apiRedeem(code, phone)
+  if (data.token) setToken(data.token)
   if (data.teacher) session.teacher = data.teacher
   else await refreshTeacher()
   return data

@@ -31,6 +31,7 @@ import { listModels, generateWith, FORMATS, isKnownFormat } from '../services/im
 import { uploadImage, buildImageUrl } from '../services/imageStore.js';
 import { getSetting, setSetting, SETTING_KEYS } from '../services/appSettings.js';
 import { getMoney, listTopups, addTopup, TOPUP_CHANNELS } from '../services/costLedger.js';
+import { parseRoster, annotateExisting, summarize } from '../services/roster.js';
 import { logger } from '../utils/logger.js';
 
 export const adminRouter = Router();
@@ -259,6 +260,118 @@ adminRouter.post('/topups', asyncRoute(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------
+// 名单 —— 激活的第二把钥匙（013 迁移，operations.md 第 1 节）
+//
+// 码证明「你是这批人里的」（问卷星发），手机号证明「你是哪一个」（跟这张名单核对）。
+// 两把钥匙**相互独立**：码不绑在名单某一行上，否则问卷星发的随机码
+// 就对不上她的号，「答卷后自动发码」当场断掉。
+//
+// 🔴 真实手机号进库的前提：伦理审查 + 协议里单独写清楚。开发用假号。
+// ---------------------------------------------------------------
+adminRouter.get('/roster', asyncRoute(async (req, res) => {
+  const status = String(req.query.status || 'all');
+  const where = [];
+  const params = [];
+  if (['pending', 'claimed', 'void'].includes(status)) {
+    params.push(status); where.push(`r.status = $${params.length}`);
+  }
+  if (req.query.kindergarten_id) {
+    params.push(Number(req.query.kindergarten_id)); where.push(`r.kindergarten_id = $${params.length}`);
+  }
+  const q = String(req.query.q || '').trim();
+  if (q) {
+    params.push(`%${q}%`);
+    where.push(`(r.phone LIKE $${params.length} OR r.real_name LIKE $${params.length})`);
+  }
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const [rows, counts] = await Promise.all([
+    query(`
+      SELECT r.*, k.name AS kindergarten
+        FROM teacher_roster r LEFT JOIN kindergartens k ON k.id = r.kindergarten_id
+      ${clause}
+       ORDER BY r.created_at DESC, r.id DESC LIMIT 500`, params),
+    query(`SELECT status, COUNT(*)::int AS n FROM teacher_roster GROUP BY status`),
+  ]);
+
+  return ok(res, {
+    items: rows.rows.map((r) => ({
+      id: r.id,
+      // 手机号跟老师详情同一条纪律：一般管理员只看打码
+      phone: req.isSuper ? r.phone : maskPhone(r.phone),
+      phone_masked: !req.isSuper,
+      real_name: r.real_name,
+      kindergarten: r.kindergarten,
+      kindergarten_id: r.kindergarten_id,
+      class_name: r.class_name,
+      position: r.position,
+      age_group: r.age_group,
+      status: r.status,
+      claimed_teacher_id: r.claimed_by,
+      claimed_at: r.claimed_at,
+      // 「谁顶了谁的名额」只给超管：它是一个能指向具体微信账号的标识
+      claimed_openid: req.isSuper ? r.claimed_openid : undefined,
+      note: r.note,
+      created_at: r.created_at,
+    })),
+    counts: Object.fromEntries(counts.rows.map((c) => [c.status, c.n])),
+  });
+}));
+
+/**
+ * 粘贴一段文本导入名单。
+ *
+ * **`dry_run` 先预览再写**（前端默认先干跑一次）。不给预览就是让人闭眼提交
+ * 一份从微信里复制来的名单 —— 里面必然有全角逗号、多余空格、少一列的行、
+ * 甚至连表头一起复制进来。
+ */
+adminRouter.post('/roster/import', asyncRoute(async (req, res) => {
+  const b = req.body || {};
+  const text = String(b.text || '');
+  if (!text.trim()) throw badRequest('粘一段名单进来，一行一个人');
+
+  const kgId = b.kindergarten_id ? Number(b.kindergarten_id) : null;
+  const rows = await annotateExisting(parseRoster(text));
+  const summary = summarize(rows);
+  const dryRun = b.dry_run !== false;
+
+  if (dryRun) return ok(res, { rows, summary, imported: 0, dry_run: true });
+  if (!summary.ok) throw badRequest('一行都没解析出来，检查一下格式');
+
+  // 整批一个事务：要么全写进去，要么一行都不写 ——
+  // 半截导入之后没人知道该从哪一行接着来
+  const good = rows.filter((r) => r.ok);
+  await withTransaction(async (client) => {
+    for (const r of good) {
+      await client.query(
+        `INSERT INTO teacher_roster
+           (phone, real_name, kindergarten_id, class_name, position, age_group, note, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [r.phone, r.real_name, kgId, r.class_name, r.position, r.age_group,
+          String(b.note || '').trim().slice(0, 128) || null, req.adminId]
+      );
+    }
+  });
+
+  await logAction({ adminId: req.adminId, action: 'import_roster', target: `roster:${good.length}`,
+    detail: { imported: good.length, skipped: summary.total - good.length, kindergarten_id: kgId } });
+  // 日志里**不放手机号**（三条铁律之一），只记数量
+  logger.info('roster_imported', { by: req.adminId, imported: good.length });
+  return ok(res, { rows, summary, imported: good.length, dry_run: false });
+}));
+
+adminRouter.post('/roster/:id/void', asyncRoute(async (req, res) => {
+  const row = await queryOne(
+    // 已经认领的不许作废：那会让一个正在用的账号失去它的名单依据
+    `UPDATE teacher_roster SET status = 'void'
+      WHERE id = $1 AND status = 'pending' RETURNING id, status`,
+    [Number(req.params.id)]);
+  if (!row) throw badRequest('只有还没被认领的才能作废');
+  await logAction({ adminId: req.adminId, action: 'void_roster', target: `roster:${row.id}` });
+  return ok(res, row);
+}));
+
+// ---------------------------------------------------------------
 // 老师
 // ---------------------------------------------------------------
 adminRouter.get(
@@ -357,7 +470,7 @@ adminRouter.get(
     if (!t) throw notFound('没有这位老师');
 
     const PLAN_LIMIT = 50;
-    const [quota, grants, plans, drafts, fb, img, purposes] = await Promise.all([
+    const [quota, grants, plans, drafts, fb, img, purposes, pendingRebind] = await Promise.all([
       getQuota(id),
       query(`SELECT delta_text, delta_image, reason, created_at FROM quota_grants
               WHERE teacher_id = $1 ORDER BY created_at DESC`, [id]),
@@ -400,6 +513,11 @@ adminRouter.get(
           FROM lesson_images i JOIN lesson_plans p ON p.id = i.lesson_plan_id
          WHERE p.teacher_id = $1 AND i.status = 'ready'
          GROUP BY i.purpose ORDER BY n DESC`, [id]),
+      // 有没有一把还没用的换绑钥匙在外面。界面要显示它而不是又生成一把
+      queryOne(`
+        SELECT id, code, expires_at FROM account_rebinds
+         WHERE teacher_id = $1 AND status = 'pending' AND expires_at > now()
+         ORDER BY id DESC LIMIT 1`, [id]),
     ]);
 
     const truncated = plans.rows.length > PLAN_LIMIT;
@@ -441,6 +559,8 @@ adminRouter.get(
       feedback: req.isSuper ? fb.rows : fb.rows.map(({ plan_title, ...f }) => f),
       // 数量和成本是用量，不是老师写的内容，所以不锁超管
       images: { ...img, by_purpose: purposes.rows },
+      // 只给超管：换绑码能接管一整个账号
+      pending_rebind: req.isSuper ? pendingRebind || null : undefined,
       can_view_content: req.isSuper,
     });
   })
@@ -467,6 +587,63 @@ adminRouter.post(
     return ok(res, { quota: await getQuota(id) });
   })
 );
+
+/**
+ * 「她换微信了」—— 生成一个换绑码（**超管专属**）。
+ *
+ * 为什么锁超管：这把钥匙能把一整个账号（教案、额度、记忆）交给另一个微信，
+ * 比发额度敏感得多。
+ *
+ * 生成之前**必须线下核实这个人真是她**。不收手机号验证，所以只能问她
+ * 只有她知道的东西：**她兑的是哪个码**（后台记着）或**她最近写的教案标题**。
+ * 这一步没有技术保障，全靠人认真问 —— 见 operations.md 第 1.7 节。
+ */
+adminRouter.post('/teachers/:id/rebind-code', requireSuper, asyncRoute(async (req, res) => {
+  const id = Number(req.params.id);
+  const t = await queryOne(`SELECT id, status FROM teachers WHERE id = $1`, [id]);
+  if (!t) throw notFound('没有这位老师');
+  if (t.status === 'deleted') throw badRequest('这个账号已经注销了，没法换绑');
+
+  // **已经有没用的就返回那一个**，不重复生成 ——
+  // 否则外面同时有两把能接管她账号的钥匙，而我不知道另一把在谁手上
+  const exist = await queryOne(
+    `SELECT * FROM account_rebinds
+      WHERE teacher_id = $1 AND status = 'pending' AND expires_at > now()
+      ORDER BY id DESC LIMIT 1`, [id]);
+  if (exist) {
+    return ok(res, { code: exist.code, expires_at: exist.expires_at, reused: true });
+  }
+
+  let code = generateCode();
+  for (let retry = 0; retry < 5; retry += 1) {
+    const dup = await queryOne(
+      `SELECT 1 FROM account_rebinds WHERE code = $1
+        UNION ALL SELECT 1 FROM redemption_codes WHERE code = $1`, [code]);
+    if (!dup) break;
+    code = generateCode();
+  }
+
+  const row = await queryOne(
+    // 7 天：我生成之后要在微信上告诉她，她不一定当场就换。
+    // 但也不能无限期 —— 这把钥匙能接管一整个账号
+    `INSERT INTO account_rebinds (code, teacher_id, expires_at, created_by)
+     VALUES ($1, $2, now() + interval '7 days', $3) RETURNING *`,
+    [code, id, req.adminId]);
+
+  await logAction({ adminId: req.adminId, action: 'create_rebind_code', target: `teacher:${id}` });
+  logger.warn('rebind_code_created', { by: req.adminId, teacher_id: id });
+  return ok(res, { code: row.code, expires_at: row.expires_at, reused: false });
+}));
+
+adminRouter.post('/rebind-codes/:id/void', requireSuper, asyncRoute(async (req, res) => {
+  const row = await queryOne(
+    `UPDATE account_rebinds SET status = 'void'
+      WHERE id = $1 AND status = 'pending' RETURNING id, teacher_id`, [Number(req.params.id)]);
+  if (!row) throw badRequest('只有还没用过的换绑码可以作废');
+  await logAction({ adminId: req.adminId, action: 'void_rebind_code',
+    target: `teacher:${row.teacher_id}` });
+  return ok(res, { voided: true });
+}));
 
 adminRouter.post(
   '/teachers/:id/status',

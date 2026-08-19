@@ -37,18 +37,26 @@ chk(!dupPhone.ok, `同手机号重复发码被拒：${dupPhone.error?.message}`)
 const badPhone=await adm('POST','/codes',{phone:'123',real_name:'x'});
 chk(!badPhone.ok, `手机号格式校验：${badPhone.error?.message}`);
 // 2026-08-18 起手机号姓名都可以不填：不填就是**匿名码**，谁拿到谁能兑。
-// 用来批量发给园所、或灌进问卷星当奖励 —— 「问卷 ↔ 账号」的对应关系那时在问卷星那边
+// 用来批量发给园所、或灌进问卷星当奖励
 const anon=await adm('POST','/codes',{});
 chk(anon.ok, `什么都不填 = 匿名码：${anon.data?.code}`);
 const batch=await adm('POST','/codes/batch',{count:3,grant_reason:'回归测试批量'});
 chk(batch.ok && batch.data.created.length===3, `批量建码不需要名单：一次拿到 ${batch.data?.created?.length} 个`);
-// 匿名码照样能兑，兑完额度到账
+
+// 2026-08-19 起匿名码**首次激活要配一份名单**：码证明「你是这批人里的」，
+// 手机号证明「你是哪一个」。所以先把她放进名单，再兑
+// （只测「能不能跑通」；激活的全部边界在 activation-test.mjs）
+const ANONPHONE=`137${RND}`;
+await adm('POST','/roster/import',{text:`匿名码老师, ${ANONPHONE}, 中一班, 主班, 中班`,dry_run:false});
 const anonUser=await call(B+'/v1','POST','/auth/login',null,{code:`dev:anon_${RND}`});
-const anonRedeem=await call(B+'/v1','POST','/auth/redeem',anonUser.data.token,{code:anon.data.code});
-chk(anonRedeem.ok, `匿名码能激活：+${anonRedeem.data?.granted?.text} 教案 / +${anonRedeem.data?.granted?.image} 配图`);
-// 这批老师没有手机号，后台只能靠码找人 —— 所以搜索必须认码
+const noPhone=await call(B+'/v1','POST','/auth/redeem',anonUser.data.token,{code:anon.data.code});
+chk(!noPhone.ok, `匿名码光有码不够，还要手机号：${noPhone.error?.message}`);
+const anonRedeem=await call(B+'/v1','POST','/auth/redeem',anonUser.data.token,
+  {code:anon.data.code, phone:ANONPHONE});
+chk(anonRedeem.ok, `码 + 名单里的手机号能激活：+${anonRedeem.data?.granted?.text} 教案 / +${anonRedeem.data?.granted?.image} 配图`);
+// 后台既能按码找人（她可能没留姓名），也能按手机号找
 const byCode=await adm('GET',`/teachers?q=${anon.data.code.replace(/-/g,'')}`);
-chk(byCode.ok && byCode.data.items.length===1, '后台能按兑换码搜到用匿名码激活的老师');
+chk(byCode.ok && byCode.data.items.length===1, '后台能按兑换码搜到她');
 
 L('=== 老师用这个码激活 ===');
 const red=await usr('POST','/auth/redeem',{code:c1.data.code});
@@ -80,8 +88,14 @@ chk(detail.data.teacher.redeem_code===c1.data.code,
   `详情带上她兑的码 ${detail.data.teacher.redeem_code} —— 匿名码老师唯一的身份锚点`);
 const anonId=byCode.data.items[0].id;
 const anonDetail=await adm('GET',`/teachers/${anonId}`);
-chk(anonDetail.data.teacher.phone===null && anonDetail.data.teacher.redeem_code===anon.data.code,
-  '匿名码激活的老师没有手机号，只能靠码认人');
+// 2026-08-19 起匿名码激活的老师**也有手机号了** —— 它从名单那一行搬过来的。
+// 这条断言原来验「没有手机号」，那个前提已经没了。
+// 现在验真正的不变量：**码和身份都在**，两条路都能认出她是谁
+chk(anonDetail.data.teacher.redeem_code===anon.data.code, '详情认得出她兑的是哪个码');
+chk(anonDetail.data.teacher.phone===ANONPHONE,
+  `手机号从名单搬进了账号：${anonDetail.data?.teacher?.phone}`);
+chk(anonDetail.data.teacher.real_name==='匿名码老师' && anonDetail.data.teacher.class_name==='中一班',
+  '姓名班级也从名单搬过来了');
 chk(anonDetail.data.images && typeof anonDetail.data.images.total==='number'
     && Array.isArray(anonDetail.data.images.by_purpose),
   '带配图用量（张数 / 成功失败 / 成本 / 按用途）');
