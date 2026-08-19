@@ -13,8 +13,14 @@
       <text class="hero__line">你写了什么、用了多少次，只有这个项目的团队看得到，不会提供给园方。</text>
     </view>
 
+    <!--
+      2026-08-19 改：**不再存手机号**（016 迁移把那一列从库里删掉了）。
+      协议这三处原来写着「你填问卷时留的手机号」「你的手机号和姓名不会出现在…」
+      「教案配图和你的手机号姓名一起删」——那时是真的，现在全是假话。
+      **不实的隐私说明比没有更糟**，所以跟着改，不能留。
+    -->
     <view class="sec"><text class="sec__h">会记录的</text></view>
-    <view class="dot"><text class="dot__t">你填问卷时留的手机号、姓名、幼儿园、班级、岗位</text></view>
+    <view class="dot"><text class="dot__t">你的姓名、幼儿园、班级、岗位 —— 合作园给的名单里那一行</text></view>
     <view class="dot"><text class="dot__t">你在这里的对话、生成的教案和配图、用了多少次</text></view>
 
     <view class="sec"><text class="sec__h">用来做什么</text></view>
@@ -25,8 +31,9 @@
     <view class="dot dot--safe">
       <text class="dot__t"><text class="dot__b">不收集孩子的任何信息</text> —— 姓名、照片、观察记录、发展评估，一概不收</text>
     </view>
+    <view class="dot dot--safe"><text class="dot__t"><text class="dot__b">不存你的手机号</text></text></view>
     <view class="dot dot--safe"><text class="dot__t">不把你的数据给幼儿园、园长或任何第三方</text></view>
-    <view class="dot dot--safe"><text class="dot__t">你的手机号和姓名不会出现在这个小程序的任何页面上</text></view>
+    <view class="dot dot--safe"><text class="dot__t">你的姓名不会出现在这个小程序的任何页面上</text></view>
 
     <!--
       这一节是从设置页搬过来的（2026-08-18）。原来那两处各写一份隐私说明，
@@ -39,7 +46,7 @@
     <view class="dot">
       <text class="dot__t">
         在「我的」里<text class="dot__b">删掉全部数据</text> ——
-        教案、配图、记忆和你的手机号姓名一起删。删完这个账号就不能再用了，
+        教案、配图、记忆和你的姓名一起删。删完这个账号就不能再用了，
         已经用于研究的那部分（你提交过的建议和评价）撤不回来，但不再关联到你
       </text>
     </view>

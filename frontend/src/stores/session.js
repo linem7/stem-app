@@ -81,15 +81,15 @@ export async function refreshTeacher() {
 
 /**
  * 兑一个码。这一个动作在后端是三件事（api-spec 第 1.5 节）：
- * 首次激活（要手机号）、续兑（只要码）、**换绑**（她换了微信）。
+ * 首次激活（还要她从名单里选的那个位置）、续兑（只要码）、**换绑**（她换了微信）。
  *
  * `data.token` 必须存下来 —— **换绑靠这一行才成立**：
  * 换绑把旧账号挪到新 openid 上，她手上那个 token 指向的行已经被删了，
  * 而且目标账号的 token_version 刚 +1。不存新 token，下一个请求就 401，
  * 表现是「换绑好像成功了，但一进去就被踢出来」。
  */
-export async function redeem(code, phone) {
-  const data = await apiRedeem(code, phone)
+export async function redeem(code, rosterEntryId) {
+  const data = await apiRedeem(code, rosterEntryId)
   if (data.token) setToken(data.token)
   if (data.teacher) session.teacher = data.teacher
   else await refreshTeacher()

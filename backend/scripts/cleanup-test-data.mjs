@@ -36,7 +36,8 @@ const L = console.log;
 
 const victims = (
   await query(
-    `SELECT t.id, t.openid, t.real_name, t.phone, t.status, t.created_at,
+    // 没有 t.phone —— 016 迁移把那一列删了
+    `SELECT t.id, t.openid, t.real_name, t.status, t.created_at,
             (SELECT COUNT(*) FROM conversations c WHERE c.teacher_id = t.id)::int AS convs,
             (SELECT COUNT(*) FROM lesson_plans p WHERE p.teacher_id = t.id)::int  AS plans
        FROM teachers t

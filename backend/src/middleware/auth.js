@@ -90,7 +90,7 @@ export function toTeacherDTO(row) {
     activated: Boolean(row.activated_at),
     agreed: Boolean(row.agreed_at),
   };
-  // 注意这里**没有** phone 和 real_name。
+  // 注意这里**没有** real_name（手机号那一列 016 迁移已经从库里删了）。
   // 它们永不下发到小程序前端 —— operations.md 的三条铁律之一。
   // 前端任何地方都不该出现老师的手机号，包括她自己的。
 }

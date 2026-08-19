@@ -11,16 +11,22 @@ const chk=(cond,msg)=>{ L(`  ${cond?'✓':'✗'} ${msg}`); if(!cond) fail++; };
 const RND=String(Date.now()).slice(-8);
 const A=`dev:ops_a_${RND}`, Bacc=`dev:ops_b_${RND}`;
 let CODE=null;
+let SLOT=null;
 {
-  const admTok=(await (await fetch('http://localhost:3000/admin/api/login',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'admin',password:process.env.ADMIN_PASSWORD||'123456'})})).json()).data.token;
-  const kg=await (await fetch('http://localhost:3000/admin/api/kindergartens',{headers:{Authorization:`Bearer ${admTok}`}})).json();
-  const r=await (await fetch('http://localhost:3000/admin/api/codes',{method:'POST',
-    headers:{'Content-Type':'application/json',Authorization:`Bearer ${admTok}`},
-    body:JSON.stringify({phone:`137${RND}`,real_name:'李老师',kindergarten_id:kg.data.items[0]?.id,
-      class_name:'中二班',position:'主班',age_group:'中班',init_text:20,init_image:10,grant_reason:'完成8月问卷·首次'})})).json();
+  // 016 之后激活要两样：码（一张入场券，不带身份）+ 从名单里选一个岗位。
+  // 库里没有手机号了，身份全部来自名单那一行
+  const aj=async(m,p,tok,b)=>(await (await fetch('http://localhost:3000/admin/api'+p,{method:m,
+    headers:{'Content-Type':'application/json',...(tok?{Authorization:`Bearer ${tok}`}:{})},
+    ...(b?{body:JSON.stringify(b)}:{})})).json());
+  const admTok=(await aj('POST','/login',null,{username:'admin',password:process.env.ADMIN_PASSWORD||'123456'})).data.token;
+  const kg=await aj('POST','/kindergartens',admTok,{name:`运营回归园_${RND}`});
+  const imp=await aj('POST','/roster/import',admTok,
+    {text:`李红${RND}, 中二班, 主班, 中班`,kindergarten_id:kg.data.id,dry_run:false});
+  SLOT=imp.data.created[0].id;
+  const r=await aj('POST','/codes',admTok,
+    {kindergarten_id:kg.data.id,init_text:20,init_image:10,grant_reason:'完成8月问卷·首次'});
   CODE=r.data.code;
-  L(`（本轮测试码：${CODE}）`);
+  L(`（本轮测试码：${CODE}，名单位置 #${SLOT}）`);
 }
 
 L('=== 1. 登录（还没激活）===');
@@ -41,13 +47,15 @@ const bad=await call('POST','/auth/redeem',{code:'STEM-XXXX-YYYY'});
 chk(bad.ok===false, `拒绝：${bad.error?.message}`);
 
 L('=== 4. 兑换码激活（故意用小写+空格，测宽容输入）===');
-const red=await call('POST','/auth/redeem',{code:'  '+CODE.toLowerCase().replace(/-/g,' ')+' '});
-chk(red.ok===true, '激活成功');
+const red=await call('POST','/auth/redeem',
+  {code:'  '+CODE.toLowerCase().replace(/-/g,' ')+' ', roster_entry_id:SLOT});
+chk(red.ok===true, `激活成功${red.ok?'':'：'+red.error?.message}`);
 if(red.ok){
   L('   身份:', red.data.teacher.class_name, red.data.teacher.position, '| 年龄班:', red.data.teacher.age_group);
   L('   额度:', JSON.stringify(red.data.quota));
   chk(red.data.teacher.activated===true, 'activated=true');
-  chk(red.data.teacher.phone===undefined, '激活响应里也没有手机号');
+  chk(red.data.teacher.phone===undefined, '激活响应里也没有手机号（016 之后库里根本没有这一列）');
+  chk(red.data.teacher.class_name==='中二班', '身份从名单那一行搬过来了');
   chk(red.data.quota.text.left===20 && red.data.quota.image.left===10, '首笔额度 20/10 到账');
 }
 

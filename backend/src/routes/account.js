@@ -17,7 +17,7 @@ import { ok, asyncRoute, badRequest, AppError, ErrorCode } from '../utils/errors
 import { normalizeCode } from '../utils/code.js';
 import { getQuota, listGrants } from '../services/quota.js';
 import { toTeacherDTO, signToken } from '../middleware/auth.js';
-import { normalizePhone } from '../services/roster.js';
+import { listOpenKindergartens, listOpenEntries } from '../services/roster.js';
 import { logger } from '../utils/logger.js';
 
 export const accountRouter = Router();
@@ -27,20 +27,25 @@ export const accountRouter = Router();
 //
 // 老师端只有一个输入框，她分不出也不需要分。后端按码的类型决定做哪件事：
 //
-//   activate  首次激活   要**码 + 手机号**，手机号跟 teacher_roster 名单核对
+//   activate  首次激活   要**码 + 她从名单里选的那个位置**
 //   topup     续兑       只要码，只加额度，身份一个字段都不动
 //   rebind    换绑       挪 openid，不发额度，**响应带新 token**
 //
-// 【为什么首次激活要两把钥匙】（2026-08-19 用户定，operations.md 第 1 节）
+// 【为什么首次激活要两样】（2026-08-19 定稿，operations.md 第 1 节）
 // 老师不登录 —— openid 是微信给的随机串，微信不告诉我们它属于哪个自然人。
 // 所以「她是谁」必须由别的东西建立：
-//   · 兑换码 证明「你是这批人里的」（问卷星在她提交答卷后当场发）
-//   · 手机号 证明「你是这批人里的哪一个」（她自己打，跟名单核对）
-// 只用手机号不行：它在一个园里不是秘密（微信群、报名表上都有），
-// 任何知道 A 老师号的人都能领走 A 的名额，而 A 被顶掉了还查不出是谁顶的。
+//   · 兑换码       证明「你是这批人里的」（问卷星在她提交答卷后当场发）
+//   · 从名单里选   证明「你是哪一个」（园所 → 班级 → 岗位·姓氏）
 //
-// ⚠️ 码**不绑在名单某一行上**，两把钥匙相互独立。绑了的话问卷星发的随机码
-// 就对不上她的号，「答卷后自动发码」当场断掉。别改回去。
+// 013 那一版是让她**填手机号**跟名单核对，016 换掉了：11 位手打，
+// 打错一位是常事，而她分不清是「码坏了」还是「我打错了」。
+// 从列表里认自己出错概率低一个数量级，而且她要证明的事情本来就只是
+// 「我是阳光幼儿园小一班的主班」—— 那句话里没有手机号。
+//
+// 要认下来的代价：从列表里选是一个**表单字段，不是钥匙**，
+// 谁有码都能滚到任何一行。所以真正的门槛只剩码那一把。可以接受，因为
+// 同事之间冒领没有收益（她自己填问卷也能拿到同样额度），
+// 而真会发生的「手滑选错同班另一位」是可查可改的 —— claimed_openid 记着是谁认领的。
 // ---------------------------------------------------------------
 accountRouter.post(
   '/redeem',
@@ -59,15 +64,40 @@ accountRouter.post(
 );
 
 /**
- * 首次激活：码 + 手机号。
+ * 激活那一屏的选择器数据 —— 园所 → 位置。
  *
- * 🔴 **校验失败绝不能消耗那个码。** 她手打 11 位数字，打错一位是常事 ——
- * 打错一次废掉一个码，她就再也进不来了。所以事务里的顺序是
+ * ⚠️ **必须带一个有效的码才给数据。** 不设这道门，任何人打开小程序
+ * 就能看到一整个园的老师名单。所以这里先校验码，再回名单。
+ *
+ * 挂在 requireAuth 后面但**不要求已激活**（否则就是「要激活才能激活」的死循环）。
+ */
+accountRouter.post(
+  '/roster/options',
+  asyncRoute(async (req, res) => {
+    const code = normalizeCode(req.body?.code);
+    if (!code) throw badRequest('先输兑换码');
+
+    // 换绑码不该能拉名单 —— 换绑的人已经有账号了，不需要选身份
+    const row = await queryOne(`SELECT status FROM redemption_codes WHERE code = $1`, [code]);
+    if (!row) throw badRequest('这个兑换码不存在，检查一下有没有敲错');
+    if (row.status === 'used') throw badRequest('这个兑换码已经被用过了');
+    if (row.status !== 'unused') throw badRequest('这个兑换码已经作废了，找发码给你的人要一个新的');
+
+    const kgId = req.body?.kindergarten_id ? Number(req.body.kindergarten_id) : null;
+    if (!kgId) return ok(res, { kindergartens: await listOpenKindergartens() });
+    return ok(res, { entries: await listOpenEntries(kgId) });
+  })
+);
+
+/**
+ * 首次激活：码 + 她从名单里选的那个位置。
+ *
+ * 🔴 **校验失败绝不能消耗那个码。** 所以事务里的顺序是
  * **先把所有校验做完，再做第一次写入**：任何一条校验不过就 return，
  * 那时候还什么都没写，commit 也是空的。
  */
 async function doActivate(req, res, code) {
-  const phone = normalizePhone(req.body?.phone);
+  const entryId = Number(req.body?.roster_entry_id) || null;
 
   const result = await withTransaction(async (client) => {
     // ---- 全部校验，一个字都还没写 ----
@@ -80,56 +110,18 @@ async function doActivate(req, res, code) {
     if (row.status === 'used') return { err: '这个兑换码已经被用过了' };
     if (row.status === 'void') return { err: '这个兑换码已经作废了，找发码给你的人要一个新的' };
 
-    // 身份从哪来：绑定码自带（老路，留给名单外的个别情况），
-    // 匿名码要靠她输的手机号去名单里找（主路）
-    let identity;
-    let rosterRow = null;
+    if (!entryId) return { err: '还要从名单里选一下你是哪一位' };
 
-    if (row.phone) {
-      // 绑定码。她要是也输了号，必须跟码上的一致 —— 不一致说明码发错人了
-      if (phone && phone !== row.phone) {
-        return { err: '这个兑换码不是发给这个手机号的，确认一下有没有拿错码' };
-      }
-      const dup = (await client.query(
-        `SELECT id FROM teachers WHERE phone = $1 AND id <> $2`,
-        [row.phone, req.teacherId])).rows[0];
-      if (dup) {
-        return { err: '这个手机号已经激活过一个账号了。要是换了微信，找发码给你的人给你一个换绑码' };
-      }
-      identity = {
-        phone: row.phone, real_name: row.real_name, position: row.position,
-        class_name: row.class_name, kindergarten_id: row.kindergarten_id, age_group: row.age_group,
-      };
-    } else {
-      // 匿名码 —— 主路径。必须有手机号，且在名单里
-      if (!phone) {
-        return { err: '还要填一下你的手机号，就是填问卷时留的那个' };
-      }
-      rosterRow = (await client.query(
-        `SELECT * FROM teacher_roster WHERE phone = $1 FOR UPDATE`, [phone])).rows[0];
+    // FOR UPDATE 挡住两个人同时认领同一个位置
+    const entry = (await client.query(
+      `SELECT * FROM teacher_roster WHERE id = $1 FOR UPDATE`, [entryId])).rows[0];
 
-      // 三句话要分得清 —— 这是她唯一的线索
-      if (!rosterRow) {
-        return { err: '名单里没有这个手机号，确认一下有没有打错，或者问园长你在不在名单里' };
-      }
-      if (rosterRow.status === 'void') {
-        return { err: '你在名单里的那一条已经作废了，找园长确认一下' };
-      }
-      if (rosterRow.status === 'claimed') {
-        return { err: '这个手机号已经激活过一个账号了。要是换了微信，找发码给你的人给你一个换绑码' };
-      }
-      // 同一个号不能同时挂在两个账号上（唯一索引也会拦，但这里先给一句人话）
-      const dup = (await client.query(
-        `SELECT id FROM teachers WHERE phone = $1 AND id <> $2`,
-        [phone, req.teacherId])).rows[0];
-      if (dup) {
-        return { err: '这个手机号已经激活过一个账号了。要是换了微信，找发码给你的人给你一个换绑码' };
-      }
-      identity = {
-        phone, real_name: rosterRow.real_name, position: rosterRow.position,
-        class_name: rosterRow.class_name, kindergarten_id: rosterRow.kindergarten_id,
-        age_group: rosterRow.age_group,
-      };
+    // 三句话要分得清 —— 这是她唯一的线索
+    if (!entry) return { err: '名单上找不到这一位，退回去重新选一次' };
+    if (entry.status === 'void') return { err: '名单上这一条已经作废了，找园长确认一下' };
+    if (entry.status === 'moved') return { err: '名单上这一条是旧记录了，退回去重新选一次' };
+    if (entry.status === 'claimed') {
+      return { err: '这个位置已经有人认领了。要是被同事选错了，跟我们说一声' };
     }
 
     // ---- 校验全过了，从这里开始写。三件事同生共死 ----
@@ -138,28 +130,27 @@ async function doActivate(req, res, code) {
     const teacher = (await client.query(
       // 一律 COALESCE：名单那几列可能是空的，不能把她已有的信息冲掉
       `UPDATE teachers
-          SET phone = COALESCE($1, phone), real_name = COALESCE($2, real_name),
-              position = COALESCE($3, position), class_name = COALESCE($4, class_name),
-              kindergarten_id = COALESCE($5, kindergarten_id),
-              age_group = COALESCE($6, age_group),
+          SET real_name = COALESCE($1, real_name),
+              position = COALESCE($2, position), class_name = COALESCE($3, class_name),
+              kindergarten_id = COALESCE($4, kindergarten_id),
+              age_group = COALESCE($5, age_group),
+              roster_entry_id = $6,
               activated_at = now(), updated_at = now()
         WHERE id = $7 RETURNING *`,
-      [identity.phone, identity.real_name, identity.position, identity.class_name,
-        identity.kindergarten_id, identity.age_group, req.teacherId])).rows[0];
+      [entry.real_name, entry.position, entry.class_name,
+        entry.kindergarten_id, entry.age_group, entry.id, req.teacherId])).rows[0];
 
     await client.query(
       `UPDATE redemption_codes SET status = 'used', used_by = $1, used_at = now() WHERE id = $2`,
       [req.teacherId, row.id]);
 
-    if (rosterRow) {
-      // claimed_openid 单独存一份：即使这个 teachers 行以后被注销清空，
-      // 「谁顶了谁的名额」也要永远查得到
-      await client.query(
-        `UPDATE teacher_roster
-            SET status = 'claimed', claimed_by = $1, claimed_openid = $2, claimed_at = now()
-          WHERE id = $3`,
-        [req.teacherId, req.teacher.openid, rosterRow.id]);
-    }
+    // claimed_openid 单独存一份：即使这个 teachers 行以后被注销清空，
+    // 「谁顶了谁的名额」也要永远查得到
+    await client.query(
+      `UPDATE teacher_roster
+          SET status = 'claimed', claimed_by = $1, claimed_openid = $2, claimed_at = now()
+        WHERE id = $3`,
+      [req.teacherId, req.teacher.openid, entry.id]);
 
     await client.query(
       `INSERT INTO quota_grants (teacher_id, delta_text, delta_image, reason)
@@ -400,14 +391,33 @@ accountRouter.delete(
       await client.query(`DELETE FROM conversations WHERE teacher_id = $1`, [teacherId]);
       await client.query(`DELETE FROM teacher_memories WHERE teacher_id = $1`, [teacherId]);
       await client.query(
+        // phone 那一列 016 迁移已经删了 —— 库里根本没有老师的手机号
         `UPDATE teachers
             SET status = 'deleted',
-                phone = NULL, real_name = NULL, nickname = NULL, avatar_url = NULL,
+                real_name = NULL, nickname = NULL, avatar_url = NULL,
                 kindergarten_name = NULL, kindergarten_id = NULL,
                 class_name = NULL, position = NULL, age_group = NULL, teaching_years = NULL,
+                roster_entry_id = NULL,
                 preferences = '{}'::jsonb,
                 updated_at = now()
           WHERE id = $1`,
+        [teacherId]
+      );
+      /**
+       * 她注销了，名单上那个位置**放回「等她来认领」**。
+       *
+       * 不这么做的话那一行永远是 claimed 而认领人已经是个空壳，
+       * 那个位置就废了 —— 而位置是园所的，不是她的：
+       * 明年这个班还有主班，只是换了人。
+       *
+       * 但 claimed_openid 留着不清：那是「谁认领过这个位置」的历史，
+       * 出争议时要查得到（跟注销「留壳去身份」同一个道理 ——
+       * 删的是她的身份，不是发生过的事）。
+       */
+      await client.query(
+        `UPDATE teacher_roster
+            SET status = 'pending', claimed_by = NULL, claimed_at = NULL
+          WHERE claimed_by = $1`,
         [teacherId]
       );
     });

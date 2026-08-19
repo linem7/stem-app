@@ -8,7 +8,7 @@
 
     <template v-else>
       <!-- 档案。这里的昵称是微信昵称，**不是**问卷里那个真实姓名 ——
-           真实姓名和手机号永不下发前端，接口里根本没有那两个字段 -->
+           真实姓名永不下发前端（手机号 016 迁移之后库里根本没有这一列）-->
       <view class="hd">
         <text class="q">{{ teacher.nickname || '老师' }}</text>
         <text v-if="profileLine" class="hd__sub">{{ profileLine }}</text>
@@ -404,7 +404,7 @@ function onDeleteDataTap() {
   uni.showModal({
     title: '删除全部数据？',
     content:
-      '你的教案、配图、记忆，以及手机号和姓名都会被删掉，删完这个账号就不能再用了。' +
+      '你的教案、配图、记忆和姓名都会被删掉，删完这个账号就不能再用了。' +
       '已经用于科研的那部分（你提交过的建议和评价）撤不回来，但不再关联到你。',
     confirmText: '我要删除',
     confirmColor: COLORS.coralDeep,

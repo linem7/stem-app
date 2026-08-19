@@ -12,7 +12,6 @@ const L=console.log; let fail=0;
 // 每次跑用不同的手机号和账号 —— 回归测试必须能反复跑，
 // 上一轮留下的数据不该让这一轮失败（第一版就栽在这上面）
 const RND=String(Date.now()).slice(-8);
-const PHONE=`138${RND}`;
 const DEVCODE=`dev:iso_${RND}`;
 const chk=(c,m)=>{L(`  ${c?'✓':'✗'} ${m}`); if(!c) fail++;};
 
@@ -26,82 +25,75 @@ const cross2=await call(B+'/v1','GET','/me/quota',A);
 chk(cross2.status===401 || cross2.ok===false, '管理员 token 调不了业务接口');
 
 L('=== 兑换码全流程 ===');
-const kg=await adm('GET','/kindergartens');
-const kgId=kg.data.items[0]?.id;
-const c1=await adm('POST','/codes',{phone:PHONE,real_name:'王老师',kindergarten_id:kgId,class_name:'小一班',position:'主班',age_group:'小班',init_text:20,init_image:10,grant_reason:'完成8月问卷'});
+// 016 之后**码只是一张入场券**，不带任何身份 —— 身份全部来自名单。
+// 所以建码只有三个参数：给哪个园、初始额度、原因
+const myKg=await adm('POST','/kindergartens',{name:`后台回归园_${RND}`});
+const kgId=myKg.data.id;
+const c1=await adm('POST','/codes',{kindergarten_id:kgId,init_text:20,init_image:10,grant_reason:'完成8月问卷'});
 chk(c1.ok, `生成码 ${c1.data?.code}`);
 chk(/^STEM-[34679ACDEFGHJKMNPQRTUVWXY]{4}-[34679ACDEFGHJKMNPQRTUVWXY]{4}$/.test(c1.data?.code||''), '字符集避开易混字（无 0O1Il2Z5S8B）');
-
-const dupPhone=await adm('POST','/codes',{phone:PHONE,real_name:'王老师'});
-chk(!dupPhone.ok, `同手机号重复发码被拒：${dupPhone.error?.message}`);
-const badPhone=await adm('POST','/codes',{phone:'123',real_name:'x'});
-chk(!badPhone.ok, `手机号格式校验：${badPhone.error?.message}`);
-// 2026-08-18 起手机号姓名都可以不填：不填就是**匿名码**，谁拿到谁能兑。
-// 用来批量发给园所、或灌进问卷星当奖励
-const anon=await adm('POST','/codes',{});
-chk(anon.ok, `什么都不填 = 匿名码：${anon.data?.code}`);
 const batch=await adm('POST','/codes/batch',{count:3,grant_reason:'回归测试批量'});
-chk(batch.ok && batch.data.created.length===3, `批量建码不需要名单：一次拿到 ${batch.data?.created?.length} 个`);
+chk(batch.ok && batch.data.created.length===3, `批量建码：一次拿到 ${batch.data?.created?.length} 个`);
 
-// 2026-08-19 起匿名码**首次激活要配一份名单**：码证明「你是这批人里的」，
-// 手机号证明「你是哪一个」。所以先把她放进名单，再兑
-// （只测「能不能跑通」；激活的全部边界在 activation-test.mjs）
-const ANONPHONE=`137${RND}`;
-await adm('POST','/roster/import',{text:`匿名码老师, ${ANONPHONE}, 中一班, 主班, 中班`,dry_run:false});
-const anonUser=await call(B+'/v1','POST','/auth/login',null,{code:`dev:anon_${RND}`});
-const noPhone=await call(B+'/v1','POST','/auth/redeem',anonUser.data.token,{code:anon.data.code});
-chk(!noPhone.ok, `匿名码光有码不够，还要手机号：${noPhone.error?.message}`);
-const anonRedeem=await call(B+'/v1','POST','/auth/redeem',anonUser.data.token,
-  {code:anon.data.code, phone:ANONPHONE});
-chk(anonRedeem.ok, `码 + 名单里的手机号能激活：+${anonRedeem.data?.granted?.text} 教案 / +${anonRedeem.data?.granted?.image} 配图`);
-// 后台既能按码找人（她可能没留姓名），也能按手机号找
-const byCode=await adm('GET',`/teachers?q=${anon.data.code.replace(/-/g,'')}`);
-chk(byCode.ok && byCode.data.items.length===1, '后台能按兑换码搜到她');
+L('=== 名单：一份岗位清单（没有手机号）===');
+const NAME=`王小美${RND}`;
+const imp=await adm('POST','/roster/import',
+  {text:`${NAME}, 小一班, 主班, 小班`,kindergarten_id:kgId,dry_run:false});
+chk(imp.ok && imp.data.imported===1, `导入 1 个岗位，teacher_ref=${imp.data?.created?.[0]?.teacher_ref}`);
+const SLOT=imp.data.created[0].id;
+const REF=imp.data.created[0].teacher_ref;
+// 重复导入同一个人（园+班+岗位+姓名全同）要跳过，不覆盖
+const again=await adm('POST','/roster/import',
+  {text:`${NAME}, 小一班, 主班, 小班`,kindergarten_id:kgId,dry_run:true});
+chk(again.data.summary.duplicate===1, '同一个人重复导入被认出来（跳过，不覆盖）');
 
-L('=== 老师用这个码激活 ===');
-const red=await usr('POST','/auth/redeem',{code:c1.data.code});
-chk(red.ok, '激活成功');
+L('=== 老师激活：码 + 从名单里选一个位置 ===');
+const red=await usr('POST','/auth/redeem',{code:c1.data.code, roster_entry_id:SLOT});
+chk(red.ok, `激活成功${red.ok?'':'：'+red.error?.message}`);
 chk(red.data?.quota?.text?.left===20, '首笔额度到账');
+chk(red.data?.teacher?.class_name==='小一班', '身份从名单那一行搬过来了');
 
-L('=== 手机号打码 ===');
+L('=== 姓名打码 + 三层身份 ===');
 const list=await adm('GET','/teachers');
-const wang=list.data.items.find(t=>t.phone_masked===`138****${PHONE.slice(-4)}`);
-chk(wang?.phone_masked===`138****${PHONE.slice(-4)}`, `列表打码：${wang?.phone_masked}`);
-chk(wang?.phone===undefined, '列表里没有全号');
+const wang=list.data.items.find(t=>t.teacher_ref===REF);
+chk(Boolean(wang), `列表里按 teacher_ref 找得到她：${REF}`);
+chk(wang?.real_name===NAME, '超管看到全名');
+chk(wang?.phone===undefined && wang?.phone_masked===undefined,
+  '🔴 列表里根本没有手机号字段（016 删了那一列）');
 const detail=await adm('GET',`/teachers/${wang.id}`);
-chk(detail.data.teacher.phone===PHONE, '详情页才给全号');
+chk(detail.data.teacher.teacher_ref===REF && detail.data.teacher.roster_entry_id===SLOT,
+  '详情带三层身份：人（teacher_ref）+ 位置（roster_entry_id）+ 账号（id）');
 
-L('=== 发额度 ===');
+L('=== 发额度（界面上撤了，接口留着当应急通道）===');
 const noReason=await adm('POST',`/teachers/${wang.id}/grant`,{delta_text:10,reason:''});
 chk(!noReason.ok, `不写原因发不了：${noReason.error?.message}`);
 const g=await adm('POST',`/teachers/${wang.id}/grant`,{delta_text:20,delta_image:10,reason:'完成9月问卷'});
 chk(g.ok && g.data.quota.text.granted===40, `发放后累计 ${g.data?.quota?.text?.granted}`);
 
-L('=== 搜索 ===');
-const byPhone=await adm('GET',`/teachers?q=${PHONE}`);
-chk(byPhone.data.items.length===1, '按手机号搜得到（从问卷粘过来直接搜）');
-const byName=await adm('GET','/teachers?q=王');
-chk(byName.data.items.length>=1, '按姓名搜得到');
+L('=== 搜索：姓名 / 班级 / teacher_ref / 兑换码 ===');
+chk((await adm(`GET`,`/teachers?q=${encodeURIComponent(NAME)}`)).data.items.length===1, '按姓名搜得到');
+chk((await adm('GET',`/teachers?q=${REF}`)).data.items.length>=1, '按 teacher_ref 搜得到（对上我的名单）');
+chk((await adm('GET','/teachers?q=小一班')).data.items.length>=1, '按班级搜得到');
+const byCode=await adm('GET',`/teachers?q=${c1.data.code.replace(/-/g,'')}`);
+chk(byCode.data.items.length===1, '按兑换码搜得到（对上问卷星那边的记录）');
 
 L('=== 老师详情要铺满：她是谁 / 额度 / 用得怎么样 / 说了什么 ===');
 chk(detail.data.teacher.redeem_code===c1.data.code,
   `详情带上她兑的码 ${detail.data.teacher.redeem_code} —— 匿名码老师唯一的身份锚点`);
-const anonId=byCode.data.items[0].id;
-const anonDetail=await adm('GET',`/teachers/${anonId}`);
-// 2026-08-19 起匿名码激活的老师**也有手机号了** —— 它从名单那一行搬过来的。
-// 这条断言原来验「没有手机号」，那个前提已经没了。
-// 现在验真正的不变量：**码和身份都在**，两条路都能认出她是谁
-chk(anonDetail.data.teacher.redeem_code===anon.data.code, '详情认得出她兑的是哪个码');
-chk(anonDetail.data.teacher.phone===ANONPHONE,
-  `手机号从名单搬进了账号：${anonDetail.data?.teacher?.phone}`);
-chk(anonDetail.data.teacher.real_name==='匿名码老师' && anonDetail.data.teacher.class_name==='中一班',
-  '姓名班级也从名单搬过来了');
+const anonDetail=await adm('GET',`/teachers/${wang.id}`);
+// 认她有两条路，两条都要在：**兑换码**对上问卷星那边的记录，
+// **teacher_ref** 对上我的名单。库里没有手机号（016 删了那一列）
+chk(anonDetail.data.teacher.redeem_code===c1.data.code, '详情认得出她兑的是哪个码');
+chk(anonDetail.data.teacher.phone===undefined,
+  '🔴 详情里根本没有 phone 字段 —— 那一列已经从库里删掉了');
+chk(anonDetail.data.teacher.real_name===NAME && anonDetail.data.teacher.class_name==='小一班',
+  '姓名班级从名单那一行搬过来了');
 chk(anonDetail.data.images && typeof anonDetail.data.images.total==='number'
     && Array.isArray(anonDetail.data.images.by_purpose),
   '带配图用量（张数 / 成功失败 / 成本 / 按用途）');
 chk(typeof anonDetail.data.plans_truncated==='boolean',
   '说明教案列表有没有被截断 —— 不说的话那个数会被当成总数');
-chk(anonDetail.data.grants.length===1 && anonDetail.data.grants[0].reason,
+chk(anonDetail.data.grants.length===2 && anonDetail.data.grants[0].reason,
   '台账带原因（发额度必填那一项，就是为了这一眼）');
 
 // 2026-08-18：只列写完的教案，草稿只给个数。

@@ -31,14 +31,19 @@ import { listModels, generateWith, FORMATS, isKnownFormat } from '../services/im
 import { uploadImage, buildImageUrl } from '../services/imageStore.js';
 import { getSetting, setSetting, SETTING_KEYS } from '../services/appSettings.js';
 import { getMoney, listTopups, addTopup, TOPUP_CHANNELS } from '../services/costLedger.js';
-import { parseRoster, annotateExisting, summarize } from '../services/roster.js';
+import { parseRoster, annotateExisting, summarize, surnameOf } from '../services/roster.js';
 import { logger } from '../utils/logger.js';
 
 export const adminRouter = Router();
 
 const TOKEN_TTL = 12 * 3600; // 12 小时，一个工作日
 
-/** 139****1234 —— 保留前 3 后 4，够认人又不至于满屏号码 */
+/**
+ * 139****1234 —— 保留前 3 后 4，够认人又不至于满屏号码。
+ *
+ * **现在只有园长的联系电话用它**。老师的手机号 016 迁移已经从库里删掉了 ——
+ * 她的号只在问卷星那边，要联系她去那边看答卷。
+ */
 function maskPhone(p) {
   if (!p) return null;
   const s = String(p);
@@ -281,7 +286,8 @@ adminRouter.get('/roster', asyncRoute(async (req, res) => {
   const q = String(req.query.q || '').trim();
   if (q) {
     params.push(`%${q}%`);
-    where.push(`(r.phone LIKE $${params.length} OR r.real_name LIKE $${params.length})`);
+    where.push(`(r.real_name LIKE $${params.length} OR r.class_name LIKE $${params.length}
+                 OR r.teacher_ref::text LIKE $${params.length})`);
   }
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
@@ -298,14 +304,18 @@ adminRouter.get('/roster', asyncRoute(async (req, res) => {
     items: rows.rows.map((r) => ({
       id: r.id,
       // 手机号跟老师详情同一条纪律：一般管理员只看打码
-      phone: req.isSuper ? r.phone : maskPhone(r.phone),
-      phone_masked: !req.isSuper,
-      real_name: r.real_name,
+      // teacher_ref = **人**（换班也不变，研究追人按它归组）
+      // id 本身 = **位置**（class_teacher_id）：人 × 园 × 班 × 岗位
+      teacher_ref: r.teacher_ref,
+      // 姓名对一般管理员只给姓氏 —— 跟老师那边同一条纪律
+      real_name: req.isSuper ? r.real_name : `${surnameOf(r.real_name)}**`,
+      name_masked: !req.isSuper,
       kindergarten: r.kindergarten,
       kindergarten_id: r.kindergarten_id,
       class_name: r.class_name,
       position: r.position,
       age_group: r.age_group,
+      note_public: r.note_public,
       status: r.status,
       claimed_teacher_id: r.claimed_by,
       claimed_at: r.claimed_at,
@@ -331,7 +341,7 @@ adminRouter.post('/roster/import', asyncRoute(async (req, res) => {
   if (!text.trim()) throw badRequest('粘一段名单进来，一行一个人');
 
   const kgId = b.kindergarten_id ? Number(b.kindergarten_id) : null;
-  const rows = await annotateExisting(parseRoster(text));
+  const rows = await annotateExisting(parseRoster(text), kgId);
   const summary = summarize(rows);
   const dryRun = b.dry_run !== false;
 
@@ -341,23 +351,97 @@ adminRouter.post('/roster/import', asyncRoute(async (req, res) => {
   // 整批一个事务：要么全写进去，要么一行都不写 ——
   // 半截导入之后没人知道该从哪一行接着来
   const good = rows.filter((r) => r.ok);
-  await withTransaction(async (client) => {
+  const created = await withTransaction(async (client) => {
+    const out = [];
     for (const r of good) {
-      await client.query(
+      // teacher_ref 每行分配一个新的：这一行代表一个**人**第一次进名单。
+      // 她以后换班，是新开一行、沿用同一个 ref（走 /roster/:id/reassign）
+      const row = (await client.query(
         `INSERT INTO teacher_roster
-           (phone, real_name, kindergarten_id, class_name, position, age_group, note, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [r.phone, r.real_name, kgId, r.class_name, r.position, r.age_group,
+           (teacher_ref, real_name, kindergarten_id, class_name, position, age_group, note, created_by)
+         VALUES (nextval('teacher_ref_seq'),$1,$2,$3,$4,$5,$6,$7)
+         RETURNING id, teacher_ref`,
+        [r.real_name, kgId, r.class_name, r.position, r.age_group,
           String(b.note || '').trim().slice(0, 128) || null, req.adminId]
-      );
+      )).rows[0];
+      out.push(row);
     }
+    return out;
   });
 
   await logAction({ adminId: req.adminId, action: 'import_roster', target: `roster:${good.length}`,
     detail: { imported: good.length, skipped: summary.total - good.length, kindergarten_id: kgId } });
-  // 日志里**不放手机号**（三条铁律之一），只记数量
+  // 日志里**不放姓名**（三条铁律之一），只记数量
   logger.info('roster_imported', { by: req.adminId, imported: good.length });
-  return ok(res, { rows, summary, imported: good.length, dry_run: false });
+  return ok(res, { rows, summary, imported: good.length, created, dry_run: false });
+}));
+
+/**
+ * 她换班了。
+ *
+ * **新开一行、沿用同一个 `teacher_ref`**，旧那一行标 `moved` 留着不删 ——
+ * 那是历史，研究要用它区分「她在小一班那半年」和「她在中二班这半年」。
+ * 她账号的 `roster_entry_id` 指到新那一行。**她自己什么都不用做。**
+ *
+ * 这是「追踪对象可能是人、也可能是班」那个需求的落点：
+ * 追人按 `teacher_ref` 归组，追班按（园所 + 班级）归组，两种都算得出来。
+ */
+adminRouter.post('/roster/:id/reassign', asyncRoute(async (req, res) => {
+  const id = Number(req.params.id);
+  const b = req.body || {};
+
+  const out = await withTransaction(async (client) => {
+    const old = (await client.query(
+      `SELECT * FROM teacher_roster WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+    if (!old) return { err: '名单上没有这一条' };
+    if (old.status === 'void') return { err: '这一条已经作废了' };
+    if (old.status === 'moved') return { err: '这一条已经是旧记录了，去她当前那一条上操作' };
+
+    const className = b.class_name === undefined ? old.class_name : String(b.class_name).trim() || null;
+    const ageGroup = b.age_group === undefined ? old.age_group : String(b.age_group).trim() || null;
+    const position = b.position === undefined ? old.position : String(b.position).trim() || null;
+    const kgId = b.kindergarten_id === undefined ? old.kindergarten_id : (Number(b.kindergarten_id) || null);
+
+    if (className === old.class_name && position === old.position && kgId === old.kindergarten_id) {
+      return { err: '班级、岗位、园所都没变，不用挪' };
+    }
+
+    const fresh = (await client.query(
+      `INSERT INTO teacher_roster
+         (teacher_ref, real_name, kindergarten_id, class_name, position, age_group,
+          note_public, note, created_by, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [old.teacher_ref, old.real_name, kgId, className, position, ageGroup,
+        old.note_public, old.note, req.adminId,
+        // 她已经有账号了就直接算 claimed（她不用再认领一次）；
+        // 还没激活的话新那一行仍然等她来认领
+        old.status === 'claimed' ? 'claimed' : 'pending']
+    )).rows[0];
+
+    if (old.status === 'claimed') {
+      await client.query(
+        `UPDATE teacher_roster SET claimed_by = $1, claimed_openid = $2, claimed_at = $3
+          WHERE id = $4`,
+        [old.claimed_by, old.claimed_openid, old.claimed_at, fresh.id]);
+      // 账号跟着指到新位置，并同步她的班级岗位（前端「我的」页显示的就是这些）
+      await client.query(
+        `UPDATE teachers
+            SET roster_entry_id = $1, class_name = $2, position = $3,
+                age_group = COALESCE($4, age_group), kindergarten_id = $5, updated_at = now()
+          WHERE id = $6`,
+        [fresh.id, className, position, ageGroup, kgId, old.claimed_by]);
+    }
+
+    // 旧那一行标 moved —— **不删**，它是历史
+    await client.query(`UPDATE teacher_roster SET status = 'moved' WHERE id = $1`, [old.id]);
+    return { entry: fresh, moved_from: old.id };
+  });
+
+  if (out.err) throw badRequest(out.err);
+  await logAction({ adminId: req.adminId, action: 'reassign_roster',
+    target: `roster:${out.entry.id}`,
+    detail: { teacher_ref: out.entry.teacher_ref, from: out.moved_from } });
+  return ok(res, out);
 }));
 
 adminRouter.post('/roster/:id/void', asyncRoute(async (req, res) => {
@@ -386,20 +470,22 @@ adminRouter.get(
     if (q) {
       params.push(`%${q}%`);
       params.push(`%${q.toUpperCase().replace(/[\s_-]/g, '')}%`);
-      // 手机号、姓名、**兑换码**都能搜。
-      // 码这条是后加的：批量发的匿名码不带手机号，那批老师按手机号根本搜不到，
-      // 只能靠「她兑的是哪个码」来对上问卷星那边的记录
+      // 姓名、班级、**兑换码**、**teacher_ref** 都能搜。
+      // 库里没有手机号了（016 迁移删的），所以对账的锚点是
+      // 「她兑的是哪个码」（对上问卷星那边的记录）和 teacher_ref（对上我的名单）
       where.push(`(
-        t.phone LIKE $${params.length - 1}
-        OR t.real_name LIKE $${params.length - 1}
+        t.real_name LIKE $${params.length - 1}
+        OR t.class_name LIKE $${params.length - 1}
+        OR r.teacher_ref::text LIKE $${params.length - 1}
         OR REPLACE(REPLACE(rc.code, '-', ''), ' ', '') LIKE $${params.length}
       )`);
     }
 
     const rows = (await query(`
-      SELECT t.id, t.phone, t.real_name, t.position, t.class_name, t.age_group,
+      SELECT t.id, t.real_name, t.position, t.class_name, t.age_group,
              t.last_login_at, t.activated_at, t.status,
              k.name AS kindergarten,
+             r.teacher_ref,
              rc.code AS redeem_code,
              COALESCE(g.text,0)::int  AS granted_text,
              COALESCE(g.image,0)::int AS granted_image,
@@ -408,6 +494,7 @@ adminRouter.get(
              COALESCE(i.n,0)::int     AS images
         FROM teachers t
         LEFT JOIN kindergartens k ON k.id = t.kindergarten_id
+        LEFT JOIN teacher_roster r ON r.id = t.roster_entry_id
         LEFT JOIN redemption_codes rc ON rc.used_by = t.id
         LEFT JOIN (SELECT teacher_id, SUM(delta_text) text, SUM(delta_image) image
                      FROM quota_grants GROUP BY teacher_id) g ON g.teacher_id = t.id
@@ -424,9 +511,12 @@ adminRouter.get(
         const usedText = r.plans + r.extra_revisions;
         return {
           id: r.id,
-          phone_masked: maskPhone(r.phone),   // 列表只给打码的
-          real_name: r.real_name,
-          redeem_code: r.redeem_code,         // 匿名码激活的老师只能靠它认人
+          // teacher_ref = **人**：她换班也不变，研究追人按它归组
+          teacher_ref: r.teacher_ref,
+          // 姓名对一般管理员只给姓氏
+          real_name: req.isSuper ? r.real_name : `${surnameOf(r.real_name)}**`,
+          name_masked: !req.isSuper,
+          redeem_code: r.redeem_code,
           kindergarten: r.kindergarten,
           class_name: r.class_name,
           position: r.position,
@@ -445,9 +535,9 @@ adminRouter.get(
 
 /**
  * 老师详情。这一页要回答四件事，缺哪一件都得跳出去查：
- *   1. **她是谁** —— 匿名码激活的老师**没有手机号**，只有一个兑换码。
- *      不把码铺出来，这批人在后台就是一行无名氏（这是匿名码的既定代价，
- *      「问卷答卷 ↔ 账号」的对应关系在问卷星那边，靠码去对）
+ *   1. **她是谁** —— 三层：`teacher_ref`（人，换班也不变）、
+ *      `roster_entry_id`（位置 = 人 × 园 × 班 × 岗位）、她兑的那个码。
+ *      **库里没有手机号**（016 迁移删的），要联系她去问卷星那边看答卷
  *   2. **额度用到哪了** —— 台账。**不再有发放表单**（2026-08-18）：
  *      额度只走兑换码一条路，我建码发给她，她自己兑
  *   3. **她用得怎么样** —— 写完几份、每份出到第几版、画了几张、花了多少钱
@@ -462,9 +552,10 @@ adminRouter.get(
   asyncRoute(async (req, res) => {
     const id = Number(req.params.id);
     const t = await queryOne(
-      `SELECT t.*, k.name AS kindergarten, rc.code AS redeem_code
+      `SELECT t.*, k.name AS kindergarten, rc.code AS redeem_code, r.teacher_ref
          FROM teachers t
          LEFT JOIN kindergartens k ON k.id = t.kindergarten_id
+         LEFT JOIN teacher_roster r ON r.id = t.roster_entry_id
          LEFT JOIN redemption_codes rc ON rc.used_by = t.id
         WHERE t.id = $1`, [id]);
     if (!t) throw notFound('没有这位老师');
@@ -526,11 +617,14 @@ adminRouter.get(
     return ok(res, {
       teacher: {
         id: t.id,
-        // 全号只给超管。一般管理员做运营用不着完整号码 ——
-        // 少一个人能看到，对老师的那句承诺就多一分是真的
-        phone: req.isSuper ? t.phone : maskPhone(t.phone),
-        phone_masked: !req.isSuper,
-        real_name: t.real_name,
+        // 三层身份：人 / 位置 / 账号（016 迁移，operations.md 第 1 节）
+        teacher_ref: t.teacher_ref,
+        roster_entry_id: t.roster_entry_id,
+        // 姓名全名只给超管。一般管理员做运营用不着 ——
+        // 少一个人能看到，对老师的那句承诺就多一分是真的。
+        // **手机号根本不存**（016 迁移删了那一列）
+        real_name: req.isSuper ? t.real_name : `${surnameOf(t.real_name)}**`,
+        name_masked: !req.isSuper,
         // 码不是身份信息（它不指向某个自然人），一般管理员也能看 ——
         // 否则她们连「这是谁」都答不上来，运营就做不了
         redeem_code: t.redeem_code,
@@ -679,10 +773,7 @@ adminRouter.get(
     return ok(res, {
       items: rows.map((r) => ({
         id: r.id, code: r.code,
-        phone_masked: maskPhone(r.phone),
-        real_name: r.real_name,
         kindergarten: r.kindergarten,
-        class_name: r.class_name, position: r.position, age_group: r.age_group,
         init_text: r.init_text, init_image: r.init_image,
         grant_reason: r.grant_reason,
         status: r.status, teacher_id: r.teacher_id,
@@ -695,53 +786,32 @@ adminRouter.get(
 /**
  * 建一个码。
  *
- * **码不绑手机号**（2026-08-18 用户定）。原来必须填手机号和姓名，
- * 因为那时的模型是「一人一码、按手机号对账」；现在改成一批匿名码，
- * 谁拿到谁能兑 —— 发的时候不需要知道她是谁。
+ * **码只是一张入场券**，不带任何身份（016 迁移把那几列删了）。
+ * 身份全部来自名单 —— 她激活时从名单里选自己是哪一位。
  *
- * 代价要说清楚：**我们库里不再有「问卷答卷 ↔ 小程序账号」的对应关系**。
- * 那份对应关系现在只存在于问卷星那边（哪个手机号领到了哪个码）。
- * 所以后台按手机号搜老师，对这些人搜不到 —— 改成按**兑换码**搜（老师列表已带上她用的码）。
- * 手机号姓名仍然可以填，填了就还是老规矩（一人一码 + 查重）。
+ * 所以这里只有三个参数：给哪个园（可不填）、初始额度、原因。
+ * 原来还能填手机号姓名建「绑定码」，那条路撤掉了：
+ * 留着两套激活逻辑，以后改其中一条一定会忘了另一条。
  */
 adminRouter.post(
   '/codes',
   asyncRoute(async (req, res) => {
     const b = req.body || {};
-    const phone = String(b.phone || '').replace(/\D/g, '');
-    const realName = String(b.real_name || '').trim();
-
-    // 填了手机号就按老规矩查重：填了半个（比如 138）多半是敲错，不是想留空
-    if (phone) {
-      if (!/^1\d{10}$/.test(phone)) throw badRequest('手机号看着不对，应该是 11 位。不想绑就整个留空');
-      const dup = await queryOne(`SELECT id FROM teachers WHERE phone = $1`, [phone]);
-      if (dup) throw badRequest('这个手机号已经激活过账号了，直接在她的页面加额度就行');
-      const pending = await queryOne(
-        `SELECT code FROM redemption_codes WHERE phone = $1 AND status = 'unused'`, [phone]);
-      if (pending) throw badRequest(`这个手机号已经有一个没用的码：${pending.code}`);
-    }
-
     const row = await queryOne(
       `INSERT INTO redemption_codes
-         (code, phone, real_name, kindergarten_id, class_name, position, age_group,
-          init_text, init_image, grant_reason)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+         (code, kindergarten_id, init_text, init_image, grant_reason)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
       [
         generateCode(),
-        phone || null,
-        realName || null,
         b.kindergarten_id ? Number(b.kindergarten_id) : null,
-        b.class_name || null,
-        b.position || null,
-        b.age_group || null,
         Number(b.init_text) > 0 ? Number(b.init_text) : 20,
         Number(b.init_image) > 0 ? Number(b.init_image) : 10,
         String(b.grant_reason || '').trim() || '首次激活',
       ]
     );
     await logAction({ adminId: req.adminId, action: 'create_code', target: `code:${row.code}`,
-      detail: { init_text: row.init_text, init_image: row.init_image, bound: Boolean(phone) } });
-    logger.info('code_created', { by: req.adminId, code_id: row.id, bound: Boolean(phone) });
+      detail: { init_text: row.init_text, init_image: row.init_image } });
+    logger.info('code_created', { by: req.adminId, code_id: row.id });
     return ok(res, { code: row.code, id: row.id });
   })
 );
@@ -1354,24 +1424,20 @@ adminRouter.post('/codes/batch', asyncRoute(async (req, res) => {
 const CODE_STATUS_CN = { unused: '未使用', used: '已使用', void: '已作废' };
 
 /**
- * 导出 CSV。
+ * 导出 CSV。用途是把码灌进问卷星当奖励，或整批交给园所。
  *
- * **超管专属**：可能带手机号全号。一般管理员在列表里看到的是遮住的，
- * 导出要是不设限，那道遮挡就形同虚设。
+ * 2026-08-19 之后**码上没有任何身份信息了**（016 迁移删了那几列），
+ * 所以这份 CSV 只有六列，也不再有「手机号那列印着字面 null」那个毛病 ——
+ * 那一列根本不存在了。之前修过的另两处保留：
+ *   · 状态出中文（`unused` 印在给人看的表上等于没写）
+ *   · `codes=A,B,C` 只导刚建的那一批（「发给某个园」要的是这一批，
+ *     不是历史上所有未使用的码）
  *
- * 2026-08-18 修了三处实测出来的毛病（用户说「格式不对」，查出来是这三条）：
- *   1. **手机号那列印着字面的 `null`** —— 原来写的是 `` `\t${r.phone}` ``，
- *      匿名码的 phone 是 NULL，模板字符串把它变成了 "null" 四个字母。
- *      匿名码是现在的主路径，所以这一列绝大多数行都是 "null"
- *   2. **状态印英文** unused / void
- *   3. **匿名码那 6 列永远是空的**（手机号/姓名/班级/岗位/年龄班），11 列里 6 列白占。
- *      所以按内容动态决定列：这一批全是匿名码就只导 5 列
+ * 仍然锁超管：它是一份能直接兑成额度的东西，等于一叠现金券。
  */
 adminRouter.get('/codes/export', requireSuper, asyncRoute(async (req, res) => {
   const status = String(req.query.status || 'unused');
   const only = String(req.query.code || '').trim();
-  // codes=A,B,C —— 刚建的那一批，只导这几个。
-  // 「发给某个园或某个平台」要的就是这一批，不是历史上所有未使用的码
   const list = String(req.query.codes || '').split(',').map((s) => s.trim()).filter(Boolean);
 
   const params = [];
@@ -1381,39 +1447,21 @@ adminRouter.get('/codes/export', requireSuper, asyncRoute(async (req, res) => {
   else if (status !== 'all') { params.push(status); where = `WHERE c.status = $${params.length}`; }
 
   const rows = (await query(`
-    SELECT c.code, c.phone, c.real_name, c.class_name, c.position, c.age_group,
-           c.init_text, c.init_image, c.status, c.created_at, k.name AS kindergarten
+    SELECT c.code, c.init_text, c.init_image, c.grant_reason, c.status, c.created_at,
+           k.name AS kindergarten
       FROM redemption_codes c
       LEFT JOIN kindergartens k ON k.id = c.kindergarten_id
     ${where} ORDER BY c.created_at DESC LIMIT 2000`, params)).rows;
 
-  // 这一批里有没有绑定码？一个都没有就不导那 6 列
-  const hasIdentity = rows.some((r) => r.phone || r.real_name || r.class_name || r.position || r.age_group);
-
-  const cols = hasIdentity
-    ? [
-      ['兑换码', (r) => r.code],
-      // 手机号前面加制表符，否则 Excel 会把 13800000000 显示成 1.38E+10。
-      // 空就真的留空 —— 不能让模板字符串把 null 印出来
-      ['手机号', (r) => (r.phone ? `\t${r.phone}` : '')],
-      ['姓名', (r) => r.real_name || ''],
-      ['幼儿园', (r) => r.kindergarten || ''],
-      ['班级', (r) => r.class_name || ''],
-      ['岗位', (r) => r.position || ''],
-      ['年龄班', (r) => r.age_group || ''],
-      ['教案额度', (r) => r.init_text],
-      ['配图额度', (r) => r.init_image],
-      ['状态', (r) => CODE_STATUS_CN[r.status] || r.status],
-      ['创建时间', (r) => new Date(r.created_at).toISOString().slice(0, 10)],
-    ]
-    : [
-      ['兑换码', (r) => r.code],
-      ['幼儿园', (r) => r.kindergarten || ''],
-      ['教案额度', (r) => r.init_text],
-      ['配图额度', (r) => r.init_image],
-      ['状态', (r) => CODE_STATUS_CN[r.status] || r.status],
-      ['创建时间', (r) => new Date(r.created_at).toISOString().slice(0, 10)],
-    ];
+  const cols = [
+    ['兑换码', (r) => r.code],
+    ['幼儿园', (r) => r.kindergarten || ''],
+    ['教案额度', (r) => r.init_text],
+    ['配图额度', (r) => r.init_image],
+    ['说明', (r) => r.grant_reason || ''],
+    ['状态', (r) => CODE_STATUS_CN[r.status] || r.status],
+    ['创建时间', (r) => new Date(r.created_at).toISOString().slice(0, 10)],
+  ];
 
   const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const csv = [cols.map(([h]) => h).join(',')]

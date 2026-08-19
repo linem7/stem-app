@@ -43,40 +43,34 @@ const chk = (cond, msg) => {
 
 const RND = String(Date.now()).slice(-8);
 
-async function makeCode() {
-  const at = (
-    await (
-      await fetch(`${BASE}/admin/api/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: 'admin', password: ADMIN_PASSWORD }),
-      })
-    ).json()
-  ).data.token;
-  const kg = await (await fetch(`${BASE}/admin/api/kindergartens`, { headers: { Authorization: `Bearer ${at}` } })).json();
-  const r = await (
-    await fetch(`${BASE}/admin/api/codes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${at}` },
-      body: JSON.stringify({
-        phone: `133${RND}`,
-        real_name: '版本测试',
-        kindergarten_id: kg.data.items[0]?.id,
-        age_group: '小班',
-        init_text: 30,
-        init_image: 10,
-        grant_reason: '版本回退回归测试',
-      }),
-    })
-  ).json();
-  return r.data.code;
+/**
+ * 备一张入场券 + 名单上一个岗位。
+ *
+ * 016 之后激活要两样：码（不带身份）+ 从名单里选的位置。
+ * 码上原来能填手机号姓名，那条路撤了 —— 身份全部来自名单。
+ */
+async function makeTicket() {
+  const aj = async (m, p, tok, b) => (await (await fetch(`${BASE}/admin/api${p}`, {
+    method: m,
+    headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+    ...(b ? { body: JSON.stringify(b) } : {}),
+  })).json());
+  const at = (await aj('POST', '/login', null, { username: 'admin', password: ADMIN_PASSWORD })).data.token;
+  const kg = await aj('POST', '/kindergartens', at, { name: `版本回归园_${RND}` });
+  const imp = await aj('POST', '/roster/import', at,
+    { text: `版本测试${RND}, 小一班, 主班, 小班`, kindergarten_id: kg.data.id, dry_run: false });
+  const r = await aj('POST', '/codes', at, {
+    kindergarten_id: kg.data.id, init_text: 30, init_image: 10,
+    grant_reason: '版本回退回归测试',
+  });
+  return { code: r.data.code, slot: imp.data.created[0].id };
 }
 
 // ---------------------------------------------------------------
 L('=== 0. 准备：激活 + 生成一份教案 ===');
-const code = await makeCode();
+const ticket = await makeTicket();
 token = (await call('POST', '/auth/login', { code: `dev:ver_${RND}` })).data.token;
-await call('POST', '/auth/redeem', { code });
+await call('POST', '/auth/redeem', { code: ticket.code, roster_entry_id: ticket.slot });
 await call('POST', '/me/agree');
 
 const conv = (await call('POST', '/conversations', { seed_input: '我想做个磁铁的活动' })).data;

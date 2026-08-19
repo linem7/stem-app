@@ -263,10 +263,10 @@ window.saveTopup = async () => {
 function teachersView() {
   const items = S.data.teachers?.items || [];
   const kgs = S.data.kindergartens?.items || [];
-  return `<h2>老师</h2><div class="sub">共 ${items.length} 位已激活。批量码激活的老师没有手机号，按<b>兑换码</b>找她</div>
+  return `<h2>老师</h2><div class="sub">共 ${items.length} 位已激活。<b>编号</b>对上我的名单，<b>兑换码</b>对上问卷星那边</div>
     <div class="row">
-      <input type="text" id="q" placeholder="搜手机号 / 姓名 / 兑换码" value="${esc(S.filter.q)}"
-        onkeydown="if(event.key==='Enter')doSearch()" style="width:200px">
+      <input type="text" id="q" placeholder="搜姓名 / 班级 / 编号 / 兑换码" value="${esc(S.filter.q)}"
+        onkeydown="if(event.key==='Enter')doSearch()" style="width:220px">
       <select id="kg" onchange="doSearch()">
         <option value="">全部园所</option>
         ${kgs.map((k) => `<option value="${k.id}" ${S.filter.kg == k.id ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}
@@ -274,11 +274,13 @@ function teachersView() {
       <button class="btn-sm" onclick="doSearch()">搜索</button>
     </div>
     ${items.length ? `<table>
-      <tr><th>姓名</th><th>手机号 / 兑换码</th><th>园所</th><th>班级 / 岗位</th>
+      <tr><th>编号</th><th>姓名</th><th>兑换码</th><th>园所</th><th>班级 / 岗位</th>
           <th>教案额度</th><th>配图额度</th><th>最近登录</th><th></th></tr>
       ${items.map((t) => `<tr>
+        <!-- 编号 = teacher_ref = 人。她换班也不变，研究追人靠它 -->
+        <td class="mono">${t.teacher_ref ?? '—'}</td>
         <td>${esc(t.real_name || '—')} ${t.status === 'disabled' ? '<span class="pill p-off">已停用</span>' : ''}</td>
-        <td class="mono">${t.phone_masked ? esc(t.phone_masked) : esc(t.redeem_code || '—')}</td>
+        <td class="mono" style="font-size:12px">${esc(t.redeem_code || '—')}</td>
         <td>${esc(t.kindergarten || '—')}</td>
         <td>${esc(t.class_name || '—')} · ${esc(t.position || '—')}</td>
         <td class="num ${t.quota.text.left <= 2 ? 'low' : ''}">${t.quota.text.left} / ${t.quota.text.granted}</td>
@@ -312,7 +314,8 @@ const convStatusPill = (s) => (s === 'completed'
 
 /**
  * 老师详情。这一页要回答四件事，缺哪一件都得跳出去查：
- *   1. 她是谁 —— **匿名码激活的老师没有手机号**，只有一个兑换码，不铺出来这批人就是无名氏
+ *   1. 她是谁 —— 三层：**编号**（teacher_ref，换班也不变）、**位置**（人×园×班×岗位）、她兑的那个码。
+ *      库里没有手机号（016 删了那一列），要联系她去问卷星那边看答卷
  *   2. 额度够不够 —— 发放是这一页最常用的动作，所以留在最上面
  *   3. 她用得怎么样 —— 写了几份、画了几张、花了多少
  *   4. 她说了什么 —— 评价与建议，带上那份教案的标题
@@ -324,8 +327,8 @@ window.openTeacher = async (id) => {
     const q = d.quota;
     const img = d.images || {};
     const plans = d.plans || [];
-    // 匿名码激活的老师没有姓名也没有手机号 —— 认她只能靠码
-    const who = t.real_name || (t.redeem_code ? '（匿名码激活）' : '（未填姓名）');
+    // 名单里没填姓名的话，认她靠编号和她兑的那个码
+    const who = t.real_name || (t.teacher_ref ? `编号 ${t.teacher_ref}` : '（未填姓名）');
 
     // 比默认 520 宽：三张统计卡要排成一行，底下的教案表也有六列
     S.modal = `<div class="modal" onclick="if(event.target===this)closeModal()">
@@ -335,7 +338,7 @@ window.openTeacher = async (id) => {
         ${t.status === 'deleted' ? '<span class="pill p-off">已注销</span>' : ''}</h3>
       <div class="sub" style="margin-bottom:14px">
         ${esc(t.kindergarten || '未指定园所')} · ${esc(t.class_name || '—')} · ${esc(t.position || '—')} · ${esc(t.age_group || '—')}<br>
-        手机号 <span class="mono">${esc(t.phone || '无')}</span>${t.phone_masked ? '（超管可见全号）' : ''}
+        编号 <span class="mono">${t.teacher_ref ?? '—'}</span>${t.name_masked ? '（超管可见全名）' : ''}
         　兑的码 <span class="mono">${esc(t.redeem_code || '—')}</span><br>
         激活 ${fmtDate(t.activated_at)}　同意协议 ${fmtDate(t.agreed_at)}　最近登录 ${fmtDate(t.last_login_at)}
       </div>
@@ -561,13 +564,14 @@ function codesView() {
       </select>
     </div>
     ${items.length ? `<table>
-      <tr><th>兑换码</th><th>发给谁</th><th>手机号</th><th>园所 / 班级</th><th>初始额度</th><th>状态</th><th></th></tr>
+      <tr><th>兑换码</th><th>发给哪个园</th><th>初始额度</th><th>说明</th><th>状态</th><th></th></tr>
       ${items.map((c) => `<tr>
         <td class="mono"><b>${esc(c.code)}</b></td>
-        <td>${esc(c.real_name || '—')}</td>
-        <td class="mono">${esc(c.phone_masked || '—')}</td>
-        <td>${esc(c.kindergarten || '—')} · ${esc(c.class_name || '—')}</td>
+        <!-- 码上没有身份了（016 删了那几列）—— 它只是一张入场券，
+             身份来自名单，她激活时自己从名单里选 -->
+        <td>${esc(c.kindergarten || '不指定')}</td>
         <td class="num">${c.init_text} 教案 / ${c.init_image} 配图</td>
+        <td>${esc(c.grant_reason || '—')}</td>
         <td>${c.status === 'unused' ? '<span class="pill p-warn">待使用</span>'
             : c.status === 'used' ? `<span class="pill p-ok">已用 ${fmtDay(c.used_at)}</span>`
             : '<span class="pill p-off">已作废</span>'}</td>
@@ -579,35 +583,28 @@ function codesView() {
     </table>` : `<div class="empty">还没有兑换码</div>`}`;
 }
 
+/**
+ * 建一个码。
+ *
+ * **码只是一张入场券**，不带任何身份（016 迁移把那几列删了）——
+ * 身份来自名单，她激活时自己从名单里选是哪一位。
+ * 所以这张表单从九项缩到三项：给哪个园、初始额度、说明。
+ */
 window.openNewCode = () => {
   const kgs = S.data.kindergartens?.items || [];
   S.modal = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="box">
     <h3>新建兑换码</h3>
-    <div class="note">从问卷星的答卷里把这几项抄过来。生成后把码用微信发给她。</div>
     <div class="grid2">
-      <div class="field"><label>手机号（可不填）</label><input type="text" id="c_phone" placeholder="留空 = 谁拿到谁能兑" style="width:100%"></div>
-      <div class="field"><label>姓名（可不填）</label><input type="text" id="c_name" placeholder="留空 = 匿名码" style="width:100%"></div>
-    </div>
-    <div class="grid2">
-      <div class="field"><label>园所</label>
-        <select id="c_kg" style="width:100%"><option value="">未指定</option>
+      <div class="field"><label>发给哪个园（可不填）</label>
+        <select id="c_kg" style="width:100%"><option value="">不指定</option>
           ${kgs.map((k) => `<option value="${k.id}">${esc(k.name)}</option>`).join('')}</select></div>
-      <div class="field"><label>班级</label><input type="text" id="c_class" placeholder="如 中二班" style="width:100%"></div>
-    </div>
-    <div class="grid2">
-      <div class="field"><label>岗位</label>
-        <select id="c_pos" style="width:100%">
-          ${['主班', '配班', '保育员', '园长', '其他'].map((p) => `<option>${p}</option>`).join('')}</select></div>
-      <div class="field"><label>年龄班</label>
-        <select id="c_age" style="width:100%">
-          ${['小班', '中班', '大班'].map((a) => `<option ${a === '中班' ? 'selected' : ''}>${a}</option>`).join('')}</select></div>
+      <div class="field"><label>说明（会存进台账）</label>
+        <input type="text" id="c_reason" value="完成问卷 · 首次" style="width:100%"></div>
     </div>
     <div class="grid2">
       <div class="field"><label>初始教案次数</label><input type="number" id="c_text" value="20" style="width:100%"></div>
       <div class="field"><label>初始配图张数</label><input type="number" id="c_img" value="10" style="width:100%"></div>
     </div>
-    <div class="field"><label>发放原因（会存进台账）</label>
-      <input type="text" id="c_reason" value="完成问卷 · 首次" style="width:100%"></div>
     <div class="foot">
       <button class="btn-sm" onclick="closeModal()">取消</button>
       <button class="btn" onclick="doCreateCode()">生成</button>
@@ -620,9 +617,7 @@ window.doCreateCode = async () => {
   const g = (id) => document.getElementById(id).value.trim();
   try {
     const d = await api('POST', '/codes', {
-      phone: g('c_phone'), real_name: g('c_name'),
-      kindergarten_id: g('c_kg') || null, class_name: g('c_class'),
-      position: g('c_pos'), age_group: g('c_age'),
+      kindergarten_id: g('c_kg') || null,
       init_text: Number(g('c_text')), init_image: Number(g('c_img')),
       grant_reason: g('c_reason'),
     });
@@ -1010,7 +1005,7 @@ const ACTIONS = {
   teacher_status: '停用/恢复老师',
   create_kindergarten: '建园所', update_kindergarten: '改园所',
   add_topup: '记充值',
-  import_roster: '导入名单', void_roster: '作废名单一行',
+  import_roster: '导入名单', void_roster: '作废名单一行', reassign_roster: '她换班了',
   create_rebind_code: '生成换绑码', void_rebind_code: '作废换绑码',
   create_admin: '建管理员',
   admin_status: '停用/恢复管理员', reset_password: '重置密码',

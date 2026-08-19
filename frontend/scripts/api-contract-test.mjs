@@ -92,33 +92,33 @@ async function makeCode() {
   if (!adminLogin.ok) throw new Error(`管理后台登录失败：${adminLogin.error?.message}`)
   const tok = adminLogin.data.token
 
-  const kg = await fetch(`${BASE}/admin/api/kindergartens`, {
-    headers: { Authorization: `Bearer ${tok}` },
-  }).then((r) => r.json())
-
-  const made = await fetch(`${BASE}/admin/api/codes`, {
+  const post = async (p, body) => fetch(`${BASE}/admin/api${p}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
-    body: JSON.stringify({
-      phone: `138${RND}`,
-      real_name: '契约测试老师',
-      kindergarten_id: kg.data.items[0]?.id,
-      class_name: '中一班',
-      position: '主班',
-      age_group: '中班',
-      init_text: 20,
-      init_image: 10,
-      grant_reason: '前端契约测试',
-    }),
+    body: JSON.stringify(body),
   }).then((r) => r.json())
+
+  // 016 之后激活要两样：码（一张入场券，不带身份）+ 从名单里选的位置。
+  // 库里没有手机号了，身份全部来自名单那一行
+  const kg = await post('/kindergartens', { name: `契约测试园_${RND}` })
+  const imp = await post('/roster/import', {
+    text: `契约测试老师${RND}, 中一班, 主班, 中班`,
+    kindergarten_id: kg.data.id,
+    dry_run: false,
+  })
+  if (!imp.ok) throw new Error(`导名单失败：${imp.error?.message}`)
+
+  const made = await post('/codes', {
+    kindergarten_id: kg.data.id, init_text: 20, init_image: 10, grant_reason: '前端契约测试',
+  })
   if (!made.ok) throw new Error(`建码失败：${made.error?.message}`)
-  return made.data.code
+  return { code: made.data.code, slot: imp.data.created[0].id }
 }
 
 /* ============ 正式跑 ============ */
 
-const code = await makeCode()
-L(`（本轮兑换码：${code}）\n`)
+const { code, slot } = await makeCode()
+L(`（本轮兑换码：${code}，名单位置 #${slot}）\n`)
 
 // 固定这台「设备」的假 openid，走 auth.js 里那条 DEV_FAKE_LOGIN 分支
 storage.set('stem_dev_openid', `dev:fe_contract_${RND}`)
@@ -141,12 +141,23 @@ chk(sessionMod.gate() === 'redeem', `gate() → redeem`)
 L('\n=== 2. 没激活时业务接口应被拦下 ===')
 await expectError('开新会话', 'NOT_ACTIVATED', () => convApi.createConversation('我想做个浮与沉的活动'))
 
-L('\n=== 3. 兑换码激活（故意把码写脏，输入宽容由后端负责）===')
+L('\n=== 3. 激活：码 + 从名单里选自己（故意把码写脏，输入宽容由后端负责）===')
 await expectError('乱填的码', 'VALIDATION_FAILED', () => authApi.redeem('STEM-0000-0000'))
+// 拉名单必须先有有效的码 —— 后端靠它挡住「任何人打开小程序就能看到一整个园的老师」
+await expectError('码不对就拉不到名单', 'VALIDATION_FAILED',
+  () => authApi.rosterOptions('STEM-0000-0000'))
+const opts = await authApi.rosterOptions(code)
+chk(Array.isArray(opts.kindergartens) && opts.kindergartens.length > 0,
+  `有码就拿到有空位的园：${opts.kindergartens?.length} 个`)
+const picked = await authApi.rosterOptions(code, opts.kindergartens.find((k) => k.open > 0).id)
+chk(picked.entries.every((e) => e.surname && !('real_name' in e)),
+  '选择器只给姓氏，不给全名')
+
 const dirty = `  ${code.toLowerCase().replace(/-/g, ' ')} `
-const redeemed = await sessionMod.redeem(dirty)
+const redeemed = await sessionMod.redeem(dirty, slot)
 chk(sessionMod.session.teacher.activated === true, `脏码 "${dirty.trim()}" 也认得出来`)
 chk(Boolean(redeemed.granted || redeemed.quota), '激活同时发了首笔额度')
+chk(sessionMod.session.teacher.class_name === '中一班', '身份从名单那一行搬过来了')
 chk(sessionMod.gate() === 'agreement', 'gate() → agreement')
 
 L('\n=== 4. 协议 ===')
@@ -210,19 +221,28 @@ chk(
   re.questions.every((x) => conv.questions.some((y) => y.id === x.id)),
   '重拉的题 id 与首次一致，前端可按 id 原地换推荐答案'
 )
-// 关键：字母不是稳定标识。换班后 A/B/C 指向的文案会变，
-// 所以前端必须按 label 重新对位，不能把勾原样留在原字母上。
+/**
+ * 关键：**字母不是稳定标识**。换班后 A/B/C 指向的文案会变，
+ * 所以前端必须按 label 重新对位，不能把勾原样留在原字母上。
+ *
+ * 这一条**只能观察，不能断言**。原来写成硬断言（「同一字母指向的文案一定变了」），
+ * 而选项是模型生成的 —— 某一轮它恰好给出一样的文案，这条就无辜地变红。
+ * 它自己的失败文案都写着「这一轮字母恰好没变」，说明当时就知道会这样。
+ * **一个会随机变红的断言，红两次之后整份脚本就没人看了**，
+ * 所以改成打一行观察结果，把那条纪律留在注释里。
+ */
 const venueBefore = conv.questions.find((x) => x.key === 'venue')
 const venueAfter = re.questions.find((x) => x.key === 'venue')
+chk(
+  venueBefore.options.length > 0 && venueAfter.options.length > 0,
+  '换班后场地那题仍然有推荐答案'
+)
 const movedAt = venueBefore.options.findIndex(
   (o, i) => venueAfter.options[i] && venueAfter.options[i].label !== o.label
 )
-chk(
-  movedAt >= 0,
-  movedAt >= 0
-    ? `换班后同一字母指向的文案会变（${venueBefore.options[movedAt].key}：${venueBefore.options[movedAt].label} → ${venueAfter.options[movedAt].label}），所以前端必须按 label 对位`
-    : '这一轮字母恰好没变，但不能据此认为它稳定'
-)
+L(movedAt >= 0
+  ? `    （这一轮 ${venueBefore.options[movedAt].key} 指向的文案变了：${venueBefore.options[movedAt].label} → ${venueAfter.options[movedAt].label}）`
+  : '    （这一轮字母恰好指向同样的文案 —— 但它不稳定，前端仍然必须按 label 对位）')
 const still = await convApi.getConversation(conv.conversation_id)
 chk(still.progress?.answered === 2, '已填答案没被清空')
 

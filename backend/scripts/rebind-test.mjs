@@ -25,19 +25,23 @@ let fail = 0;
 const chk = (c, m) => { L(`  ${c ? '✓' : '✗'} ${m}`); if (!c) fail += 1; };
 
 const RND = String(Date.now()).slice(-8);
-const phoneOf = (n) => `139${RND.slice(0, 5)}${String(n).padStart(3, '0')}`;
 const newWx = async (tag) => (await usr('POST', '/auth/login', null, { code: `dev:rb_${RND}_${tag}` })).data.token;
 const mkCode = async () =>
   (await adm('POST', '/codes/batch', { count: 1, init_text: 20, init_image: 10, grant_reason: `换绑回归 ${RND}` })).data.created[0];
+/** 建一个岗位并返回它的 id。激活 = 码 + 选这个位置（016 之后没有手机号了） */
+const mkSlot = async (kgId, name, cls) =>
+  (await adm('POST', '/roster/import',
+    { text: `${name}, ${cls}, 主班, 小班`, kindergarten_id: kgId, dry_run: false })).data.created[0].id;
 
 A = (await adm('POST', '/login', { username: 'admin', password: '123456' })).data.token;
 
 L('=== 准备：一位有内容的老师（旧微信）===');
-const kgId = (await adm('GET', '/kindergartens')).data.items[0]?.id;
-await adm('POST', '/roster/import', { text: `换绑老师, ${phoneOf(1)}, 小一班, 主班, 小班`, kindergarten_id: kgId, dry_run: false });
+const kg = await adm('POST', '/kindergartens', { name: `换绑回归园_${RND}` });
+const kgId = kg.data.id;
 const OLD = await newWx('old');
-const act = await usr('POST', '/auth/redeem', OLD, { code: await mkCode(), phone: phoneOf(1) });
-chk(act.ok, '旧微信激活成功');
+const act = await usr('POST', '/auth/redeem', OLD,
+  { code: await mkCode(), roster_entry_id: await mkSlot(kgId, `换绑甲${RND}`, '小一班') });
+chk(act.ok, `旧微信激活成功${act.ok ? '' : `：${act.error?.message}`}`);
 await usr('POST', '/me/agree', OLD);
 // 给她攒点东西：一条记忆 + 一次开会话（教案要真调模型太慢，会话足够证明「内容跟过来了」）
 await usr('POST', '/memories', OLD, { fact: `换绑测试的记忆 ${RND}` });
@@ -61,11 +65,9 @@ chk((await adm('GET', `/teachers/${teacherId}`)).data.pending_rebind?.code === r
 
 L('=== 新微信上不空 → 拒绝，且它的数据一条都没被删 ===');
 const DIRTY = await newWx('dirty');
-await usr('POST', '/auth/redeem', DIRTY, { code: await mkCode() })
-  .catch(() => {});   // 它没激活也没名单，这一步大概会失败，不影响下面
-// 造一点「不空」：给它兑一个绑定码，就有额度台账了
-const bcode = await adm('POST', '/codes', { phone: phoneOf(9), real_name: '脏账号', init_text: 3, init_image: 3 });
-await usr('POST', '/auth/redeem', DIRTY, { code: bcode.data.code });
+// 造一点「不空」：让它正常激活一次，就有额度台账了
+await usr('POST', '/auth/redeem', DIRTY,
+  { code: await mkCode(), roster_entry_id: await mkSlot(kgId, `换绑脏${RND}`, '中二班') });
 const dirtyBefore = (await usr('GET', '/me/quota', DIRTY)).data.quota.text.granted;
 const dirtyTry = await usr('POST', '/auth/redeem', DIRTY, { code: r1.data.code });
 chk(!dirtyTry.ok, `新微信上已经有内容 → 拒绝：${dirtyTry.error?.message}`);
@@ -117,9 +119,8 @@ chk(logs.total > 0, `操作记录里有 ${logs.total} 条「生成换绑码」`)
 
 L('=== 注销过的账号不能被换绑回来（那会绕过注销）===');
 const DEL = await newWx('del');
-const delPhone = phoneOf(5);
-await adm('POST', '/roster/import', { text: `注销老师, ${delPhone}, 中一班, 主班, 中班`, kindergarten_id: kgId, dry_run: false });
-await usr('POST', '/auth/redeem', DEL, { code: await mkCode(), phone: delPhone });
+await usr('POST', '/auth/redeem', DEL,
+  { code: await mkCode(), roster_entry_id: await mkSlot(kgId, `换绑注销${RND}`, '大三班') });
 const delId = (await usr('GET', '/me', DEL)).data.id;
 const rbDel = await adm('POST', `/teachers/${delId}/rebind-code`);   // 先拿一把钥匙
 await usr('DELETE', '/me', DEL);                                    // 再注销
