@@ -27,6 +27,7 @@ import { reviseRouter } from './routes/revise.js';
 import { memoriesRouter } from './routes/memories.js';
 import { accountRouter } from './routes/account.js';
 import { feedbackRouter } from './routes/feedback.js';
+import { tasksRouter } from './routes/tasks.js';
 import { adminRouter, requireAdmin } from './routes/admin.js';
 import { ensureSuperAdmin } from './services/admins.js';
 
@@ -167,6 +168,8 @@ v1.use('/lesson-plans', requireAuth, requireActivated, imagesRouter);
 v1.use('/lesson-plans', requireAuth, requireActivated, reviseRouter);
 v1.use('/memories', requireAuth, requireActivated, memoriesRouter);
 v1.use('/feedback', requireAuth, requireActivated, feedbackRouter);
+// 任务：没激活的老师看任务没有意义，她连额度是什么都还不知道
+v1.use('/tasks', requireAuth, requireActivated, tasksRouter);
 
 app.use('/v1', v1);
 app.use('/', v1);

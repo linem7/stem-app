@@ -32,6 +32,7 @@ import { uploadImage, buildImageUrl } from '../services/imageStore.js';
 import { getSetting, setSetting, SETTING_KEYS } from '../services/appSettings.js';
 import { getMoney, listTopups, addTopup, TOPUP_CHANNELS } from '../services/costLedger.js';
 import { parseRoster, annotateExisting, summarize, surnameOf } from '../services/roster.js';
+import { previewTarget, normalizeTarget } from '../services/tasks.js';
 import { logger } from '../utils/logger.js';
 
 export const adminRouter = Router();
@@ -1065,6 +1066,132 @@ adminRouter.post('/feedback/:id/handled', asyncRoute(async (req, res) => {
     `UPDATE feedback SET handled = $1 WHERE id = $2 RETURNING id, handled`,
     [req.body?.handled !== false, Number(req.params.id)]);
   if (!row) throw notFound('没有这条反馈');
+  return ok(res, row);
+}));
+
+// ---------------------------------------------------------------
+// 任务 —— 告诉老师现在有什么活动可以换额度（012 迁移）
+//
+// **任务不自动发额度**（用户定的）。它只承诺，到账靠我事后核对答卷、
+// 建码发给她，她自己兑。系统不去猜「她是不是真填了」——
+// 答卷在问卷星，我们库里没有。
+// ---------------------------------------------------------------
+adminRouter.get('/tasks', asyncRoute(async (req, res) => {
+  const rows = (await query(`
+    SELECT s.*, a.display_name AS created_by_name,
+           (SELECT COUNT(*)::int FROM task_reads r WHERE r.task_id = s.id) AS reads
+      FROM tasks s LEFT JOIN admins a ON a.id = s.created_by
+     ORDER BY s.status = 'open' DESC, s.created_at DESC LIMIT 200`)).rows;
+
+  // 每个任务算一次覆盖人数。任务是个位数，逐个试算无所谓；
+  // 而「这个任务发给了几个人」不显示出来，那一页就只是一堆标题
+  const items = [];
+  for (const s of rows) {
+    const p = await previewTarget(s.target);
+    items.push({
+      id: s.id, title: s.title, body: s.body, survey_url: s.survey_url,
+      reward_text: s.reward_text, reward_image: s.reward_image,
+      deadline: s.deadline, status: s.status, target: p.target,
+      covers: p.teachers, unrestricted: p.unrestricted,
+      reads: s.reads, created_by_name: s.created_by_name, created_at: s.created_at,
+    });
+  }
+  return ok(res, { items });
+}));
+
+/**
+ * 试算覆盖人数。
+ *
+ * **不是锦上添花**：定向条件叠到六层之后不试算没法确认筛对了，
+ * 而发错是发给真人的。跟老师端 `GET /tasks` 共用 `buildMatchSql` ——
+ * 写两份迟早分叉，分叉的表现是「后台说发给 12 个人，实际只有 8 个人看到」。
+ */
+adminRouter.post('/tasks/preview', asyncRoute(async (req, res) =>
+  ok(res, await previewTarget(req.body?.target))));
+
+function pickTask(b, cur = {}) {
+  const str = (k, max) => (b[k] === undefined
+    ? cur[k] ?? null : String(b[k]).trim().slice(0, max) || null);
+  const num = (k) => {
+    if (b[k] === undefined) return cur[k] ?? 0;
+    const n = Number(b[k]);
+    return Number.isFinite(n) && n >= 0 ? Math.round(n) : 0;
+  };
+  const url = str('survey_url', 500);
+  // 问卷链接要能点开，所以必须是 http(s)。填了个「见群里」之类的东西
+  // 界面上就会变成一个点不动的链接，而她不会知道为什么
+  if (url && !/^https?:\/\//i.test(url)) {
+    throw badRequest('问卷链接要以 http:// 或 https:// 开头');
+  }
+  return {
+    title: str('title', 64),
+    body: b.body === undefined ? cur.body ?? null : String(b.body).trim().slice(0, 2000) || null,
+    survey_url: url,
+    reward_text: num('reward_text'),
+    reward_image: num('reward_image'),
+    deadline: b.deadline === undefined ? cur.deadline ?? null : String(b.deadline).trim() || null,
+    target: b.target === undefined ? normalizeTarget(cur.target) : normalizeTarget(b.target),
+  };
+}
+
+adminRouter.post('/tasks', asyncRoute(async (req, res) => {
+  const t = pickTask(req.body || {});
+  if (!t.title) throw badRequest('给任务起个标题');
+  // 建出来是**草稿**，不是直接发布 —— 发布是另一个动作，
+  // 中间那一步就是给我机会试算一遍覆盖人数
+  const row = await queryOne(
+    `INSERT INTO tasks (title, body, survey_url, reward_text, reward_image,
+                        deadline, target, created_by, status)
+     VALUES ($1,$2,$3,$4,$5,$6::date,$7::jsonb,$8,'draft') RETURNING *`,
+    [t.title, t.body, t.survey_url, t.reward_text, t.reward_image, t.deadline,
+      JSON.stringify(t.target), req.adminId]);
+  await logAction({ adminId: req.adminId, action: 'create_task', target: `task:${row.id}`,
+    detail: { title: row.title } });
+  return ok(res, row);
+}));
+
+adminRouter.post('/tasks/:id/update', asyncRoute(async (req, res) => {
+  const id = Number(req.params.id);
+  const cur = await queryOne(`SELECT * FROM tasks WHERE id = $1`, [id]);
+  if (!cur) throw notFound('没有这个任务');
+  const t = pickTask(req.body || {}, cur);
+  if (!t.title) throw badRequest('标题不能空');
+
+  const row = await queryOne(
+    `UPDATE tasks SET title=$2, body=$3, survey_url=$4, reward_text=$5, reward_image=$6,
+            deadline=$7::date, target=$8::jsonb, updated_at=now()
+      WHERE id=$1 RETURNING *`,
+    [id, t.title, t.body, t.survey_url, t.reward_text, t.reward_image, t.deadline,
+      JSON.stringify(t.target)]);
+  await logAction({ adminId: req.adminId, action: 'update_task', target: `task:${id}` });
+  return ok(res, row);
+}));
+
+adminRouter.post('/tasks/:id/publish', asyncRoute(async (req, res) => {
+  const id = Number(req.params.id);
+  const cur = await queryOne(`SELECT * FROM tasks WHERE id = $1`, [id]);
+  if (!cur) throw notFound('没有这个任务');
+  if (cur.status === 'open') throw badRequest('这个任务已经发布了');
+  // 过了截止日期再发布，老师那边一条都看不到（列表按 deadline >= today 筛）——
+  // 那是「发布成功了但没人收到」，最难查的一种
+  if (cur.deadline && new Date(cur.deadline) < new Date(new Date().toDateString())) {
+    throw badRequest('截止日期已经过了，改一下日期再发布');
+  }
+  const row = await queryOne(
+    `UPDATE tasks SET status='open', updated_at=now() WHERE id=$1 RETURNING *`, [id]);
+  const p = await previewTarget(row.target);
+  await logAction({ adminId: req.adminId, action: 'publish_task', target: `task:${id}`,
+    detail: { covers: p.teachers } });
+  logger.info('task_published', { by: req.adminId, task_id: id, covers: p.teachers });
+  return ok(res, { ...row, covers: p.teachers });
+}));
+
+adminRouter.post('/tasks/:id/close', asyncRoute(async (req, res) => {
+  const row = await queryOne(
+    `UPDATE tasks SET status='closed', updated_at=now() WHERE id=$1 RETURNING id, status`,
+    [Number(req.params.id)]);
+  if (!row) throw notFound('没有这个任务');
+  await logAction({ adminId: req.adminId, action: 'close_task', target: `task:${row.id}` });
   return ok(res, row);
 }));
 

@@ -12,6 +12,7 @@ export const ROUTES = {
   me: '/pages/me/me',
   redeem: '/pages/redeem/redeem',
   agreement: '/pages/agreement/agreement',
+  tasks: '/pages/tasks/tasks',
 }
 
 /**

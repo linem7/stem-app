@@ -82,8 +82,7 @@ const PAGES = {
   teachers: '老师',
   codes: '兑换码',
   feedback: '反馈',
-  // tasks: '任务' —— 等 tasksView 写好了再挂上来。
-  // 挂一个点进去就崩的导航项，比暂时没有这一项糟得多
+  tasks: '任务',
 };
 /** 只有超级管理员看得到的页 */
 const SUPER_PAGES = { imagemodels: '配图模型', admins: '管理员', logs: '操作记录' };
@@ -855,6 +854,7 @@ async function load() {
       if (S.filter.roster.q) q.set('q', S.filter.roster.q);
       jobs.roster = api('GET', `/roster?${q}`);
     }
+    if (S.page === 'tasks') jobs.tasks = api('GET', '/tasks');
     if (S.page === 'codes') jobs.codes = api('GET', `/codes?status=${S.filter.codeStatus}`);
     if (S.page === 'feedback') jobs.feedback = api('GET', `/feedback?kind=${S.filter.fbKind}`);
     if (S.page === 'imagemodels' && isSuper()) jobs.imagemodels = api('GET', '/image-models');
@@ -876,7 +876,7 @@ function render() {
   if (!S.token) { app.innerHTML = loginView(); document.getElementById('pwd')?.focus(); return; }
   const view = ({
     overview: overviewView, teachers: teachersView, codes: codesView,
-    kindergartens: kgView, roster: rosterView, feedback: feedbackView,
+    kindergartens: kgView, roster: rosterView, feedback: feedbackView, tasks: tasksView,
     imagemodels: imageModelsView, admins: adminsView, logs: logsView,
   })[S.page];
   // 一般管理员手动改 URL 也进不去超管页 —— 后端还有一道守卫，这里只是不让界面出错
@@ -1006,6 +1006,7 @@ const ACTIONS = {
   create_kindergarten: '建园所', update_kindergarten: '改园所',
   add_topup: '记充值',
   import_roster: '导入名单', void_roster: '作废名单一行', reassign_roster: '她换班了',
+  create_task: '建任务', update_task: '改任务', publish_task: '发布任务', close_task: '收了任务',
   create_rebind_code: '生成换绑码', void_rebind_code: '作废换绑码',
   create_admin: '建管理员',
   admin_status: '停用/恢复管理员', reset_password: '重置密码',

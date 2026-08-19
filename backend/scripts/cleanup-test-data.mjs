@@ -108,9 +108,28 @@ if (process.argv.includes('--codes')) {
 // 回归脚本每跑一次就建一个同事账号和一个第二超管，攒了十几个。
 // 只留 admin 和真正给人用的 —— 按「测试脚本的命名规律」删，不猜
 await query(`DELETE FROM admins WHERE username ~ '^(colleague|sup2)_[0-9]+$'`);
-// admin-test 自建的园（它不许改真实园所，所以每跑一次留一个）。
-// 名字带 ON DELETE SET NULL 的外键，删了不会连累老师和码
-await query(`DELETE FROM kindergartens WHERE name ~ '^(回归测试园|改过名)_[0-9]+$'`);
+/**
+ * 回归脚本自建的园。
+ *
+ * 每个脚本都不许动真实园所（admin-test 那一版曾经改坏了「童心幼儿园」的备注），
+ * 所以它们各自建一个带时间戳的园 —— 于是跑十轮攒十个。
+ *
+ * 判定靠**脚本的命名规律**（`xxx_12345678`，尾巴是 8 位以上的时间戳），不猜。
+ * 真实园所不会叫这个名字；万一哪天有，加个 --keep 的口子再说。
+ * 外键是 ON DELETE SET NULL，删了不会连累老师、码和名单。
+ */
+const junkKg = await query(
+  `DELETE FROM kindergartens
+    WHERE name ~ '^(回归测试园|改过名|任务园.*|后台回归园|契约测试园|换绑回归园|激活回归园|版本回归园|运营回归园)_[0-9]{6,}$'
+    RETURNING name`
+);
+if (junkKg.rowCount) L(`  删掉 ${junkKg.rowCount} 个回归脚本自建的园`);
+
+// 任务也是脚本造的（标题里带同一个时间戳）。task_reads 跟着 CASCADE 走
+const junkTask = await query(
+  `DELETE FROM tasks WHERE title ~ ' [0-9]{6,}$' OR title ~ '^(草稿|过期发布|坏链接) ' RETURNING id`
+);
+if (junkTask.rowCount) L(`  删掉 ${junkTask.rowCount} 个回归脚本造的任务`);
 
 /**
  * 名单里的**孤儿认领**。

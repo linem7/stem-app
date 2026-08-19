@@ -30,9 +30,22 @@
           <text class="quota__n">{{ quota.image.used }}/{{ quota.image.granted }}</text>
           <text class="quota__u">张配图</text>
         </view>
-        <view class="quota__more" @tap="goRedeem">
+        <view class="quota__more" @tap="onRedeemTap">
           <text class="quota__more-t">兑换</text>
         </view>
+      </view>
+
+      <!--
+        可以换额度的事。**一行，点进去看详情** —— 这一屏已经够长了，
+        把任务正文和问卷链接铺在这里会把记忆和提建议挤到看不见。
+        没有任务时整行不出现（v-show 而不是 v-if：handler key 那个坑）。
+      -->
+      <view v-show="taskCount > 0" class="row row--task" @tap="goTasks">
+        <view class="row__b">
+          <text class="row__t">可以换额度的事</text>
+          <text v-if="taskUnread" class="row__s">{{ taskUnread }} 件还没看</text>
+        </view>
+        <text class="row__v">{{ taskCount }} 件 ›</text>
       </view>
 
       <!-- ============ 记忆 ============ -->
@@ -124,7 +137,7 @@
       <view class="row row--danger">
         <view class="row__b">
           <text class="row__t">删除我的全部数据</text>
-          <text class="row__s">教案、配图、记忆和你的身份信息一起删掉</text>
+          <text class="row__s">教案、配图、记忆和你的姓名一起删掉</text>
         </view>
         <view class="del" @tap="onDeleteDataTap">
           <text class="del__t">删除</text>
@@ -193,6 +206,7 @@ import { computed, reactive, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { addMemory, deleteMyAccount, getQuota, listMemories, removeMemory, updateMemory } from '../../api/me.js'
 import { sendFeedback } from '../../api/feedback.js'
+import { listTasks } from '../../api/tasks.js'
 import { session } from '../../stores/session.js'
 import { iconChevron } from '../../utils/icons.js'
 import { COLORS } from '../../utils/colors.js'
@@ -221,6 +235,8 @@ const CATEGORIES = [
 const loading = ref(true)
 const quota = reactive({ text: { granted: 0, used: 0, left: 0 }, image: { granted: 0, used: 0, left: 0 } })
 const memories = ref([])
+const taskCount = ref(0)
+const taskUnread = ref(0)
 
 const adding = ref(false)
 const newFact = ref('')
@@ -254,14 +270,19 @@ onShow(() => load())
 
 async function load() {
   try {
-    // 两个都要，但**互不阻塞**：额度拉失败不该让记忆也看不到
-    const [q, m] = await Promise.allSettled([getQuota(), listMemories()])
+    // 三个都要，但**互不阻塞**：额度拉失败不该让记忆也看不到
+    const [q, m, t] = await Promise.allSettled([getQuota(), listMemories(), listTasks()])
     if (q.status === 'fulfilled') {
       Object.assign(quota, q.value.quota || {})
       // 响应里还有 grants（发放明细）和 free_revisions，界面上不用了 ——
       // 真要查某一笔的来历，后台的老师详情有完整台账
     }
     if (m.status === 'fulfilled') memories.value = m.value.items || []
+    if (t.status === 'fulfilled') {
+      taskCount.value = (t.value.items || []).length
+      taskUnread.value = t.value.unread || 0
+    }
+    // 任务失败不算失败 —— 它是锦上添花，两个正事都挂了才报错
     if (q.status === 'rejected' && m.status === 'rejected') showApiError(q.reason)
   } finally {
     loading.value = false
@@ -271,9 +292,13 @@ async function load() {
 /* ============ 记忆 ============ */
 
 // 都用具名函数，不写内联箭头：内联的在编译产物里更容易跟别处撞同一个 handler key
-function goRedeem() {
-  // topup=1：她已经激活过了，兑换页据此不问手机号、也不把她弹回首页
+function onRedeemTap() {
+  // topup=1：她已经激活过了，兑换页据此不让她再选身份、也不把她弹回首页
   navTo('redeem', { topup: 1 })
+}
+
+function goTasks() {
+  navTo('tasks')
 }
 
 function startAdd() {
@@ -755,6 +780,13 @@ function goAgreement() {
   color: $ink-3;
   line-height: 1.6;
   margin-top: 4rpx;
+}
+
+/* 任务那一行。整行可点，右边一个箭头 —— 跟底下「使用协议」那几行同一个形状，
+   因为它们是同一类东西：跳出去看的入口 */
+.row--task {
+  border-bottom: 2rpx solid $rule;
+  padding-bottom: 24rpx;
 }
 
 /* 珊瑚色描边而不是实心红块：它要找得到，但不该在这一屏抢眼 */

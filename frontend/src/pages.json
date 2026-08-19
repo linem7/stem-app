@@ -59,6 +59,12 @@
       "style": {
         "navigationBarTitleText": "使用协议"
       }
+    },
+    {
+      "path": "pages/tasks/tasks",
+      "style": {
+        "navigationBarTitleText": "可以换额度的事"
+      }
     }
   ],
   "globalStyle": {

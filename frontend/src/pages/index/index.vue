@@ -13,6 +13,17 @@
     </template>
 
     <template v-else>
+      <!--
+        有未读任务时的条带。**没有就不占地方** —— 首页只是一个对话框
+        （CLAUDE.md 的信息架构），不该常驻一条横幅。
+        用 v-show 而不是 v-if：一对 v-if/v-else 会让两个 handler 落在同一个
+        模板位置、拿到同一个缓存 key，微信端把点击派发错人（test:mp 第 2 条）。
+      -->
+      <view v-show="unreadTasks > 0" class="banner" @tap="goTasks">
+        <text class="banner__t">有 {{ unreadTasks }} 件可以换额度的事</text>
+        <text class="banner__b">去看看 ›</text>
+      </view>
+
       <image class="hero" :src="hero" mode="widthFix" />
 
       <text class="kicker">开始新教案</text>
@@ -59,8 +70,9 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import { ensureSession, gate, session } from '../../stores/session.js'
 import { put } from '../../stores/handoff.js'
 import { createConversation } from '../../api/conversations.js'
+import { listTasks } from '../../api/tasks.js'
 import { illoHero } from '../../utils/illustrations.js'
-import { reLaunch, redirectTo } from '../../utils/nav.js'
+import { navTo, reLaunch, redirectTo } from '../../utils/nav.js'
 import { showApiError } from '../../utils/ui.js'
 
 // 前三个是已经真跑过的主题（小班/中班/大班各一），第四个说明其余主题一样能走
@@ -69,6 +81,8 @@ const SEEDS = ['浮与沉', '影子', '搭高塔', '磁铁']
 const hero = illoHero()
 const seed = ref('')
 const starting = ref(false)
+/** 未读任务数。为 0 时那条条带整个不出现 */
+const unreadTasks = ref(0)
 
 // 这里的 nickname 是微信昵称，不是问卷里那个真实姓名 ——
 // 真实姓名和手机号永不下发前端，接口里根本没有那两个字段
@@ -82,8 +96,26 @@ async function routeByGate() {
   await ensureSession()
   if (session.bootError) return
   const where = gate()
-  if (where === 'redeem') reLaunch('redeem')
-  else if (where === 'agreement') reLaunch('agreement')
+  if (where === 'redeem') return reLaunch('redeem')
+  if (where === 'agreement') return reLaunch('agreement')
+  // 进得了主流程才查任务。没激活的老师看任务没有意义，
+  // 而且那个接口挂在 requireActivated 后面，查了只会拿到 403
+  refreshTasks()
+}
+
+/**
+ * 拉未读数。**故意不 await、失败也不弹错** ——
+ * 首页的正事是那个输入框，任务只是一条锦上添花的提醒。
+ * 为了一条提醒让首页停在加载态或者弹个错框，是把主次弄反了。
+ */
+function refreshTasks() {
+  listTasks()
+    .then((d) => { unreadTasks.value = d.unread || 0 })
+    .catch(() => { unreadTasks.value = 0 })
+}
+
+function goTasks() {
+  navTo('tasks')
 }
 
 function retry() {
@@ -121,6 +153,31 @@ async function start() {
 </script>
 
 <style lang="scss" scoped>
+/* 未读任务条带。用薄荷绿而不是暖阳黄：暖阳黄是主行动（「开始」那个按钮）的颜色，
+   一条提醒不该跟这一屏真正的主行动抢同一个色（design-tokens.md 第 2 节） */
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: $mint-soft;
+  border: 2rpx solid $mint-line;
+  border-radius: 24rpx;
+  padding: 22rpx 26rpx;
+  margin-top: 32rpx;
+}
+
+.banner__t {
+  font-size: 27rpx;
+  color: $mint-deep;
+  font-weight: 600;
+}
+
+.banner__b {
+  font-size: $fs-tag;
+  color: $mint-deep;
+  margin-left: 20rpx;
+}
+
 .hero {
   width: 100%;
   border-radius: $r-card;
