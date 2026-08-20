@@ -44,12 +44,17 @@ const MAX_IMAGES_PER_PLAN = 3;
  *
  * 下标是**提交那一刻**材料清单里的位置。教案改过之后清单可能变了，
  * 所以真正可靠的是 note（老师点的时候那样材料的名字），下标只作兜底。
+ *
+ * 2026-08-20 改版把材料清单从 `materials` 搬进了 `preparation.material`。
+ * 这里两个都读：**旧图的 section_key 一律不动**（「图片永不跟着版本走」是定死的规则），
+ * 所以库里还有一批 section_key 指向旧路径的图，它们的兜底得继续能用。
  */
 function materialName(contentJson, sectionKey, note) {
   if (note) return note;
-  const m = /^material\.(\d+)$/.exec(String(sectionKey || ''));
+  const m = /^(?:preparation\.)?material\.(\d+)$/.exec(String(sectionKey || ''));
   if (m) {
-    const item = contentJson?.materials?.[Number(m[1])];
+    const list = contentJson?.preparation?.material ?? contentJson?.materials;
+    const item = list?.[Number(m[1])];
     if (item) return String(item);
   }
   return '活动材料';

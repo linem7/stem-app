@@ -28,17 +28,36 @@ export const PROGRESS_HINTS = {
   finishing: '就快好了，正在排版…',
 };
 
+/**
+ * 要模型返回的形状 —— **中国大陆幼儿园常见的教案格式**（2026-08-20 改版）。
+ * 结构的来由和每个字段的取舍见 docs/design/lesson-structure-and-modes.md。
+ *
+ * 已经删掉的两样，别照旧稿加回来：
+ *   `features`   —— 两个子字段各自搬去了 intent / objectives
+ *   `reflection` —— 「预期与实际的差异」在活动开始前只能是编的
+ */
 const JSON_SHAPE = `{
-  "title": "教案标题，动词+对象的形式，不超过 20 字",
+  "title": "活动名称，动词+对象的形式，不超过 20 字",
   "duration_min": 30,
-  "features": {
-    "problem_source": "这个问题为什么源自老师说的那个真实情境，两三句话",
-    "learning_experiences": ["幼儿将获得的学习经验，3-5 条"]
-  },
-  "materials": ["材料清单，每项写清楚数量或规格"],
-  "flow": [
-    { "stage": "引起动机", "minutes": 5, "detail": "这个环节老师具体做什么、说什么、孩子在干什么。要写得能照着上，不要写空话" }
+  "intent": "设计意图：为什么设计这个活动、想解决孩子什么问题。两三句话，写活动之前的判断，不要写事后语气",
+  "objectives": [
+    { "dimension": "认知", "text": "孩子会知道或理解什么" },
+    { "dimension": "能力", "text": "孩子会做到什么（动作必须是这个年龄班真做得到的）" },
+    { "dimension": "情感", "text": "孩子会愿意或乐于什么" }
   ],
+  "key_points": {
+    "focus": "活动重点：这次最要紧的那件事，一句话",
+    "difficulty": "活动难点：孩子最容易卡住的地方，一句话"
+  },
+  "preparation": {
+    "experience": ["经验准备：孩子在这次活动之前得先有什么经验"],
+    "material": ["物质准备：材料清单，每项写清数量或规格；场地怎么布置也写在这里"]
+  },
+  "flow": [
+    { "stage": "导入", "minutes": 5, "detail": "这个环节老师具体做什么、说什么、孩子在干什么。要写得能照着上，不要写空话" }
+  ],
+  "extension": "活动延伸，一段话，具体到区角怎么放、家里怎么做",
+  "safety": ["安全提示，每条具体可执行"],
   "steam": {
     "S": "科学：这次活动里具体是什么现象或特性",
     "T": "技术：具体用什么工具、什么技巧",
@@ -46,14 +65,11 @@ const JSON_SHAPE = `{
     "A": "艺术：具体的美感或创意表现",
     "M": "数学：具体的比较、测量或数量经验"
   },
-  "indicators": ["幼儿学习指标，只写教学实例里确实体现出来的"],
+  "indicators": ["《指南》领域指标，只写教学实例里确实体现出来的"],
   "dialogue": [
     { "speaker": "T", "text": "老师说的话" },
     { "speaker": "C", "text": "孩子说的话" }
-  ],
-  "safety": ["安全事项，每条具体可执行"],
-  "extension": "延伸活动，一段话",
-  "reflection": "教学省思：可能和预期不一样的地方、要重点观察什么、下次可以怎么改"
+  ]
 }`;
 
 /**
@@ -232,22 +248,52 @@ function normalizePlan(raw, ageGroup, durationTarget) {
       ? Number(raw.duration_min)
       : durationTarget;
 
+  /*
+    活动目标要收敛成 [{dimension, text}]。模型有三种写法都见得到：
+      · 已经是对象数组（想要的）
+      · 纯字符串数组 ["知道…","能…","愿意…"]
+      · 带前缀的字符串 "【认知】知道…" 或 "认知：知道…"
+    后两种要把维度认出来 —— 认不出来就留空，让 enforceAgeBand 报出来，
+    **不要瞎猜一个维度填上去**：猜错了那条硬校验就永远查不出问题，等于校验空转。
+  */
+  const DIMS = ['认知', '能力', '情感'];
+  const objectives = arr(raw.objectives)
+    .map((o) => {
+      if (typeof o === 'string') {
+        const m = /^\s*[【\[]?(认知|能力|情感)[态度]*[】\]]?\s*[:：]?\s*(.+)$/.exec(o);
+        return m ? { dimension: m[1], text: m[2].trim() } : { dimension: '', text: o.trim() };
+      }
+      const d = str(o?.dimension).replace(/态度|目标/g, '').trim();
+      return { dimension: DIMS.includes(d) ? d : '', text: str(o?.text ?? o?.content ?? '') };
+    })
+    .filter((o) => o.text);
+
+  /*
+    物质准备兼容 `materials` 这个旧字段名。
+    模型看过的提示词里现在只有 preparation.material，但它偶尔会顺手写回 materials ——
+    真发生时如果不接住，出来的教案会是「一份没有材料清单的教案」，
+    而那是老师第一眼就要看的东西。
+  */
+  const material = arr(raw.preparation?.material ?? raw.materials).map(str).filter(Boolean);
+  const experience = arr(raw.preparation?.experience).map(str).filter(Boolean);
+
   return {
     title,
     age_group: ageGroup,
     duration_min: duration,
-    features: {
-      problem_source: str(raw.features?.problem_source),
-      learning_experiences: arr(raw.features?.learning_experiences).map(str).filter(Boolean),
+    intent: str(raw.intent ?? raw.features?.problem_source),
+    objectives,
+    key_points: {
+      focus: str(raw.key_points?.focus),
+      difficulty: str(raw.key_points?.difficulty),
     },
-    materials: arr(raw.materials).map(str).filter(Boolean),
+    preparation: { experience, material },
     flow,
+    extension: str(raw.extension),
+    safety: arr(raw.safety).map(str).filter(Boolean),
     steam,
     indicators: arr(raw.indicators).map(str).filter(Boolean),
     dialogue,
-    safety: arr(raw.safety).map(str).filter(Boolean),
-    extension: str(raw.extension),
-    reflection: str(raw.reflection),
   };
 }
 
@@ -263,10 +309,13 @@ async function selfCheck(contentJson, ageGroup, systemPrompt, teacherId = null) 
 ${JSON.stringify(contentJson)}
 
 按 8 个质量维度各打 1-5 分（5 分最好），并指出确实存在的问题。
-特别检查：这份教案里有没有【${ageGroup}】孩子做不到的动作？重点看预测、读数、书写、小组分工、集体讨论、长时间专注。
+特别检查两件事：
+1. 这份教案里有没有【${ageGroup}】孩子做不到的动作？重点看预测、读数、书写、小组分工、集体讨论、长时间专注
+2. 三条活动目标是不是**真的**都有对应的环节？尤其那条情感目标 ——
+   「愿意分享」这种目标很容易写在纸上、而过程里根本没有让孩子说话的时候
 
 只输出 JSON：
-{"scores":{"问题的真实性":4,"探究的循环性":4,"STEAM的融合度":4,"师生对话的真实性":4,"测量与记录":4,"连贯的脉络性":4,"学习指标的对应":4,"教学反思的深度":4},
+{"scores":{"问题的真实性":4,"探究的循环性":4,"STEAM的融合度":4,"师生对话的真实性":4,"测量与记录":4,"连贯的脉络性":4,"学习指标的对应":4,"目标与过程的对应":4},
  "age_band_fit": true,
  "issues": ["具体问题，没有就给空数组"]}`,
       },
@@ -306,39 +355,25 @@ export function renderMarkdown(plan) {
   if (steamTags.length) L.push(`**STEAM 领域**：${steamTags.join(' · ')}`);
   L.push('');
 
-  if (c.features?.problem_source) {
-    L.push('## 教案特色说明');
-    L.push('');
-    L.push(c.features.problem_source);
-    L.push('');
-  }
-  if (c.features?.learning_experiences?.length) {
-    L.push('**幼儿将获得的学习经验**');
-    L.push('');
-    c.features.learning_experiences.forEach((x) => L.push(`- ${x}`));
-    L.push('');
-  }
+  /*
+    板块顺序 = 大陆常见教案格式的顺序（2026-08-20 改版）。
+    这个顺序就是以后导出 docx 的顺序 —— 老师是打印出来交给园里的，
+    所以正文（设计意图 … 安全提示）必须先出完，特征标注和教学实例排在后面。
 
-  if (c.materials?.length) {
-    L.push('## 材料准备');
-    L.push('');
-    c.materials.forEach((x) => L.push(`- ${x}`));
-    L.push('');
-  }
+    ⚠️ **不要输出 `commentary`（学习模式的教案解读）。**
+    她导出是为了打印交给园里，把「为什么这样设计」印在教案上，
+    园长看到的是一份夹着旁白的教案。要导解读得是单独的选项。
+  */
 
-  if (c.flow?.length) {
-    L.push('## 教学流程');
+  if (c.intent) {
+    L.push('## 设计意图');
     L.push('');
-    c.flow.forEach((s, i) => {
-      L.push(`### ${i + 1}. ${s.stage}${s.minutes ? `（${s.minutes} 分钟）` : ''}`);
-      L.push('');
-      L.push(s.detail);
-      L.push('');
-    });
+    L.push(c.intent);
+    L.push('');
   }
 
   if (c.steam) {
-    L.push('## STEAM 知识概念');
+    L.push('## STEAM 五域标注');
     L.push('');
     L.push('| 领域 | 具体内容 |');
     L.push('| --- | --- |');
@@ -351,8 +386,72 @@ export function renderMarkdown(plan) {
     L.push('');
   }
 
+  if (c.objectives?.length) {
+    L.push('## 活动目标');
+    L.push('');
+    c.objectives.forEach((o) => {
+      const d = o?.dimension ? `**${o.dimension}**　` : '';
+      L.push(`- ${d}${o?.text || ''}`);
+    });
+    L.push('');
+  }
+
+  if (c.key_points?.focus || c.key_points?.difficulty) {
+    L.push('## 活动重点与难点');
+    L.push('');
+    if (c.key_points.focus) L.push(`**重点**：${c.key_points.focus}`);
+    if (c.key_points.focus && c.key_points.difficulty) L.push('');
+    if (c.key_points.difficulty) L.push(`**难点**：${c.key_points.difficulty}`);
+    L.push('');
+  }
+
+  const prep = c.preparation || {};
+  if (prep.experience?.length || prep.material?.length) {
+    L.push('## 活动准备');
+    L.push('');
+    if (prep.experience?.length) {
+      L.push('**经验准备**');
+      L.push('');
+      prep.experience.forEach((x) => L.push(`- ${x}`));
+      L.push('');
+    }
+    if (prep.material?.length) {
+      L.push('**物质准备**');
+      L.push('');
+      prep.material.forEach((x) => L.push(`- ${x}`));
+      L.push('');
+    }
+  }
+
+  if (c.flow?.length) {
+    L.push('## 活动过程');
+    L.push('');
+    c.flow.forEach((s, i) => {
+      L.push(`### ${i + 1}. ${s.stage}${s.minutes ? `（${s.minutes} 分钟）` : ''}`);
+      L.push('');
+      L.push(s.detail);
+      L.push('');
+    });
+  }
+
+  if (c.extension) {
+    L.push('## 活动延伸');
+    L.push('');
+    L.push(c.extension);
+    L.push('');
+  }
+
+  if (c.safety?.length) {
+    L.push('## 安全提示');
+    L.push('');
+    c.safety.forEach((x) => L.push(`- ${x}`));
+    L.push('');
+  }
+
+  // ---- 以下不是教案正文，是特征标注与教学实例 ----
+
   if (c.indicators?.length) {
-    L.push('## 幼儿学习指标');
+    L.push('## 《指南》领域指标');
     L.push('');
     c.indicators.forEach((x) => L.push(`- ${x}`));
     L.push('');
@@ -362,27 +461,6 @@ export function renderMarkdown(plan) {
     L.push('## 教学实例（师生对话）');
     L.push('');
     c.dialogue.forEach((d) => L.push(`**${d.speaker === 'C' ? 'C（幼儿）' : 'T（教师）'}**：${d.text}`));
-    L.push('');
-  }
-
-  if (c.safety?.length) {
-    L.push('## 安全事项');
-    L.push('');
-    c.safety.forEach((x) => L.push(`- ${x}`));
-    L.push('');
-  }
-
-  if (c.extension) {
-    L.push('## 延伸活动');
-    L.push('');
-    L.push(c.extension);
-    L.push('');
-  }
-
-  if (c.reflection) {
-    L.push('## 教学省思');
-    L.push('');
-    L.push(c.reflection);
     L.push('');
   }
 

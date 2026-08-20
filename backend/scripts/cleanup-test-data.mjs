@@ -120,7 +120,7 @@ await query(`DELETE FROM admins WHERE username ~ '^(colleague|sup2)_[0-9]+$'`);
  */
 const junkKg = await query(
   `DELETE FROM kindergartens
-    WHERE name ~ '^(回归测试园|改过名|任务园.*|后台回归园|契约测试园|换绑回归园|激活回归园|版本回归园|运营回归园)_[0-9]{6,}$'
+    WHERE name ~ '^(回归测试园|改过名|任务园.*|后台回归园|契约测试园|换绑回归园|激活回归园|版本回归园|运营回归园|冒烟园)_[0-9]{6,}$'
     RETURNING name`
 );
 if (junkKg.rowCount) L(`  删掉 ${junkKg.rowCount} 个回归脚本自建的园`);

@@ -127,7 +127,10 @@ const QUALITY_STANDARDS = `【教案质量标准 · 8 个维度】
 5. 测量与记录：明确列出测量方式和记录方式（工具与单位按年龄班规则）
 6. 连贯的脉络性：环节之间有逻辑递进，前一个为后一个奠基
 7. 学习指标的对应：只选在教学实例里确实体现出来的指标
-8. 教学反思的深度：写出预期与实际的差异、对幼儿学习的观察、后续改进方向
+8. 目标与过程的对应：写出来的三条目标，活动过程里**真的做到了**吗？
+   （2026-08-20 换掉了原来的「教学反思的深度」——那一维要求写「预期与实际的差异」，
+   而这个产品是在活动**开始之前**用的，没有「实际」可写。
+   换成这一维是因为它是大陆教案评审最先挑的毛病：目标写得漂亮，过程里没有一个环节服务它）
 
 【核心教学策略】
 - 放慢脚步：不急着给答案，给幼儿充足时间自己探索、失败、反思
@@ -290,19 +293,51 @@ export function buildLessonSystemPrompt({ teacher, memories, collected, seedInpu
   const ageGroup = collected?.age_group || teacher?.age_group || '中班';
   const band = getAgeBand(ageGroup);
 
-  const structure = `【教案的标准结构】（必须包含这些部分）
-1. 基础信息：年龄班、适用时长、所需材料、STEAM 标注
-2. 教案特色说明：问题来源、幼儿将获得的学习经验（3-5 条）
-3. 教学流程 ${band.flow_stages} 个环节：${
+  /*
+    教案正文用**中国大陆幼儿园常见的教案格式**（2026-08-20 改版）。
+
+    为什么换：原来的结构是照那本台湾教材提炼的，而那本书是**活动实录** ——
+    它记的是「活动做完之后回头看，当时是怎么发生的」。而这个小程序解决的是
+    **活动开始之前**：老师明天要上，今天要写教案、要备材料。
+    所以「教学省思（预期与实际的差异）」这种事后视角的板块直接删掉了 ——
+    活动还没做，哪来的「实际」。
+
+    换的只是**呈现格式**，不是教学主张：8 个质量维度、年龄班规则、探究循环的要求
+    全部照旧。见 docs/design/lesson-structure-and-modes.md。
+  */
+  const stageNames =
     band.flow_stages === 3
-      ? '引起动机（现象→好奇）→ 发展活动（玩→发现→再玩一次）→ 综合活动（说一说）'
-      : '引起动机（现象→好奇→问题）→ 发展活动（预测→实作→观察）→ 综合活动（分享→讨论→改进）→ 延伸活动（迁移或区角深化）'
-  }
-4. STEAM 知识概念表：${band.steam_required.join('/')} ${band.steam_may_omit.length ? `（${band.steam_may_omit.join('/')} 若确实没涉及，如实写"本次未涉及"，不要硬凑）` : '五域齐全且相互关联'}
-5. 幼儿学习指标：${band.indicators_count[0]}-${band.indicators_count[1]} 个，只选教学实例里确实体现的
-6. 教学实例说明：含 4-6 段师生对话（T/C 标注），至少一次失败→改进的过程
-7. 安全事项：必须覆盖 ${band.safety_focus.join('、')}
-8. 教学省思：预期与实际的差异、对幼儿学习的观察、后续改进方向`;
+      ? '导入（现象→好奇）→ 展开（玩→发现→再玩一次）→ 结束（说一说）'
+      : '导入（现象→好奇→问题）→ 展开（预测→实作→观察）→ 再探索与改进（换个法子再试）→ 交流总结（分享→讨论）';
+
+  const structure = `【教案的标准结构】（中国大陆幼儿园常见格式，必须按这个来）
+
+一、教案正文
+1. 活动名称、适用年龄班、活动时长
+2. 设计意图：为什么设计这个活动、想解决孩子什么问题。**写活动之前的判断，不要写"活动中孩子表现出"这种事后语气**
+3. 活动目标：**正好 3 条，三个维度各一条**
+   - 认知：孩子会知道/理解什么
+   - 能力：孩子会做到什么（动作要符合${ageGroup}做得到的范围）
+   - 情感：孩子会愿意/乐于什么
+   ⚠️ 三条不许都是认知（「知道…」「了解…」「认识…」是同一个维度，这是最常犯的错）
+4. 活动重点、活动难点：各一句。重点是这次最要紧的那件事，难点是孩子最容易卡住的地方
+5. 活动准备，分两小节：
+   - 经验准备：孩子在这次活动**之前**得先有什么经验（这一节老师最容易漏）
+   - 物质准备：材料清单，写清数量或规格；场地怎么布置也写在这里
+6. 活动过程 ${band.flow_stages} 个环节：${stageNames}
+   每个环节标注分钟数，加起来等于总时长。写得能照着上，不要写空话
+7. 活动延伸：一段话，具体到区角怎么放、家里怎么做
+8. 安全提示：必须覆盖 ${band.safety_focus.join('、')}，每条具体可执行
+
+二、特征标注（不是教案正文，是帮老师理解这个活动的特征）
+9. STEAM 五域标注：${band.steam_required.join('/')} ${band.steam_may_omit.length ? `（${band.steam_may_omit.join('/')} 若确实没涉及，如实写"本次未涉及"，不要硬凑）` : '五域齐全且相互关联'}
+10. 《指南》领域指标：${band.indicators_count[0]}-${band.indicators_count[1]} 个，只选教学实例里确实体现的
+
+三、教学实例
+11. 师生对话 4-6 段（T/C 标注），至少一次「没成功→改一改→再试」的过程
+
+**不要写「教学省思」「活动反思」「预期与实际的差异」这类板块** ——
+活动还没做，那些写出来只能是编的。`;
 
   return join([
     CORE_ROLE,
@@ -348,14 +383,17 @@ ${blocks.join('\n')}
  * 这类空话交差 —— 那等于把活儿又推回给老师，而她来用这个工具就是因为没时间。
  */
 const AUTONOMY = `【老师没被问到的部分，你自己定】
-这次只问了老师 5 个问题。材料清单、教学流程、要问孩子什么、安全事项、怎么评估、怎么延伸 ——
+这次只问了老师 4 个问题（年龄班、教学重点、场地、班上的情况）。
+活动目标、重点难点、经验准备、材料清单、活动过程、要问孩子什么、安全提示、怎么延伸 ——
 这些**一律不要留空、不要写"根据实际情况""教师自行安排"**，按教学框架和年龄班规则直接给出具体方案：
 
+- 目标：三个维度各一条，能力那条必须是这个年龄班真做得到的动作
+- 经验准备：想清楚这个活动预设了孩子已经会什么，写出来
 - 材料：写清数量或规格，优先选幼儿园常见、便宜、好找的东西；老师说了现实限制就必须遵守
-- 流程：按上面规定的环节数写，每环节标注分钟数，加起来等于总时长
+- 过程：按上面规定的环节数写，每环节标注分钟数，加起来等于总时长
 - 提问：写进师生对话里，问题要开放、能引出观察和比较，符合这个年龄班的语言水平
 - 安全：按年龄班的必查项逐条写具体，不要写"注意安全"这种没法执行的话
-- 评估与延伸：具体到老师明天就能照做
+- 延伸：具体到老师明天就能照做
 
 老师的原话优先级最高：她明确说过的（比如"园里没有投影仪"）一定遵守，与你的默认方案冲突时听她的。`
 
@@ -387,12 +425,19 @@ export function buildReviseSystemPrompt({ teacher, memories, collected, seedInpu
         .join('\n')}`
     : '';
 
+  // 材料从 plan.materials 搬到了 plan.preparation.material（2026-08-20 改版）。
+  // `?? plan.materials` 那一截是给旧格式的教案留的 —— 库里还有旧的，
+  // 她对着一份旧教案说「材料我们没有」时，这里得读得到那份清单，
+  // 否则模型看不到材料，改稿会凭空重编一套。
+  const material = plan?.preparation?.material ?? plan?.materials ?? [];
+
   const current = plan
     ? `【当前这份教案】
 标题：${plan.title || ''}
 时长：${plan.duration_min || ''} 分钟 · ${plan.flow?.length || 0} 个环节
+目标：${(plan.objectives || []).map((o) => `${o.dimension ? `[${o.dimension}]` : ''}${o.text}`).join('；')}
 流程：${(plan.flow || []).map((f) => `${f.stage}(${f.minutes}分)`).join(' → ')}
-材料：${(plan.materials || []).slice(0, 12).join('、')}
+材料：${material.slice(0, 12).join('、')}
 安全：${(plan.safety || []).join('；')}`
     : '';
 
@@ -586,6 +631,46 @@ export function enforceAgeBand(contentJson, ageGroup) {
       violations.push(`STEAM 的 ${key} 是${ageGroup}必须涉及的，但内容为空或写了"未涉及"`);
     }
   }
+
+  /*
+    6. 活动目标必须三个维度各一条（2026-08-20 新增）。
+
+    这条是把目标从「三条字符串」改成「带 dimension 的结构」换来的 ——
+    **模型天然会写出三条其实都是认知维度的目标**（「知道…」「了解…」「认识…」
+    读起来像三条，其实是同一件事说三遍），而那正是大陆教案评审最先挑出来的毛病。
+    提示词里已经点名警告过，但提示词是概率约束，这一层才是确定的。
+
+    不自动纠正：维度写错了要改的是目标内容本身，代码没法替它重写一条情感目标。
+    记进 quality_self，内测时看这一条出现的频率。
+  */
+  const DIMENSIONS = ['认知', '能力', '情感'];
+  const objectives = Array.isArray(contentJson.objectives) ? contentJson.objectives : [];
+  if (objectives.length !== 3) {
+    violations.push(`活动目标有 ${objectives.length} 条，应为正好 3 条（认知/能力/情感各一条）`);
+  }
+  const dims = objectives.map((o) => String(o?.dimension || '').trim());
+  const missing = DIMENSIONS.filter((d) => !dims.includes(d));
+  if (missing.length) {
+    violations.push(`活动目标缺少这些维度：${missing.join('、')}（三条很可能都写成了认知目标）`);
+  }
+  const dupes = DIMENSIONS.filter((d) => dims.filter((x) => x === d).length > 1);
+  if (dupes.length) {
+    violations.push(`活动目标里「${dupes.join('、')}」维度出现了不止一条`);
+  }
+
+  // 7. 活动准备的两小节都不能空 —— 经验准备是老师最容易漏、也最容易被模型跳过的一节
+  const prep = contentJson.preparation || {};
+  if (!Array.isArray(prep.experience) || !prep.experience.length) {
+    violations.push('活动准备缺少「经验准备」（这个活动预设孩子已经会什么，必须写出来）');
+  }
+  if (!Array.isArray(prep.material) || !prep.material.length) {
+    violations.push('活动准备缺少「物质准备」（材料清单）');
+  }
+
+  // 8. 重点难点各一句，不许空着
+  const kp = contentJson.key_points || {};
+  if (!String(kp.focus || '').trim()) violations.push('缺少活动重点');
+  if (!String(kp.difficulty || '').trim()) violations.push('缺少活动难点');
 
   return { violations, fixed };
 }

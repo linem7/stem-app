@@ -302,7 +302,7 @@ lessonPlansRouter.post(
 );
 
 /**
- * 按路径写值，支持数组下标：'flow.1.detail'、'steam.S'、'materials.0'
+ * 按路径写值，支持数组下标：'flow.1.detail'、'steam.S'、'preparation.material.0'
  * 路径中间缺失的层不自动创建 —— 教案的结构是生成时定好的，
  * 允许凭空造出新结构只会让 md 渲染出奇怪的东西。
  */

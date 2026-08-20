@@ -6,17 +6,20 @@
 
     <!-- 加载中 -->
     <template v-if="!plan && !loadError">
-      <view class="sk sk--title" />
-      <view class="sk sk--chips" />
-      <view class="sk sk--para" />
-      <view class="sk sk--para" />
-      <view class="sk sk--para sk--short" />
+      <s-skel kind="title" />
+      <s-skel kind="chips" />
+      <s-skel kind="para" />
+      <s-skel kind="para" />
+      <s-skel kind="para" w="60%" />
     </template>
 
-    <template v-else-if="loadError">
-      <text class="err">{{ loadError.message }}</text>
-      <s-button label="重试" variant="plain" @press="load" />
-    </template>
+    <s-state
+      v-else-if="loadError"
+      :kind="stateKind(loadError)"
+      :text="loadError.message"
+      action-label="重试"
+      @action="load"
+    />
 
     <template v-else>
       <text class="title">{{ c.title || plan.title }}</text>
@@ -53,6 +56,28 @@
         <text class="ver__keep">来回切都行，配图不受影响。</text>
       </view>
 
+      <!--
+        旧格式教案的兜底（2026-08-20 改版）。
+
+        库里还有一批改版前生成的教案，它们没有 objectives / key_points / preparation。
+        用户定的是「直接不管」——但**不管不等于渲染成一屏空板块**：那看起来像坏了。
+        所以认出旧格式就退回显示存好的 Markdown 原文，并说明一句为什么长这样。
+      -->
+      <template v-if="isLegacy">
+        <view class="legacy">
+          <text class="legacy__t">这份是旧格式的教案，按原样显示。新写的教案会用现在的格式。</text>
+        </view>
+        <text class="legacy__md">{{ plan.content_md }}</text>
+      </template>
+
+      <template v-else>
+      <!-- ============ 设计意图 ============ -->
+      <template v-if="c.intent">
+        <view class="sec"><text class="sec__h">设计意图</text></view>
+        <text class="para">{{ c.intent }}</text>
+        <view class="hr" />
+      </template>
+
       <!-- ============ STEAM 五域 ============ -->
       <view class="sec">
         <text class="sec__h">STEAM 五域标注</text>
@@ -85,71 +110,119 @@
         </view>
       </view>
 
-      <!-- ============ 材料 ============ -->
+      <view class="hr" />
+
+      <!-- ============ 活动目标 ============ -->
+      <!-- 三条，三个维度各一条。维度用中性胶囊不配色 ——
+           色板里一个语义只绑一个色，不该为了三个维度再发明三种颜色 -->
+      <view class="sec">
+        <text class="sec__h">活动目标</text>
+        <text class="sec__m">{{ (c.objectives || []).length }} 条</text>
+      </view>
+      <view v-for="(o, i) in c.objectives || []" :key="`obj-${i}`" class="obj">
+        <view v-if="o.dimension" class="obj__d"><text class="obj__d-t">{{ o.dimension }}</text></view>
+        <text class="obj__t">{{ o.text }}</text>
+      </view>
+
+      <!-- ============ 重点与难点 ============ -->
+      <template v-if="c.key_points && (c.key_points.focus || c.key_points.difficulty)">
+        <view class="hr" />
+        <view class="sec"><text class="sec__h">活动重点与难点</text></view>
+        <view v-if="c.key_points.focus" class="kp">
+          <text class="kp__lb">重点</text>
+          <text class="kp__t">{{ c.key_points.focus }}</text>
+        </view>
+        <view v-if="c.key_points.difficulty" class="kp">
+          <text class="kp__lb kp__lb--hard">难点</text>
+          <text class="kp__t">{{ c.key_points.difficulty }}</text>
+        </view>
+      </template>
+
+      <!-- ============ 活动准备 ============ -->
       <view class="hr" />
       <view class="sec">
-        <text class="sec__h">材料清单</text>
-        <text class="sec__m">{{ (c.materials || []).length }} 样</text>
+        <text class="sec__h">活动准备</text>
+        <text class="sec__m">{{ materials.length }} 样材料</text>
       </view>
+      <!-- 经验准备排在物质准备前面：它是老师最容易漏的一节，
+           而且逻辑上先有经验才谈得上摆材料 -->
+      <template v-if="(c.preparation && c.preparation.experience || []).length">
+        <text class="sub">经验准备</text>
+        <view v-for="(x, i) in c.preparation.experience" :key="`exp-${i}`" class="dot">
+          <text class="dot__t">{{ x }}</text>
+        </view>
+      </template>
+      <text v-if="materials.length" class="sub sub--gap">物质准备</text>
       <view class="mats">
-        <view v-for="(m, i) in c.materials || []" :key="i" class="mat">
+        <view v-for="(m, i) in materials" :key="`mat-${i}`" class="mat">
           <text class="mat__t">{{ shortMat(m) }}</text>
         </view>
       </view>
 
-      <!-- ============ 流程 ============ -->
+      <!-- ============ 活动过程 ============ -->
       <view class="hr" />
       <view class="sec">
-        <text class="sec__h">教学流程</text>
+        <text class="sec__h">活动过程</text>
         <text class="sec__m">{{ (c.flow || []).length }} 环节 · {{ plan.duration_min }} 分钟</text>
       </view>
-      <view v-for="(f, i) in c.flow || []" :key="i" class="flow">
+      <view v-for="(f, i) in c.flow || []" :key="`flow-${i}`" class="flow">
         <view class="flow__h">
           <text class="flow__stage">{{ f.stage }}</text>
           <text class="flow__min">{{ f.minutes }} 分钟</text>
         </view>
-        <!-- 图不再穿插在流程里 —— 它是材料图，属于最后那一节 -->
         <text class="flow__d">{{ f.detail }}</text>
       </view>
 
-      <!-- ============ 指标 ============ -->
-      <view class="hr" />
-      <view class="sec">
-        <text class="sec__h">幼儿学习指标</text>
-        <text class="sec__m">{{ (c.indicators || []).length }} 条</text>
-      </view>
-      <view v-for="(x, i) in c.indicators || []" :key="i" class="dot">
-        <text class="dot__t">{{ x }}</text>
-      </view>
+      <!-- ============ 活动延伸 ============ -->
+      <template v-if="c.extension">
+        <view class="hr" />
+        <view class="sec"><text class="sec__h">活动延伸</text></view>
+        <text class="para">{{ c.extension }}</text>
+      </template>
 
-      <!-- ============ 安全 ============ -->
+      <!-- ============ 安全提示 ============ -->
       <view class="hr" />
       <view class="sec">
-        <text class="sec__h">安全事项</text>
+        <text class="sec__h">安全提示</text>
         <text class="sec__m">{{ (c.safety || []).length }} 条</text>
       </view>
-      <view v-for="(x, i) in c.safety || []" :key="i" class="dot dot--safe">
+      <view v-for="(x, i) in c.safety || []" :key="`safe-${i}`" class="dot dot--safe">
         <text class="dot__t">{{ x }}</text>
       </view>
 
-      <!-- ============ 师生对话 ============ -->
+      <!--
+        ============ 以下不是教案正文 ============
+        《指南》领域指标和教学实例都不是她抄进园里那份表格的东西：
+        指标是这个活动碰到了《3-6岁儿童学习与发展指南》的哪些发展条目（研究要用），
+        教学实例是一段示例对话。不划开她会以为这两块也得抄进去。
+
+        STEAM 标注 2026-08-20 从这儿挪到了设计意图下面（用户定）——
+        它是这个活动的**特征**，而特征该在读细节之前先看到。
+      -->
+      <view class="hr hr--label" />
+      <text class="divider">下面两块不属于教案正文</text>
+
+      <!-- ============ 《指南》领域指标 ============ -->
+      <view class="sec">
+        <text class="sec__h">《指南》领域指标</text>
+        <text class="sec__m">{{ (c.indicators || []).length }} 条</text>
+      </view>
+      <view v-for="(x, i) in c.indicators || []" :key="`ind-${i}`" class="dot">
+        <text class="dot__t">{{ x }}</text>
+      </view>
+
+      <!-- ============ 教学实例 ============ -->
       <template v-if="(c.dialogue || []).length">
         <view class="hr" />
         <view class="sec">
           <text class="sec__h">教学实例（师生对话）</text>
           <text class="sec__m">{{ c.dialogue.length }} 句</text>
         </view>
-        <view v-for="(d, i) in c.dialogue" :key="i" class="dlg">
+        <view v-for="(d, i) in c.dialogue" :key="`dlg-${i}`" class="dlg">
           <text class="dlg__who" :class="{ 'dlg__who--c': d.speaker === 'C' }">{{ d.speaker === 'T' ? '老师' : '幼儿' }}</text>
           <text class="dlg__t">{{ d.text }}</text>
         </view>
       </template>
-
-      <!-- ============ 延伸 ============ -->
-      <template v-if="c.extension">
-        <view class="hr" />
-        <view class="sec"><text class="sec__h">延伸活动</text></view>
-        <text class="para">{{ c.extension }}</text>
       </template>
 
       <!-- ============ 活动材料图 ============ -->
@@ -195,6 +268,8 @@
             :class="{ 'rop--on': rating === r.key }"
             @tap="sendRating(r.key)"
           >
+            <!-- 选中态不许只靠颜色（黄底压白底 1.61:1）—— design-tokens 规则 3 -->
+            <image v-if="rating === r.key" class="rop__ck" :src="checkInk" mode="widthFix" />
             <text class="rop__t">{{ r.label }}</text>
           </view>
         </view>
@@ -236,6 +311,7 @@
             :class="{ 'sh__p--on': purpose === p.key }"
             @tap="purpose = p.key"
           >
+            <image v-if="purpose === p.key" class="sh__p-ck" :src="checkInk" mode="widthFix" />
             <text class="sh__p-t" :class="{ 'sh__p-t--on': purpose === p.key }">{{ p.cn }}</text>
           </view>
         </view>
@@ -244,7 +320,7 @@
       <view class="sh__sec"><text class="sh__h">画什么</text></view>
       <view class="mats">
         <view
-          v-for="(m, i) in c.materials || []"
+          v-for="(m, i) in materials"
           :key="i"
           class="mat mat--pick"
           :class="{ 'mat--on': pickedIndex === i, 'mat--has': hasImageFor(m) }"
@@ -294,9 +370,13 @@ import {
   requestImage,
   rollback,
 } from '../../api/lessonPlans.js'
+import { iconCheck } from '../../utils/icons.js'
+import { COLORS } from '../../utils/colors.js'
 import { navTo, reLaunch } from '../../utils/nav.js'
 import { saveImageToAlbum } from '../../utils/saveImage.js'
-import { showApiError, toast } from '../../utils/ui.js'
+import { showApiError, stateKind, toast } from '../../utils/ui.js'
+
+const checkInk = iconCheck(COLORS.ink, 2.6)
 
 const STEAM_KEYS = ['S', 'T', 'E', 'A', 'M']
 const STEAM_CN = { S: '科学', T: '技术', E: '工程', A: '艺术', M: '数学' }
@@ -355,6 +435,23 @@ const MAX_IMAGES = 3
 let imageHandle = null
 
 const c = computed(() => plan.value?.content_json || {})
+
+/**
+ * 改版前生成的教案（2026-08-20 之前）。
+ *
+ * 判据用 `objectives` 而不是别的：它是新结构里**必然存在**的字段
+ * （后端硬校验要求正好 3 条），所以「没有它」就一定是旧格式。
+ * 拿 `materials` 反过来判断不行 —— 新结构里那个字段也可能被模型顺手写出来。
+ */
+const isLegacy = computed(() => Boolean(plan.value) && !Array.isArray(c.value.objectives))
+
+/**
+ * 物质准备。新结构在 `preparation.material`，旧的在 `materials`。
+ *
+ * 两个都读是为了**配图抽屉** —— 她对着一份旧教案点「配图」时，
+ * 抽屉里得列得出材料，否则那一屏是空的、只能自己打字描述。
+ */
+const materials = computed(() => c.value.preparation?.material || c.value.materials || [])
 
 /** 模型对没涉及的域会写「本次未涉及」，用它判断哪几域是刻意不做 */
 const skipped = computed(() =>
@@ -448,14 +545,18 @@ const imgCap = (img) => {
 /**
  * 这张图对不上现在的材料清单了。
  *
- * 必须同时满足「挂在某样材料上」（section_key = material.N）——
+ * 必须同时满足「挂在某样材料上」——
  * 只看 purpose 会误判：老师自己描述的图 purpose 也可能是材料图，
  * 但它本来就不在材料清单里，标它「过时」是错的。
+ *
+ * 两种 section_key 都要认：改版前写的是 `material.N`，之后写 `preparation.material.N`。
+ * **旧图的 section_key 一律不动**（「图片永不跟着版本走」是定死的规则），
+ * 所以库里两种前缀会长期并存。
  */
 const isStale = (img) =>
-  String(img.section_key || '').startsWith('material.') &&
+  /^(preparation\.)?material\.\d+$/.test(String(img.section_key || '')) &&
   Boolean(img.label) &&
-  !(c.value.materials || []).some((m) => shortMat(m) === img.label)
+  !materials.value.some((m) => shortMat(m) === img.label)
 
 function preview(url) {
   uni.previewImage({ urls: readyImages.value.map((i) => i.url), current: url })
@@ -547,7 +648,9 @@ async function draw() {
     const res = await requestImage(planId.value, {
       purpose: purpose.value,
       // 自由描述时没有材料下标，后端允许缺省
-      sectionKey: free ? null : `material.${pickedIndex.value}`,
+      // 新结构里材料清单在 preparation.material 下（2026-08-20 改版）。
+      // 后端两种前缀都认，所以新图写新路径就行
+      sectionKey: free ? null : `preparation.material.${pickedIndex.value}`,
       note: name,
     })
     imageHandle = pollImage(planId.value, res.image_id)
@@ -590,7 +693,7 @@ async function doExport() {
 <style lang="scss" scoped>
 .title {
   display: block;
-  font-size: 42rpx;
+  font-size: var(--fs-title);
   font-weight: 700;
   color: $ink;
   letter-spacing: -0.012em;
@@ -631,7 +734,7 @@ async function doExport() {
 }
 
 .chip__t {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-2;
   line-height: 1.5;
 }
@@ -663,14 +766,14 @@ async function doExport() {
 }
 
 .sec__h {
-  font-size: 26rpx;
+  font-size: var(--fs-sub);
   font-weight: 700;
   color: $ink-2;
   letter-spacing: 0.04em;
 }
 
 .sec__m {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
 }
 
@@ -678,6 +781,126 @@ async function doExport() {
   height: 2rpx;
   background: $rule;
   margin: 32rpx 0;
+
+  /* 划开「教案正文」和「特征标注」那一道，比普通分隔线重一档 */
+  &--label {
+    height: 4rpx;
+    background: $rule-2;
+    margin: 44rpx 0 16rpx;
+  }
+}
+
+.divider {
+  display: block;
+  font-size: var(--fs-tag);
+  color: $ink-3;
+  line-height: 1.6;
+  margin-bottom: 24rpx;
+}
+
+/* 分节里的小标题（经验准备 / 物质准备） */
+.sub {
+  display: block;
+  font-size: var(--fs-sub);
+  font-weight: 600;
+  color: $ink-2;
+  margin-bottom: 12rpx;
+
+  &--gap {
+    margin-top: 24rpx;
+  }
+}
+
+/* ============ 活动目标 ============ */
+.obj {
+  display: flex;
+  align-items: flex-start;
+  padding: 12rpx 0;
+}
+
+/* 维度用中性胶囊，不配色 —— 色板里一个语义只绑一个色，
+   不该为了三个维度再发明三种颜色（design-tokens 规则 4） */
+.obj__d {
+  flex: none;
+  border: 2rpx solid $rule-2;
+  border-radius: $r-chip;
+  background: $paper-2;
+  padding: 2rpx 14rpx;
+  margin-right: 16rpx;
+  margin-top: 4rpx;
+}
+
+.obj__d-t {
+  font-size: var(--fs-tag);
+  font-weight: 600;
+  color: $ink-2;
+  line-height: 1.5;
+}
+
+.obj__t {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-read);
+  line-height: 1.7;
+  color: $ink-2;
+}
+
+/* ============ 重点难点 ============ */
+.kp {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 12rpx;
+}
+
+.kp__lb {
+  flex: none;
+  font-size: var(--fs-tag);
+  font-weight: 700;
+  color: $mint-deep;
+  border: 2rpx solid $mint;
+  border-radius: $r-chip;
+  background: $mint-soft;
+  padding: 2rpx 14rpx;
+  margin-right: 16rpx;
+  margin-top: 4rpx;
+
+  /* 难点用珊瑚色 —— 它是「要当心的地方」，跟删除那一类的语义同源 */
+  &--hard {
+    color: $coral-deep;
+    border-color: $coral;
+    background: $paper-2;
+  }
+}
+
+.kp__t {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-read);
+  line-height: 1.7;
+  color: $ink-2;
+}
+
+/* ============ 旧格式兜底 ============ */
+.legacy {
+  background: $sky-soft;
+  border: 2rpx solid $sky-line;
+  border-radius: 24rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 24rpx;
+}
+
+.legacy__t {
+  font-size: var(--fs-sub);
+  color: $sky-deep;
+  line-height: 1.7;
+}
+
+/* Markdown 原文。不做渲染 —— 为了一批旧教案在小程序里实现一个 md 渲染器不值得 */
+.legacy__md {
+  display: block;
+  font-size: var(--fs-read);
+  color: $ink-2;
+  line-height: 1.8;
 }
 
 /* ============ STEAM ============ */
@@ -717,14 +940,14 @@ async function doExport() {
 }
 
 .bd__t {
-  font-size: 22rpx;
+  font-size: var(--fs-tag);
   font-weight: 700;
   color: $ink;
 }
 
 .steam__t {
   flex: 1;
-  font-size: 27rpx;
+  font-size: var(--fs-read);
   line-height: 1.6;
   color: $ink-2;
 }
@@ -744,7 +967,7 @@ async function doExport() {
 }
 
 .skip__name {
-  font-size: 27rpx;
+  font-size: var(--fs-read);
   font-weight: 600;
   color: $ink;
   margin-right: 14rpx;
@@ -757,13 +980,13 @@ async function doExport() {
 }
 
 .skip__cap-t {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   font-weight: 700;
   color: $ink;
 }
 
 .skip__why {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-2;
   line-height: 1.7;
 }
@@ -783,7 +1006,7 @@ async function doExport() {
 }
 
 .mat__t {
-  font-size: 25rpx;
+  font-size: var(--fs-sub);
   color: $ink-2;
   line-height: 1.5;
 }
@@ -805,7 +1028,7 @@ async function doExport() {
 }
 
 .mat__mark {
-  font-size: 22rpx;
+  font-size: var(--fs-tag);
   color: $mint-deep;
   font-weight: 600;
   margin-left: 10rpx;
@@ -825,14 +1048,14 @@ async function doExport() {
 }
 
 .ver__t {
-  font-size: 27rpx;
+  font-size: var(--fs-read);
   font-weight: 600;
   color: $sky-deep;
 }
 
 .ver__note {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-2;
   line-height: 1.65;
   margin-bottom: 16rpx;
@@ -852,14 +1075,14 @@ async function doExport() {
 }
 
 .ver__b-t {
-  font-size: 25rpx;
+  font-size: var(--fs-sub);
   color: $sky-deep;
   font-weight: 600;
 }
 
 .ver__keep {
   display: block;
-  font-size: 22rpx;
+  font-size: var(--fs-tag);
   color: $ink-3;
   line-height: 1.6;
 }
@@ -879,14 +1102,14 @@ async function doExport() {
 .mimg__cap {
   flex: 1;
   min-width: 0;
-  font-size: 26rpx;
+  font-size: var(--fs-sub);
   color: $ink-2;
   font-weight: 600;
 }
 
 .mimg__stale {
   display: block;
-  font-size: 22rpx;
+  font-size: var(--fs-tag);
   color: $ink-3;
   line-height: 1.6;
   margin-top: 4rpx;
@@ -904,19 +1127,19 @@ async function doExport() {
 }
 
 .flow__stage {
-  font-size: 29rpx;
+  font-size: var(--fs-body);
   font-weight: 600;
   color: $ink;
   margin-right: 16rpx;
 }
 
 .flow__min {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
 }
 
 .flow__d {
-  font-size: 27rpx;
+  font-size: var(--fs-read);
   line-height: 1.75;
   color: $ink-2;
 }
@@ -944,14 +1167,14 @@ async function doExport() {
 }
 
 .dot__t {
-  font-size: 27rpx;
+  font-size: var(--fs-read);
   line-height: 1.75;
   color: $ink-2;
 }
 
 .para {
   display: block;
-  font-size: 27rpx;
+  font-size: var(--fs-read);
   line-height: 1.75;
   color: $ink-2;
 }
@@ -962,7 +1185,7 @@ async function doExport() {
 }
 
 .dlg__who {
-  font-size: 26rpx;
+  font-size: var(--fs-sub);
   font-weight: 700;
   color: $sky-deep;
   margin-right: 12rpx;
@@ -973,7 +1196,7 @@ async function doExport() {
 }
 
 .dlg__t {
-  font-size: 26rpx;
+  font-size: var(--fs-read);
   line-height: 1.7;
   color: $ink-2;
 }
@@ -998,7 +1221,7 @@ async function doExport() {
 
 .imgph__t,
 .imgwait__t {
-  font-size: $fs-sub;
+  font-size: var(--fs-sub);
   color: $ink-3;
 }
 
@@ -1017,7 +1240,7 @@ async function doExport() {
 
 .rate__q {
   display: block;
-  font-size: 28rpx;
+  font-size: var(--fs-body);
   font-weight: 600;
   color: $ink;
   margin-bottom: 20rpx;
@@ -1048,8 +1271,14 @@ async function doExport() {
   }
 }
 
+.rop__ck {
+  width: 22rpx;
+  height: 22rpx;
+  margin-right: 8rpx;
+}
+
 .rop__t {
-  font-size: 26rpx;
+  font-size: var(--fs-sub);
   color: $ink-2;
 }
 
@@ -1060,7 +1289,7 @@ async function doExport() {
 
 .rate__done {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $mint-deep;
   margin-top: 16rpx;
 }
@@ -1093,7 +1322,7 @@ async function doExport() {
 }
 
 .row__t {
-  font-size: 26rpx;
+  font-size: var(--fs-sub);
   color: $ink-2;
 }
 
@@ -1102,48 +1331,13 @@ async function doExport() {
   font-weight: 600;
 }
 
-/* ============ 骨架 ============ */
-.sk {
-  background: $paper-2;
-  border-radius: $r-sm;
-  margin-bottom: 20rpx;
-
-  &--title {
-    height: 56rpx;
-    width: 70%;
-    margin-top: 24rpx;
-  }
-
-  &--chips {
-    height: 40rpx;
-    width: 55%;
-  }
-
-  &--para {
-    height: 140rpx;
-    border-radius: 20rpx;
-  }
-
-  &--short {
-    width: 60%;
-  }
-}
-
-.err {
-  display: block;
-  font-size: $fs-body;
-  color: $ink-2;
-  line-height: 1.7;
-  margin: 60rpx 0 32rpx;
-}
-
 /* ============ 配图抽屉 ============ */
 .sh__sec {
   padding: 8rpx 0 14rpx;
 }
 
 .sh__h {
-  font-size: 26rpx;
+  font-size: var(--fs-sub);
   font-weight: 700;
   color: $ink-2;
   letter-spacing: 0.04em;
@@ -1151,7 +1345,7 @@ async function doExport() {
 
 .sh__sub {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   margin-bottom: 14rpx;
 
@@ -1166,7 +1360,7 @@ async function doExport() {
 
 .sh__grp-t {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   margin-bottom: 12rpx;
 }
@@ -1177,6 +1371,8 @@ async function doExport() {
 }
 
 .sh__p {
+  display: flex;
+  align-items: center;
   border: 2rpx solid $rule-2;
   border-radius: 24rpx;
   background: $white;
@@ -1190,8 +1386,14 @@ async function doExport() {
   }
 }
 
+.sh__p-ck {
+  width: 22rpx;
+  height: 22rpx;
+  margin-right: 8rpx;
+}
+
 .sh__p-t {
-  font-size: 27rpx;
+  font-size: var(--fs-read);
   color: $ink-2;
 
   &--on {
@@ -1206,7 +1408,7 @@ async function doExport() {
   border-radius: $r-btn;
   background: $white;
   padding: 22rpx 24rpx;
-  font-size: 28rpx;
+  font-size: var(--fs-body);
   line-height: 1.6;
   color: $ink;
   min-height: 110rpx;
@@ -1218,7 +1420,7 @@ async function doExport() {
 
 .sh__foot {
   display: block;
-  font-size: 22rpx;
+  font-size: var(--fs-tag);
   color: $ink-3;
   text-align: center;
   margin-top: 12rpx;
@@ -1253,7 +1455,7 @@ async function doExport() {
 }
 
 .mimg__save-t {
-  font-size: 25rpx;
+  font-size: var(--fs-sub);
   color: $mint-deep;
   font-weight: 600;
 }
