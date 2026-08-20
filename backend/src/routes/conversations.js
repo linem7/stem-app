@@ -31,6 +31,7 @@ import {
   progressText,
   specOf,
 } from '../services/guideFlow.js';
+import { LEARNING_LEAD, attachWhy, isLearning, resolveMode } from '../services/learningMode.js';
 import { logger } from '../utils/logger.js';
 
 export const conversationsRouter = Router();
@@ -97,13 +98,17 @@ conversationsRouter.post(
     });
     if (!check.pass) throw contentBlockedError('teacher_input');
 
+    // 模式挂在会话上：她可能这份想快（明天就要上）、下一份想学（周末有空）。
+    // 不认识的值当效率模式 —— 客户端传错不该让她拿不到教案
+    const mode = resolveMode(req.body?.mode);
+
     const conv = await queryOne(
       // round_index / question_index 这两列留着不用了（题目一次性全给，没有「第几题」的概念），
       // 但它们是 NOT NULL DEFAULT，不删列就不用写迁移，等下次改表时一并清理
-      `INSERT INTO conversations (teacher_id, title, seed_input, status, total_rounds, collected)
-       VALUES ($1, $2, $3, 'draft', $4, '{}'::jsonb)
+      `INSERT INTO conversations (teacher_id, title, seed_input, status, total_rounds, collected, mode)
+       VALUES ($1, $2, $3, 'draft', $4, '{}'::jsonb, $5)
        RETURNING *`,
-      [req.teacherId, fallbackTitle(seedInput), seedInput, TOTAL_QUESTIONS]
+      [req.teacherId, fallbackTitle(seedInput), seedInput, TOTAL_QUESTIONS, mode]
     );
 
     const memories = await listMemories(req.teacherId);
@@ -118,17 +123,21 @@ conversationsRouter.post(
 
     await checkAiOutput({ openid: req.teacher.openid, questions });
 
+    // 落库存的是**不带 why 的题目** —— why 是写死的中文，不是模型产出，
+    // 存一遍等于把同一段话抄进每一条消息里。挂在下发那一刻就够
     await withTransaction(async (client) => {
       for (const q of questions) await insertQuestionMessage(client, conv, q);
     });
 
-    logger.info('conv_created', { teacher_id: req.teacherId, conversation_id: conv.id });
+    logger.info('conv_created', { teacher_id: req.teacherId, conversation_id: conv.id, mode });
 
     return ok(res, {
       conversation_id: conv.id,
       status: conv.status,
+      mode,
       progress: buildProgress({}),
-      questions,
+      questions: attachWhy(questions, mode),
+      ...(isLearning(mode) ? { learning_lead: LEARNING_LEAD } : {}),
     });
   })
 );
@@ -165,7 +174,12 @@ conversationsRouter.get(
       for (const q of questions) await insertQuestionMessage(client, conv, q);
     });
 
-    return ok(res, { questions, progress: buildProgress(conv.collected || {}) });
+    // 换年龄班重拉时 why 也要跟着回去 —— 前端是整份替换 questions 的，
+    // 不带就等于「换了个班，那几句为什么就消失了」
+    return ok(res, {
+      questions: attachWhy(questions, conv.mode),
+      progress: buildProgress(conv.collected || {}),
+    });
   })
 );
 
@@ -326,6 +340,10 @@ conversationsRouter.get(
     return ok(res, {
       conversation_id: conv.id,
       status: conv.status,
+      // 断点续写要还原的不只是答案，还有**她当时选的模式** ——
+      // 不带的话她被叫走一趟回来，学习模式那几句「为什么」就没了
+      mode: conv.mode || 'efficient',
+      ...(isLearning(conv.mode) ? { learning_lead: LEARNING_LEAD } : {}),
       title: conv.title,
       seed_input: conv.seed_input,
       age_group: conv.age_group,
@@ -333,7 +351,7 @@ conversationsRouter.get(
       progress: buildProgress(conv.collected || {}),
       progress_text: progressText(conv),
       // 全部题目 + 各自答没答，前端一次拿到就能把那一屏原样还原出来
-      questions: conv.status === 'draft' ? questions : [],
+      questions: conv.status === 'draft' ? attachWhy(questions, conv.mode) : [],
       answers,
       can_finish: canFinish(conv.collected),
       ready_to_generate: isFinished(conv.collected || {}),

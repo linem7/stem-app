@@ -40,6 +40,17 @@
       <text class="kicker">开始新教案</text>
       <text class="q">{{ greeting }}<text class="q__br">今天想做个什么活动？</text></text>
 
+      <!--
+        模式切换。摆在输入框正上方 —— 她要在打字之前就看到自己是哪个模式，
+        打完 200 字才发现选错了会很恼火。
+        胶囊上**只有模式名，没有副标题**：解释放在点开的抽屉里
+        （见 stores/prefs.js 里 MODES 那段注释说的例外）。
+      -->
+      <view class="mode" @tap="openModeSheet">
+        <text class="mode__t">{{ modeName }}</text>
+        <text class="mode__c">⌄</text>
+      </view>
+
       <view class="ask">
         <textarea
           v-model="seed"
@@ -70,8 +81,28 @@
         />
       </view>
 
-      <text class="foot">我就问你 4 个问题，都给好了备选答案，点一下就行。</text>
+      <text class="foot">{{ footText }}</text>
     </template>
+
+    <!--
+      模式选择抽屉。整行可点 = 整行是那个选择，跟「我的」里记忆那一行同一个形状。
+      选完立刻关掉，不用再点一次「确定」—— 点了哪一行就是选了哪一行。
+    -->
+    <s-sheet :visible="modeSheet" title="怎么写这一份" @close="modeSheet = false">
+      <view
+        v-for="m in MODES"
+        :key="m.key"
+        class="mrow"
+        :class="{ 'mrow--on': prefs.mode === m.key }"
+        @tap="pickMode(m.key)"
+      >
+        <view class="mrow__b">
+          <text class="mrow__t">{{ m.label }}</text>
+          <text class="mrow__d">{{ m.desc }}</text>
+        </view>
+        <image v-if="prefs.mode === m.key" class="mrow__ck" :src="checkInk" mode="widthFix" />
+      </view>
+    </s-sheet>
   </s-page>
 </template>
 
@@ -82,8 +113,13 @@ import { ensureSession, gate, session } from '../../stores/session.js'
 import { put } from '../../stores/handoff.js'
 import { createConversation } from '../../api/conversations.js'
 import { listTasks } from '../../api/tasks.js'
+import { MODES, modeLabel, prefs, setMode } from '../../stores/prefs.js'
+import { iconCheck } from '../../utils/icons.js'
+import { COLORS } from '../../utils/colors.js'
 import { navTo, reLaunch, redirectTo } from '../../utils/nav.js'
 import { showApiError, stateKind } from '../../utils/ui.js'
+
+const checkInk = iconCheck(COLORS.ink, 2.6)
 
 // 前三个是已经真跑过的主题（小班/中班/大班各一），第四个说明其余主题一样能走
 const SEEDS = ['浮与沉', '影子', '搭高塔', '磁铁']
@@ -92,6 +128,21 @@ const seed = ref('')
 const starting = ref(false)
 /** 未读任务数。为 0 时那条条带整个不出现 */
 const unreadTasks = ref(0)
+
+const modeSheet = ref(false)
+const modeName = computed(() => modeLabel())
+
+/**
+ * 底下那句话跟着模式变。
+ *
+ * 效率模式说的是「快」（4 题、点一下就行）；学习模式说的是「为什么」。
+ * 同一句话两个模式都用，等于其中一个模式的老师读到的是别人的承诺。
+ */
+const footText = computed(() =>
+  prefs.mode === 'learning'
+    ? '每个问题都会告诉你为什么问，这 4 件事也是你自己写教案时要先想的。'
+    : '我就问你 4 个问题，都给好了备选答案，点一下就行。'
+)
 
 // 这里的 nickname 是微信昵称，不是问卷里那个真实姓名 ——
 // 真实姓名和手机号永不下发前端，接口里根本没有那两个字段
@@ -136,11 +187,22 @@ function pickSeed(s) {
   seed.value = `我想做个${s}的活动`
 }
 
+// 都用具名函数，名字互相差得远一点 —— uni 的 handler 缓存 key 只有 256 个桶，
+// 撞了微信会把点击派发错人（test:mp 第 2 条）
+function openModeSheet() {
+  modeSheet.value = true
+}
+
+function pickMode(key) {
+  setMode(key)
+  modeSheet.value = false
+}
+
 async function start() {
   if (starting.value || !seed.value.trim()) return
   starting.value = true
   try {
-    const data = await createConversation(seed.value.trim())
+    const data = await createConversation(seed.value.trim(), prefs.mode)
     // 开会话的响应里**已经带着那 4 道题**了。直接递给引导页，
     // 省掉它再 GET 一次 —— 否则老师等完「正在准备问题」，进去还要再看一次骨架屏。
     // 响应里没有 seed_input（后端那边它是入参不是出参），把她刚打的那句一起递过去，
@@ -208,6 +270,78 @@ async function start() {
 
 .q__br {
   display: block;
+}
+
+/* ============ 模式切换 ============ */
+/* 用次级底 + 描边，不用暖阳黄 —— 暖阳黄是「开始」那个主行动的颜色，
+   一个切换器不该跟这一屏真正的主行动抢同一个色（design-tokens 规则 4） */
+.mode {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  border: 2rpx solid $rule-2;
+  border-radius: $r-chip;
+  background: $paper-2;
+  padding: 8rpx 22rpx;
+  margin-bottom: 16rpx;
+}
+
+.mode__t {
+  font-size: var(--fs-sub);
+  color: $ink-2;
+  font-weight: 600;
+}
+
+.mode__c {
+  font-size: var(--fs-tag);
+  color: $ink-3;
+  margin-left: 10rpx;
+  line-height: 1;
+}
+
+/* 抽屉里的两行 */
+.mrow {
+  display: flex;
+  align-items: center;
+  border: 2rpx solid $rule-2;
+  border-radius: $r-btn;
+  background: $white;
+  padding: 24rpx 26rpx;
+  margin-bottom: 16rpx;
+
+  &--on {
+    background: $amber-soft;
+    border-color: $amber-line;
+    box-shadow: 0 0 0 2rpx $amber-line;
+  }
+}
+
+.mrow__b {
+  flex: 1;
+  min-width: 0;
+}
+
+.mrow__t {
+  display: block;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: $ink;
+  line-height: 1.5;
+}
+
+.mrow__d {
+  display: block;
+  font-size: var(--fs-sub);
+  color: $ink-3;
+  line-height: 1.6;
+  margin-top: 4rpx;
+}
+
+.mrow__ck {
+  flex: none;
+  width: 32rpx;
+  height: 32rpx;
+  margin-left: 16rpx;
 }
 
 .ask {

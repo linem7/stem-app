@@ -38,7 +38,7 @@
     />
 
     <template v-else>
-      <text class="lead">就问这 <text class="lead__n">{{ progress.total }}</text> 个，其余的我来定，写好了你再改。</text>
+      <text class="lead">{{ leadText }}</text>
 
       <view v-for="(q, qi) in questions" :key="q.id" class="qb" :class="{ 'qb--done': isAnswered(q.id) }">
         <view class="qb__h">
@@ -54,6 +54,19 @@
         <text v-if="q.hint || q.multi" class="qb__hint">
           {{ q.hint || '' }}{{ q.multi ? (q.hint ? ' · 可多选' : '可多选') : '' }}
         </text>
+
+        <!--
+          学习模式才有的「为什么问这个」。效率模式下后端根本不下发这个字段，
+          所以这里不需要判断模式 —— 有就画，没有就没有。
+
+          放在选项**上面**：她要先知道为什么再选，选完再读就晚了。
+          用天空蓝（中性提示 / 信息，design-tokens 规则 4），不用暖阳黄 ——
+          黄是主行动的颜色，一段解释不该看起来像个按钮。
+        -->
+        <view v-if="q.why" class="why">
+          <text class="why__t">{{ q.why }}</text>
+          <text v-if="q.why_detail" class="why__d">{{ q.why_detail }}</text>
+        </view>
 
         <s-option
           v-for="o in q.options"
@@ -148,6 +161,18 @@ const focusedQ = ref('')
 const appliedAge = ref('')
 
 const progress = reactive({ answered: 0, total: 4, required_left: 1 })
+/** 学习模式下后端给的那句开场话。空串就是效率模式 */
+const learningLead = ref('')
+
+/**
+ * 顶上那句引导语。
+ *
+ * 学习模式换成后端给的那句 —— 效率模式那句「其余的我来定」在学习模式里
+ * 是**反话**：她来学的，而「我来定」正是她想学会自己定的那部分。
+ */
+const leadText = computed(() =>
+  learningLead.value || `就问这 ${progress.total} 个，其余的我来定，写好了你再改。`
+)
 /** { [questionId]: { selected, customText, savedText, ownOpen, ack, failed } } */
 const answers = reactive({})
 
@@ -223,6 +248,9 @@ async function load() {
       take(`conversation:${conversationId.value}`) || (await getConversation(conversationId.value))
     seedInput.value = data.seed_input || ''
     title.value = data.title || ''
+    // 学习模式的开场话。首页递过来的和自己拉的都带着它，
+    // 所以被叫走一趟回来那几句「为什么」还在
+    learningLead.value = data.learning_lead || ''
     questions.value = data.questions || []
     seedAnswers(questions.value)
     Object.assign(progress, data.progress || {})
@@ -573,6 +601,33 @@ async function generate() {
 /* 答过的题整体降一档存在感，视线自然落到还没答的那几题上 */
 .qb--done .qb__t {
   color: $ink-2;
+}
+
+/* ============ 学习模式：为什么问这个 ============ */
+/* 天空蓝 = 中性提示/信息（design-tokens 规则 4）。
+   缩进对齐题目文字（左边让出序号那 62rpx），读起来是这道题的一部分 */
+.why {
+  background: $sky-soft;
+  border-left: 6rpx solid $sky;
+  border-radius: 0 20rpx 20rpx 0;
+  padding: 18rpx 22rpx;
+  margin: 0 0 20rpx 62rpx;
+}
+
+.why__t {
+  display: block;
+  font-size: var(--fs-sub);
+  font-weight: 600;
+  color: $sky-deep;
+  line-height: 1.6;
+}
+
+.why__d {
+  display: block;
+  font-size: var(--fs-tag);
+  color: $ink-2;
+  line-height: 1.7;
+  margin-top: 8rpx;
 }
 
 .own {

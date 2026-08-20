@@ -6,8 +6,10 @@ import { poll } from '../utils/poll.js'
  * 从首页那句话开新会话。一次把 4 道题全给出来。
  * 额度闸门装在这里 —— 在最前面。让老师答完 4 题、等 20 秒生成，最后才说额度不够，是最糟的时机。
  */
-export function createConversation(seedInput) {
-  return post('/conversations', { seed_input: seedInput })
+export function createConversation(seedInput, mode) {
+  // mode 挂在会话上而不是老师身上：她可能这份想快、下一份想学。
+  // 传错了后端当效率模式，所以这里不做校验
+  return post('/conversations', { seed_input: seedInput, mode })
 }
 
 /**
