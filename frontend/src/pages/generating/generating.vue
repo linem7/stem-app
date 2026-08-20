@@ -1,5 +1,10 @@
 <template>
-  <s-page :dock="true">
+  <!--
+    写完且拿到了 id 的那一瞬**整条操作条收掉**。
+    只把按钮去掉不够 —— dock 那条横杠自己带一道上边框和底色，
+    留着就是「跳转前底下闪一条空白横条」，跟原来闪一个按钮一样碍眼。
+  -->
+  <s-page :dock="!(done && lessonPlanId)">
     <template #top>
       <s-topbar :title="headline" />
     </template>
@@ -19,8 +24,10 @@
 
     <view v-if="hint && !failed" class="hint"><text class="hint__t">{{ hint }}</text></view>
 
-    <view v-if="failed" class="fail">
-      <text class="fail__t">{{ failMessage }}</text>
+    <view v-if="failed" class="fail" :class="{ 'fail--net': failKind === 'net' }">
+      <text class="fail__t" :class="{ 'fail__t--net': failKind === 'net' }">{{ failMessage }}</text>
+      <!-- 只说否定的那一面。网通着就不说话 —— 理由同 s-state：别编「网回来了」 -->
+      <text v-if="failKind === 'net' && !net.online" class="fail__live">还是没有网络</text>
     </view>
 
     <!--
@@ -36,14 +43,30 @@
 
     <template #dock>
       <!--
-        写完是**直接跳**的，不在这儿等她再点一下 —— 她本来就是在等结果，
-        多一次点击只是多一道门。这个按钮只在自动跳转没成功时兜底。
+        写完直接跳，**不给按钮**（2026-08-20 用户定）。
+        她本来就在等结果，跳转前闪一下「去看教案」只是多一个来不及点的按钮。
+
+        `lessonPlanId` 为 0 时才留着它 —— 那种情况自动跳转跳不了
+        （后端没回 id），没有这个按钮她就困在这一屏了。
+        所以这不是「以防万一」，是那条路唯一的出口。
       -->
       <s-button
-        v-if="done"
-        label="看教案"
+        v-if="done && !lessonPlanId"
+        label="去教案库找"
         arrow
-        @press="openPlan"
+        @press="leave"
+      />
+      <!--
+        断网和「真的没写成」是两件事，按钮不能是同一个：
+        · 断网 → 后端还在写，只要**接着轮询**。不花钱、幂等，所以网一回来自动就接上了
+        · 没写成 → 要**重新生成**，那是一次真的模型调用。绝不能自动触发
+        原来两条都走 startGenerate，等于每次弱网抖一下就白花一次钱重写一遍。
+      -->
+      <s-button
+        v-else-if="failed && failKind === 'net'"
+        label="接着等"
+        arrow
+        @press="resume"
       />
       <s-button
         v-else-if="failed"
@@ -59,9 +82,10 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { pollGenerate, startGenerate } from '../../api/conversations.js'
+import { net } from '../../stores/net.js'
 import { iconCheck } from '../../utils/icons.js'
 import { COLORS } from '../../utils/colors.js'
 import { redirectTo, reLaunch } from '../../utils/nav.js'
@@ -81,6 +105,13 @@ const stepIndex = ref(0)
 const done = ref(false)
 const failed = ref(false)
 const failMessage = ref('')
+/**
+ * 怎么失败的。决定那个按钮做什么，也决定能不能自动重来。
+ *  'net'     轮询断了 —— 后端还在写，接着轮询就行（幂等、不花钱）
+ *  'gen'     后端说没写成 —— 要重新生成，那是真的一次模型调用
+ *  'timeout' 等了两分钟还没完 —— 它多半还在写，去教案库看
+ */
+const failKind = ref('gen')
 const restarting = ref(false)
 const lessonPlanId = ref(0)
 /** 从改一改过来的。只影响文案，链路完全一样 */
@@ -131,6 +162,7 @@ function start() {
     .then((d) => {
       if (d.status === 'failed') {
         failed.value = true
+        failKind.value = 'gen'
         failMessage.value =
           d.message ||
           (isRevise.value ? '这次没改成，再试一次通常就好。' : '这次没写成。换个说法再试一次通常就好。')
@@ -146,12 +178,37 @@ function start() {
     })
     .catch((err) => {
       failed.value = true
+      if (err?.message === 'POLL_TIMEOUT') {
+        failKind.value = 'timeout'
+        failMessage.value = '等了两分钟还没写完。它多半还在后台写，去教案库看看。'
+        return
+      }
+      // 请求根本没发出去 —— 那是网的事，教案在后端好好地写着。
+      // 这一条**绝不能走「重新生成」**：弱网抖一下就重写一遍，白花一次钱，
+      // 而且她会拿到一份跟刚才不一样的教案
+      failKind.value = err?.code === 'NETWORK' ? 'net' : 'gen'
       failMessage.value =
-        err?.message === 'POLL_TIMEOUT'
-          ? '等了两分钟还没写完。它多半还在后台写，去教案库看看。'
+        failKind.value === 'net'
+          ? '网断了，不过教案还在后台写着。等网回来我就接着看。'
           : err?.message || '出了点问题，再试一次'
     })
 }
+
+/** 只接着轮询，不重新生成。断网那条路唯一该走的动作 */
+function resume() {
+  start()
+}
+
+/**
+ * 网一回来就自己接上。
+ * 只在 failKind === 'net' 时成立 —— 别的失败都要她自己决定要不要再花一次。
+ */
+watch(
+  () => net.online,
+  (now, before) => {
+    if (now && !before && failed.value && failKind.value === 'net') resume()
+  }
+)
 
 function openPlan() {
   stop()
@@ -186,7 +243,7 @@ async function retry() {
 
 .kicker {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -194,7 +251,7 @@ async function retry() {
 
 .q {
   display: block;
-  font-size: 42rpx;
+  font-size: var(--fs-title);
   font-weight: 700;
   color: $ink;
   letter-spacing: -0.012em;
@@ -237,7 +294,7 @@ async function retry() {
 
 .step__t {
   flex: 1;
-  font-size: 29rpx;
+  font-size: var(--fs-read);
   color: $ink-3;
   line-height: 1.5;
 }
@@ -260,7 +317,7 @@ async function retry() {
 }
 
 .hint__t {
-  font-size: $fs-sub;
+  font-size: var(--fs-sub);
   color: $ink-2;
   line-height: 1.65;
 }
@@ -274,9 +331,27 @@ async function retry() {
 }
 
 .fail__t {
-  font-size: $fs-sub;
+  font-size: var(--fs-sub);
   color: $coral-deep;
   line-height: 1.7;
+
+  /* 断网不是事故，别画成红的 —— 中性提示用天空蓝（design-tokens 规则 4） */
+  &--net {
+    color: $sky-deep;
+  }
+}
+
+.fail--net {
+  background: $sky-soft;
+  border-color: $sky-line;
+}
+
+.fail__live {
+  display: block;
+  font-size: var(--fs-tag);
+  color: $ink-3;
+  line-height: 1.6;
+  margin-top: 6rpx;
 }
 
 .leave {
@@ -295,7 +370,7 @@ async function retry() {
 
 .leave__h {
   display: block;
-  font-size: 28rpx;
+  font-size: var(--fs-body);
   font-weight: 600;
   color: $mint-deep;
   line-height: 1.5;
@@ -303,7 +378,7 @@ async function retry() {
 
 .leave__s {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   line-height: 1.5;
   margin-top: 4rpx;

@@ -1,16 +1,29 @@
 <template>
-  <s-page tab="home">
+  <!--
+    center：内容纵向居中。顶上那幅风景插画撤掉之后（2026-08-20 用户定），
+    这一屏只剩「一句问题 + 一个输入框 + 一个按钮」，靠上排会在下面留一大片空白，
+    看着像没加载完。居中之后输入框正好落在拇指位。
+  -->
+  <s-page tab="home" center>
     <!-- 启动没走完时先给骨架，不给空白也不给转圈 —— 布局稳定不跳动 -->
     <template v-if="!session.ready">
-      <view class="sk sk--hero" />
-      <view class="sk sk--line" />
-      <view class="sk sk--line sk--short" />
+      <s-skel kind="card" />
+      <s-skel kind="line" />
+      <s-skel kind="line" w="55%" />
     </template>
 
-    <template v-else-if="session.bootError">
-      <text class="err">{{ session.bootError.message }}</text>
-      <s-button label="重试" variant="plain" @press="retry" />
-    </template>
+    <!--
+      启动失败。这一屏是**最该分清「没网」和「后端挂了」的地方**：
+      她连不上时看到的第一屏就是这里，而这两件事她能做的完全不同 ——
+      一件走两步就好，一件只能等我。网回来时 s-state 自己会重来一次。
+    -->
+    <s-state
+      v-else-if="session.bootError"
+      :kind="stateKind(session.bootError)"
+      :text="session.bootError.message"
+      action-label="重试"
+      @action="retry"
+    />
 
     <template v-else>
       <!--
@@ -23,8 +36,6 @@
         <text class="banner__t">有 {{ unreadTasks }} 件可以换额度的事</text>
         <text class="banner__b">去看看 ›</text>
       </view>
-
-      <image class="hero" :src="hero" mode="widthFix" />
 
       <text class="kicker">开始新教案</text>
       <text class="q">{{ greeting }}<text class="q__br">今天想做个什么活动？</text></text>
@@ -71,14 +82,12 @@ import { ensureSession, gate, session } from '../../stores/session.js'
 import { put } from '../../stores/handoff.js'
 import { createConversation } from '../../api/conversations.js'
 import { listTasks } from '../../api/tasks.js'
-import { illoHero } from '../../utils/illustrations.js'
 import { navTo, reLaunch, redirectTo } from '../../utils/nav.js'
-import { showApiError } from '../../utils/ui.js'
+import { showApiError, stateKind } from '../../utils/ui.js'
 
 // 前三个是已经真跑过的主题（小班/中班/大班各一），第四个说明其余主题一样能走
 const SEEDS = ['浮与沉', '影子', '搭高塔', '磁铁']
 
-const hero = illoHero()
 const seed = ref('')
 const starting = ref(false)
 /** 未读任务数。为 0 时那条条带整个不出现 */
@@ -163,39 +172,33 @@ async function start() {
   border: 2rpx solid $mint-line;
   border-radius: 24rpx;
   padding: 22rpx 26rpx;
-  margin-top: 32rpx;
+  /* 居中之后第一个孩子的 margin-top 会把整列往下推，所以间距一律写在下边 */
+  margin-bottom: 40rpx;
 }
 
 .banner__t {
-  font-size: 27rpx;
+  font-size: var(--fs-read);
   color: $mint-deep;
   font-weight: 600;
 }
 
 .banner__b {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $mint-deep;
   margin-left: 20rpx;
 }
 
-.hero {
-  width: 100%;
-  border-radius: $r-card;
-  margin-top: 40rpx;
-}
-
 .kicker {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   font-weight: 600;
   letter-spacing: 0.02em;
-  margin-top: 32rpx;
 }
 
 .q {
   display: block;
-  font-size: 46rpx;
+  font-size: var(--fs-hero);
   font-weight: 700;
   color: $ink;
   letter-spacing: -0.012em;
@@ -217,7 +220,7 @@ async function start() {
 
 .ask__ta {
   width: 100%;
-  font-size: 30rpx;
+  font-size: var(--fs-body);
   line-height: 1.55;
   color: $ink;
   min-height: 92rpx;
@@ -237,7 +240,7 @@ async function start() {
 }
 
 .ask__seeds-lb {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   margin-right: 10rpx;
 }
@@ -251,7 +254,7 @@ async function start() {
 }
 
 .chip__t {
-  font-size: 25rpx;
+  font-size: var(--fs-sub);
   color: $ink-2;
   line-height: 1.5;
 }
@@ -262,39 +265,11 @@ async function start() {
 
 .foot {
   display: block;
-  font-size: $fs-sub;
+  font-size: var(--fs-sub);
   color: $ink-3;
   line-height: 1.6;
   text-align: center;
   margin-top: 22rpx;
 }
 
-.err {
-  display: block;
-  font-size: $fs-body;
-  color: $ink-2;
-  line-height: 1.7;
-  margin: 80rpx 0 32rpx;
-}
-
-/* 骨架屏 */
-.sk {
-  background: $paper-2;
-  border-radius: $r-sm;
-  margin-bottom: 20rpx;
-
-  &--hero {
-    height: 252rpx;
-    border-radius: $r-card;
-    margin-top: 40rpx;
-  }
-
-  &--line {
-    height: 40rpx;
-  }
-
-  &--short {
-    width: 55%;
-  }
-}
 </style>

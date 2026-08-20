@@ -1,6 +1,7 @@
 /**
  * 提示。所有错误文案一律用后端给的 err.message —— 前端不许自己拼错误话术。
  */
+import { net } from '../stores/net.js'
 
 /** 一句轻提示，不打断操作 */
 export function toast(message, duration = 2000) {
@@ -26,6 +27,22 @@ export function showApiError(err, { onConfirm } = {}) {
     return
   }
   toast(message, 2500)
+}
+
+/**
+ * 这个错误该按哪一种态画（给 `<s-state :kind>` 用）。
+ *
+ * 「无网」要**两个条件同时成立**：请求根本没发出去（`NETWORK`），
+ * 而且系统确实报告了断网。
+ *
+ * 少了后半个条件就会错，而且错得很常见：`NETWORK` 这个 code 覆盖的是
+ * 「没到后端」，里面包括「wifi 好得很，是后端连不上」。那种时候画成「无网」，
+ * 等于让她去检查一件本来没问题的事，而真正的问题（只能等我）一个字没说。
+ *
+ * `TIMEOUT` 也不算：请求已经出去了，卡住的可能是网也可能是后端。
+ */
+export function stateKind(err) {
+  return err?.code === 'NETWORK' && !net.online ? 'offline' : 'error'
 }
 
 export function showLoading(title = '') {

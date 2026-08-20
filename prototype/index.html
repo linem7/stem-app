@@ -21,14 +21,22 @@ GitHub Pages 是纯静态的，后端在作者本机。所以这里所有交互�
 
 【视觉资产照搬 design-demos/B-v4-final.html】
 :root 色值逐字来自 docs/design/design-tokens.md，组件 CSS 直接复用定稿版，
-没有发明新色、新圆角、新字号。核心骨架（左 40px 序号刻度轨 + 右单一焦点列、
-一次只问一题、A/B/C/D + 打勾、拇指位常驻操作条）是用户选定的资产，原样保留。
+没有发明新色、新圆角、新字号。**`npm run test:tokens` 第 2.5 条盯着这件事** ——
+在加这条检查之前，这里的 --mint-deep 和 --ink-3 已经手调到跟文档不是一个值了，
+而飘开的表现是「原型上的绿跟小程序里的绿差一点点」，谁都看不出来，
+但拿原型给人看设计的时候，看的就不是真东西了。
+
+保留的方向 B 资产：右侧单一焦点列、A/B/C/D 字母 + 打勾、拇指位常驻操作条。
+**已经拆掉的两样**（2026-08-17 用户定，别照旧稿加回来）：
+左侧 40px 竖向序号刻度轨（刻度位置是硬编码的绝对定位，跟右边内容永远对不齐）、
+一次只问一题（改成一屏 4 题）。
 
 【原型没有的东西 —— 诚实标注，不假装】
-  · 中班：只带了小班和大班两份真实数据，中班选项置灰
-  · 配图：豆包 API 签名还没做，按钮点了给诚实提示
+  · 配图：这里点了给诚实提示。真产品里已经端到端跑通（默认 nanobanana，见 CLAUDE.md）
   · 导出 Word：后端也还没做（返回 NOT_IMPLEMENTED / 501）
   · 登录：小程序 wx.login 在浏览器里没有
+  · 四态与字号档：2026-08-20 加在小程序上，这份原型没跟（它的用途是讲设计方向，
+    不是当第二个实现来维护 —— 真要看现在长什么样，开微信开发者工具看真机）
 ================================================================================
 -->
 <style>
@@ -42,7 +50,7 @@ GitHub Pages 是纯静态的，后端在作者本机。所以这里所有交互�
   --amber-line:  #E8B62A;
   --amber-deep:  #8A6410;
   --mint:        #6FBF8B;
-  --mint-deep:   oklch(0.52 0.115 155);
+  --mint-deep:   #327648;
   --mint-soft:   #EAF6EE;
   --sky:         #8FC7E8;
   --sky-soft:    #EAF3FA;
@@ -51,9 +59,9 @@ GitHub Pages 是纯静态的，后端在作者本机。所以这里所有交互�
   --coral-deep:  #B44B33;
   --ink:         #3A3630;
   --ink-2:       #6B655C;
-  --ink-3:       oklch(0.505 0.014 82);
+  --ink-3:       #736D62;
   --rule:        #EBE5D6;
-  --rule-2:      oklch(0.885 0.018 92);
+  --rule-2:      #DDD9CC;
 
   --f-body: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", "Noto Sans SC", sans-serif;
   font-synthesis: none;
@@ -185,8 +193,8 @@ body{background:var(--canvas);font-family:var(--f-body);color:var(--ink);
 .btn-p:hover{background:#F7D05E}
 .btn-p[disabled]{background:oklch(0.935 0.012 92);color:oklch(0.58 0.012 82);cursor:not-allowed;box-shadow:none}
 .btn-mint{background:var(--mint-deep);color:#fff;
-  box-shadow:0 3px 0 oklch(0.44 0.105 155), 0 8px 18px rgba(46,110,73,.22)}
-.btn-mint:hover{background:oklch(0.47 0.110 155)}
+  box-shadow:0 3px 0 #27593A, 0 8px 18px rgba(46,110,73,.22)}
+.btn-mint:hover{background:#3A8654}
 .btn-ghost{background:transparent;color:var(--ink-3);font-size:13px;font-weight:500;padding:9px}
 .btn-ghost:hover{color:var(--amber-deep)}
 .btn-row{display:flex;gap:8px}
@@ -490,7 +498,7 @@ const REVISE = RAW.revise;         // 真实跑出来的一轮「改一改」
 const IC = {
   back: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M10 3 L5 8 L10 13" stroke="#6B655C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   check: '<svg class="tick-svg" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5 L6.5 11.5 L12.5 4.5" stroke="#8A6410" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  checkMint: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5 L6.5 11.5 L12.5 4.5" stroke="#3E8F5D" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  checkMint: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5 L6.5 11.5 L12.5 4.5" stroke="#327648" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   checkWhite: '<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5 L6.5 11.5 L12.5 4.5" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   arrow: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3 8 H12 M8.5 4.5 L12 8 L8.5 11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   chev: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M6 3.5 L10.5 8 L6 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -679,10 +687,11 @@ function render() {
 function scHome() {
   // 前三个是原型里真跑过的主题（小班/中班/大班各一），第四个用来说明其余主题同样能走
   const seeds = ['浮与沉','影子','搭高塔','磁铁'];
+  // 2026-08-20：顶上那幅风景插画撤掉了（用户定），整列改成纵向居中 ——
+  // 只剩「一句问题 + 一个输入框 + 一个按钮」时靠上排会在下面留一大片空白
   return `${capsule()}
-  <div class="scroll"><div class="grid" style="padding:44px 0 26px">
+  <div class="scroll"><div class="grid" style="padding:0 0 26px;min-height:100%;display:flex;flex-direction:column;justify-content:center">
     <div class="col">
-      ${HERO}
       <div class="focus-kicker" style="margin-bottom:7px">开始新教案</div>
       <div class="focus-q" style="font-size:23px;line-height:1.45;margin-bottom:17px">李老师，<br>今天想做个什么活动？</div>
       <div class="ask">
@@ -717,7 +726,8 @@ window.pickSeed = pickSeed; window.startGuide = startGuide;
    不再一题一屏。老师看不到总量时，答完一题不知道还剩几题，心里没底就容易中途退出；
    一屏摊开、顶部一条进度、随时看得到还差几题，比逐题揭晓好。
 
-   保留的方向 B 资产：左侧序号刻度轨、A/B/C/D 字母 + 打勾、单列焦点、拇指位常驻操作条。
+   保留的方向 B 资产：A/B/C/D 字母 + 打勾、单列焦点、拇指位常驻操作条。
+   （序号刻度轨已经拆了 —— 见文件头。序号本身留在题块里。）
    一次性出题**不等于**一次性提交 —— 每选一项就落一次库（真实产品里是一次 answer 请求），
    老师在幼儿园随时被叫走，进度不能丢。 */
 

@@ -21,18 +21,21 @@
 
     <!-- 加载中 -->
     <template v-if="!loaded && !loadError">
-      <view v-for="n in 3" :key="n" class="sk-block">
-        <view class="sk sk--title" />
-        <view class="sk sk--opt" />
-        <view class="sk sk--opt" />
+      <view v-for="n in 3" :key="`sk-${n}`" class="sk-block">
+        <s-skel kind="title" />
+        <s-skel kind="opt" />
+        <s-skel kind="opt" />
       </view>
     </template>
 
-    <!-- 加载失败 -->
-    <template v-else-if="loadError">
-      <text class="err">{{ loadError.message }}</text>
-      <s-button label="重试" variant="plain" @press="load" />
-    </template>
+    <!-- 加载失败。网回来时 s-state 会自己重拉一次 —— 她不用记得回来点 -->
+    <s-state
+      v-else-if="loadError"
+      :kind="stateKind(loadError)"
+      :text="loadError.message"
+      action-label="重试"
+      @action="load"
+    />
 
     <template v-else>
       <text class="lead">就问这 <text class="lead__n">{{ progress.total }}</text> 个，其余的我来定，写好了你再改。</text>
@@ -126,7 +129,7 @@ import { take } from '../../stores/handoff.js'
 import { iconCheck } from '../../utils/icons.js'
 import { COLORS } from '../../utils/colors.js'
 import { redirectTo } from '../../utils/nav.js'
-import { showApiError, toast } from '../../utils/ui.js'
+import { showApiError, stateKind, toast } from '../../utils/ui.js'
 
 const checkMint = iconCheck(COLORS.mintDeep, 2.4)
 
@@ -469,7 +472,7 @@ async function generate() {
 }
 
 .prog__lb {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   letter-spacing: 0.02em;
 }
@@ -480,14 +483,14 @@ async function generate() {
 }
 
 .prog__hint {
-  font-size: $fs-sub;
+  font-size: var(--fs-sub);
   color: $ink-3;
 }
 
 /* ============ 题块 ============ */
 .lead {
   display: block;
-  font-size: $fs-sub;
+  font-size: var(--fs-sub);
   color: $ink-3;
   line-height: 1.6;
   margin: 8rpx 0 36rpx;
@@ -528,7 +531,7 @@ async function generate() {
 
 /* 24rpx = 12px，是 design-tokens 定的辅助文字下限，不能再小 */
 .qb__n-t {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   font-weight: 700;
   color: $ink-3;
 }
@@ -540,7 +543,7 @@ async function generate() {
 
 .qb__t {
   flex: 1;
-  font-size: $fs-card;
+  font-size: var(--fs-card);
   font-weight: 600;
   line-height: 1.45;
   letter-spacing: -0.01em;
@@ -550,7 +553,7 @@ async function generate() {
 /* 必答用黄底墨字的胶囊，不是只把字变个色 —— 颜色不做状态的唯一载体。
    这是整屏唯一的强制性提示，字号不该比别的辅助文字还小 */
 .qb__must {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   font-weight: 700;
   color: $ink;
   background: $amber;
@@ -561,7 +564,7 @@ async function generate() {
 
 .qb__hint {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   line-height: 1.6;
   margin: 0 0 20rpx 62rpx;
@@ -577,7 +580,7 @@ async function generate() {
   border: 2rpx solid $amber-line;
   border-radius: $r-btn;
   padding: 24rpx 26rpx;
-  font-size: 30rpx;
+  font-size: var(--fs-body);
   line-height: 1.55;
   color: $ink;
   background: $white;
@@ -598,7 +601,7 @@ async function generate() {
 }
 
 .ack__t {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-2;
   line-height: 1.65;
 }
@@ -612,7 +615,7 @@ async function generate() {
 }
 
 .fail__t {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $coral-deep;
   line-height: 1.65;
 }
@@ -620,39 +623,11 @@ async function generate() {
 /* ============ 底部 ============ */
 .dock__why {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   line-height: 1.6;
   text-align: center;
   margin-top: 12rpx;
 }
 
-/* ============ 四态 ============ */
-.err {
-  display: block;
-  font-size: $fs-body;
-  color: $ink-2;
-  line-height: 1.7;
-  margin: 60rpx 0 32rpx;
-}
-
-.sk-block {
-  margin-bottom: 44rpx;
-}
-
-.sk {
-  background: $paper-2;
-  border-radius: $r-sm;
-  margin-bottom: 18rpx;
-
-  &--title {
-    height: 40rpx;
-    width: 70%;
-  }
-
-  &--opt {
-    height: 96rpx;
-    border-radius: $r-btn;
-  }
-}
 </style>

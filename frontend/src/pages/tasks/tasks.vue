@@ -1,16 +1,30 @@
 <template>
   <s-page tab="me">
+    <!-- 标题提到三个态外面：失败那一屏也得让她知道自己在哪一页 -->
+    <view class="hd">
+      <text class="q">可以换额度的事</text>
+    </view>
+
     <template v-if="loading">
-      <view class="sk sk--title" />
-      <view class="sk sk--card" />
-      <view class="sk sk--card" />
+      <s-skel kind="card" />
+      <s-skel kind="card" />
     </template>
 
-    <template v-else>
-      <view class="hd">
-        <text class="q">可以换额度的事</text>
-      </view>
+    <!--
+      拉失败**必须自己占一屏**。原来这里没有失败态，catch 里只弹一个一闪而过的 toast，
+      然后 items 还是空数组 —— 页面照常渲染出「现在没有可以做的事」。
+      那句话是假的：任务可能有一堆，只是没拉到。**把失败伪装成空**是四态里最坏的一种，
+      因为她不会重试，她会走。
+    -->
+    <s-state
+      v-else-if="loadError"
+      :kind="stateKind(loadError)"
+      :text="loadError.message"
+      action-label="重试"
+      @action="load"
+    />
 
+    <template v-else>
       <!--
         任务和奖励是**断开的**：填完问卷不会自动到账，要等我核对之后发一个码给她。
         这句话必须写出来 —— 不写她填完会盯着额度看，发现没变以为坏了。
@@ -45,9 +59,11 @@
         </view>
       </view>
 
-      <text v-if="!items.length" class="none">
-        现在没有可以做的事。有新的我会放在这里，首页也会提醒你。
-      </text>
+      <s-state
+        v-if="!items.length"
+        kind="empty"
+        text="现在没有可以做的事。有新的我会放在这里，首页也会提醒你。"
+      />
 
       <view class="foot" @tap="goRedeem">
         <text class="foot__t">拿到兑换码了？点这里兑换 ›</text>
@@ -62,14 +78,17 @@ import { onShow } from '@dcloudio/uni-app'
 import { listTasks, markTaskRead } from '../../api/tasks.js'
 import { ensureSession } from '../../stores/session.js'
 import { navTo } from '../../utils/nav.js'
-import { showApiError, toast } from '../../utils/ui.js'
+import { stateKind, toast } from '../../utils/ui.js'
 
 const loading = ref(true)
+const loadError = ref(null)
 const items = ref([])
 
 onShow(() => load())
 
 async function load() {
+  loadError.value = null
+  loading.value = true
   try {
     await ensureSession()
     const d = await listTasks()
@@ -78,7 +97,9 @@ async function load() {
     // 不 await：标已读失败不该让这一屏空着
     items.value.filter((t) => t.unread).forEach((t) => markTaskRead(t.id).catch(() => {}))
   } catch (err) {
-    showApiError(err)
+    // 记下来让 s-state 占住整屏，不再弹 toast —— 一闪而过的提示配一屏「没有任务」，
+    // 等于告诉她「没事」，而实际上是「没拿到」
+    loadError.value = err
   } finally {
     loading.value = false
   }
@@ -111,7 +132,7 @@ function goRedeem() {
 
 .q {
   display: block;
-  font-size: 42rpx;
+  font-size: var(--fs-title);
   font-weight: 700;
   color: $ink;
   letter-spacing: -0.012em;
@@ -125,7 +146,7 @@ function goRedeem() {
 }
 
 .hint__t {
-  font-size: $fs-sub;
+  font-size: var(--fs-sub);
   color: $ink-2;
   line-height: 1.7;
 }
@@ -153,7 +174,7 @@ function goRedeem() {
 .task__t {
   flex: 1;
   min-width: 0;
-  font-size: 34rpx;
+  font-size: var(--fs-card);
   font-weight: 700;
   color: $ink;
   line-height: 1.45;
@@ -161,7 +182,7 @@ function goRedeem() {
 
 .task__new {
   flex: none;
-  font-size: 22rpx;
+  font-size: var(--fs-tag);
   font-weight: 600;
   color: $ink;
   background: $amber;
@@ -172,7 +193,7 @@ function goRedeem() {
 
 .task__b {
   display: block;
-  font-size: 28rpx;
+  font-size: var(--fs-read);
   color: $ink-2;
   line-height: 1.7;
   margin-top: 12rpx;
@@ -187,13 +208,13 @@ function goRedeem() {
 }
 
 .task__r {
-  font-size: 26rpx;
+  font-size: var(--fs-sub);
   color: $mint-deep;
   font-weight: 600;
 }
 
 .task__d {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
 
   &--soon {
@@ -213,7 +234,7 @@ function goRedeem() {
 .task__url-t {
   flex: 1;
   min-width: 0;
-  font-size: 24rpx;
+  font-size: var(--fs-tag);
   color: $ink-3;
   /* 一行显示不完就截断 —— 问卷星的链接很长，换行会把卡片撑得很怪 */
   overflow: hidden;
@@ -223,7 +244,7 @@ function goRedeem() {
 
 .task__url-b {
   flex: none;
-  font-size: 25rpx;
+  font-size: var(--fs-sub);
   font-weight: 600;
   color: $amber-deep;
   border: 2rpx solid $amber-line;
@@ -233,14 +254,6 @@ function goRedeem() {
   margin-left: 20rpx;
 }
 
-.none {
-  display: block;
-  font-size: $fs-sub;
-  color: $ink-3;
-  line-height: 1.7;
-  padding: 20rpx 0;
-}
-
 .foot {
   padding: 32rpx 0 12rpx;
   display: flex;
@@ -248,26 +261,8 @@ function goRedeem() {
 }
 
 .foot__t {
-  font-size: 27rpx;
+  font-size: var(--fs-sub);
   color: $amber-deep;
 }
 
-.sk {
-  background: $paper-2;
-  border-radius: 24rpx;
-  height: 120rpx;
-  margin-bottom: 20rpx;
-
-  &--title {
-    height: 56rpx;
-    width: 45%;
-    margin-top: 40rpx;
-    border-radius: $r-sm;
-  }
-
-  &--card {
-    height: 200rpx;
-    border-radius: 28rpx;
-  }
-}
 </style>

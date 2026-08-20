@@ -80,7 +80,7 @@ defineEmits(['close'])
 }
 
 .sheet__title {
-  font-size: 34rpx;
+  font-size: var(--fs-card);
   font-weight: 700;
   color: $ink;
   letter-spacing: -0.01em;
@@ -94,7 +94,7 @@ defineEmits(['close'])
 }
 
 .sheet__x-t {
-  font-size: 25rpx;
+  font-size: var(--fs-sub);
   color: $ink-2;
 }
 

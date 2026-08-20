@@ -1,10 +1,25 @@
 <template>
   <s-page tab="me">
     <template v-if="loading">
-      <view class="sk sk--title" />
-      <view class="sk sk--card" />
-      <view class="sk" />
+      <s-skel kind="title" />
+      <s-skel kind="card" />
+      <s-skel kind="card" />
     </template>
+
+    <!--
+      拉失败要占整屏。原来这一屏**没有失败态** —— 只弹一个一闪而过的 toast，
+      然后照常渲染出 `0/0 次教案` 和一句「还没有记到什么」。
+      那两样都是假的：额度可能还剩十几次，记忆可能有五条。
+      而且原来的判据是「额度和记忆**都**挂了才报错」，
+      所以只有额度挂掉时，她会看到一个安安静静的零。
+    -->
+    <s-state
+      v-else-if="loadError"
+      :kind="stateKind(loadError)"
+      :text="loadError.message"
+      action-label="重试"
+      @action="load"
+    />
 
     <template v-else>
       <!-- 档案。这里的昵称是微信昵称，**不是**问卷里那个真实姓名 ——
@@ -163,6 +178,8 @@
             :class="{ 'cat--on': category === c.key }"
             @tap="pickCategory(c.key)"
           >
+            <!-- 打勾是必需的，不是装饰：黄底压奶油底只有 1.51:1，光靠颜色分不出选中 -->
+            <image v-if="category === c.key" class="cat__ck" :src="checkInk" mode="widthFix" />
             <text class="cat__t" :class="{ 'cat__t--on': category === c.key }">{{ c.label }}</text>
           </view>
         </view>
@@ -189,6 +206,32 @@
         那一页最后只剩这三行，为三行内容多一次跳转不值得。
       -->
       <view class="hr" />
+
+      <!--
+        字号。**没有一句说明文字** —— 点下去整屏当场变大，那就是说明。
+        写「调整界面文字大小」等于把她一秒就能看到的事替她描述一遍。
+
+        三档是即时生效的，不需要「保存」：她点了看一眼，不合适再点一下。
+        存在本机（不进后端），所以换设备会回到标准档 —— 那是两次点击的代价，
+        换一次 api-spec 改动加一次迁移不值得。
+      -->
+      <view class="row row--fs">
+        <text class="row__t">字号</text>
+        <view class="fss">
+          <view
+            v-for="f in FONT_SCALES"
+            :key="f.key"
+            class="fs"
+            :class="{ 'fs--on': prefs.fontScale === f.key }"
+            @tap="pickFont(f.key)"
+          >
+            <!-- 选中态不许只靠颜色：黄底和奶油底的亮度差只有 1.51:1（design-tokens 规则 3） -->
+            <image v-if="prefs.fontScale === f.key" class="fs__ck" :src="checkInk" mode="widthFix" />
+            <text class="fs__t" :class="{ 'fs__t--on': prefs.fontScale === f.key }">{{ f.label }}</text>
+          </view>
+        </view>
+      </view>
+
       <view class="row" @tap="goAgreement">
         <text class="row__t">使用协议与隐私说明</text>
         <image class="row__i" :src="chevron" mode="widthFix" />
@@ -208,12 +251,14 @@ import { addMemory, deleteMyAccount, getQuota, listMemories, removeMemory, updat
 import { sendFeedback } from '../../api/feedback.js'
 import { listTasks } from '../../api/tasks.js'
 import { session } from '../../stores/session.js'
-import { iconChevron } from '../../utils/icons.js'
+import { FONT_SCALES, prefs, setFontScale } from '../../stores/prefs.js'
+import { iconCheck, iconChevron } from '../../utils/icons.js'
 import { COLORS } from '../../utils/colors.js'
 import { navTo, reLaunch } from '../../utils/nav.js'
-import { showApiError, toast } from '../../utils/ui.js'
+import { showApiError, stateKind, toast } from '../../utils/ui.js'
 
 const chevron = iconChevron(COLORS.ink3)
+const checkInk = iconCheck(COLORS.ink, 2.6)
 
 /**
  * 关于。只留文字模型和版本 ——
@@ -233,6 +278,7 @@ const CATEGORIES = [
 ]
 
 const loading = ref(true)
+const loadError = ref(null)
 const quota = reactive({ text: { granted: 0, used: 0, left: 0 }, image: { granted: 0, used: 0, left: 0 } })
 const memories = ref([])
 const taskCount = ref(0)
@@ -269,21 +315,30 @@ const profileLine = computed(() =>
 onShow(() => load())
 
 async function load() {
+  loadError.value = null
   try {
-    // 三个都要，但**互不阻塞**：额度拉失败不该让记忆也看不到
     const [q, m, t] = await Promise.allSettled([getQuota(), listMemories(), listTasks()])
-    if (q.status === 'fulfilled') {
-      Object.assign(quota, q.value.quota || {})
-      // 响应里还有 grants（发放明细）和 free_revisions，界面上不用了 ——
-      // 真要查某一笔的来历，后台的老师详情有完整台账
+
+    // 额度或记忆任一挂掉就整屏报错，**不再半屏渲染**。
+    // 理由是这一屏没有「单独还有用的一半」：额度挂了那个大数字就是错的，
+    // 记忆挂了那份列表就是错的，而这两样都是她照着做判断的东西。
+    // 让她看着一个假数字，比让她看到「没拉到，重试」糟得多。
+    const core = q.status === 'rejected' ? q : m.status === 'rejected' ? m : null
+    if (core) {
+      loadError.value = core.reason
+      return
     }
-    if (m.status === 'fulfilled') memories.value = m.value.items || []
+
+    Object.assign(quota, q.value.quota || {})
+    // 响应里还有 grants（发放明细）和 free_revisions，界面上不用了 ——
+    // 真要查某一笔的来历，后台的老师详情有完整台账
+    memories.value = m.value.items || []
+
+    // 任务挂了不算失败：它只是一行入口，锦上添花。整屏为它红一次是把主次弄反了
     if (t.status === 'fulfilled') {
       taskCount.value = (t.value.items || []).length
       taskUnread.value = t.value.unread || 0
     }
-    // 任务失败不算失败 —— 它是锦上添花，两个正事都挂了才报错
-    if (q.status === 'rejected' && m.status === 'rejected') showApiError(q.reason)
   } finally {
     loading.value = false
   }
@@ -299,6 +354,11 @@ function onRedeemTap() {
 
 function goTasks() {
   navTo('tasks')
+}
+
+/** 具名函数、名字跟别的 handler 不像 —— uni 的 handler 缓存 key 只有 256 个桶，撞了微信会把点击派发错人 */
+function pickFont(key) {
+  setFontScale(key)
 }
 
 function startAdd() {
@@ -485,7 +545,7 @@ function goAgreement() {
 
 .q {
   display: block;
-  font-size: 42rpx;
+  font-size: var(--fs-title);
   font-weight: 700;
   color: $ink;
   letter-spacing: -0.012em;
@@ -493,7 +553,7 @@ function goAgreement() {
 
 .hd__sub {
   display: block;
-  font-size: $fs-sub;
+  font-size: var(--fs-sub);
   color: $ink-3;
   margin-top: 8rpx;
 }
@@ -513,36 +573,46 @@ function goAgreement() {
   align-items: baseline;
 }
 
+/*
+  2026-08-20 重新配重：数字从 --fs-title（22px）降到 --fs-card（17px），
+  「兑换」从 --fs-tag（12px）提到 --fs-body（15px）。
+
+  原来这一块**喊的是数字、耳语的是动作**，而她进这一屏真正要做的事是兑换 ——
+  那个数字只是她判断「要不要兑」的依据，不是主角。
+  两者拉近到 17 : 15 之后，视线先落在数字上、手很自然落到按钮上。
+*/
 .quota__n {
-  font-size: 44rpx;
+  font-size: var(--fs-card);
   font-weight: 700;
   color: $amber-deep;
-  line-height: 1.1;
+  line-height: 1.2;
 }
 
 .quota__u {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-2;
-  margin-left: 8rpx;
+  margin-left: 6rpx;
 }
 
 .quota__sep {
   width: 2rpx;
-  height: 40rpx;
+  height: 32rpx;
   background: $amber-line;
-  margin: 0 28rpx;
+  margin: 0 22rpx;
 }
 
+/* 按钮变大了就得真有按钮的手感：留白加厚、加一道下沿实边 */
 .quota__more {
   margin-left: auto;
   border: 2rpx solid $amber-line;
   border-radius: $r-chip;
   background: $white;
-  padding: 8rpx 20rpx;
+  padding: 12rpx 30rpx;
+  box-shadow: 0 3rpx 0 $amber-line;
 }
 
 .quota__more-t {
-  font-size: $fs-tag;
+  font-size: var(--fs-body);
   color: $amber-deep;
   font-weight: 600;
 }
@@ -556,14 +626,14 @@ function goAgreement() {
 }
 
 .sec__h {
-  font-size: 26rpx;
+  font-size: var(--fs-sub);
   font-weight: 700;
   color: $ink-2;
   letter-spacing: 0.04em;
 }
 
 .sec__m {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
 }
 
@@ -585,7 +655,7 @@ function goAgreement() {
 .mem__n {
   flex: none;
   width: 44rpx;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   font-weight: 700;
   color: $ink-3;
   line-height: 1.7;
@@ -594,14 +664,14 @@ function goAgreement() {
 .mem__t {
   flex: 1;
   min-width: 0;
-  font-size: 27rpx;
+  font-size: var(--fs-read);
   color: $ink-2;
   line-height: 1.65;
 }
 
 .mem__none {
   display: block;
-  font-size: $fs-sub;
+  font-size: var(--fs-sub);
   color: $ink-3;
   line-height: 1.7;
   padding: 12rpx 0 4rpx;
@@ -618,7 +688,7 @@ function goAgreement() {
 }
 
 .memadd__t {
-  font-size: 26rpx;
+  font-size: var(--fs-sub);
   color: $ink-3;
 }
 
@@ -632,7 +702,7 @@ function goAgreement() {
   border-radius: $r-btn;
   background: $white;
   padding: 24rpx 26rpx;
-  font-size: 28rpx;
+  font-size: var(--fs-body);
   line-height: 1.6;
   color: $ink;
   min-height: 100rpx;
@@ -655,6 +725,8 @@ function goAgreement() {
 }
 
 .cat {
+  display: flex;
+  align-items: center;
   border: 2rpx solid $rule-2;
   border-radius: $r-chip;
   background: $paper-2;
@@ -667,8 +739,14 @@ function goAgreement() {
   }
 }
 
+.cat__ck {
+  width: 22rpx;
+  height: 22rpx;
+  margin-right: 8rpx;
+}
+
 .cat__t {
-  font-size: 25rpx;
+  font-size: var(--fs-sub);
   color: $ink-2;
 
   &--on {
@@ -683,7 +761,7 @@ function goAgreement() {
   border-radius: $r-btn;
   background: $white;
   padding: 24rpx 26rpx;
-  font-size: 28rpx;
+  font-size: var(--fs-body);
   line-height: 1.6;
   color: $ink;
   min-height: 140rpx;
@@ -702,7 +780,7 @@ function goAgreement() {
 }
 
 .sent__t {
-  font-size: 27rpx;
+  font-size: var(--fs-read);
   color: $mint-deep;
   font-weight: 600;
 }
@@ -716,12 +794,12 @@ function goAgreement() {
 }
 
 .row__t {
-  font-size: 30rpx;
+  font-size: var(--fs-body);
   color: $ink-2;
 }
 
 .row__v {
-  font-size: 27rpx;
+  font-size: var(--fs-sub);
   color: $ink-3;
   text-align: right;
   margin-left: 20rpx;
@@ -750,7 +828,7 @@ function goAgreement() {
 }
 
 .editops__x-t {
-  font-size: 25rpx;
+  font-size: var(--fs-sub);
   color: $coral-deep;
 }
 
@@ -759,7 +837,7 @@ function goAgreement() {
 }
 
 .editops__c-t {
-  font-size: 25rpx;
+  font-size: var(--fs-sub);
   color: $ink-3;
 }
 
@@ -776,7 +854,7 @@ function goAgreement() {
 
 .row__s {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   line-height: 1.6;
   margin-top: 4rpx;
@@ -800,28 +878,50 @@ function goAgreement() {
 }
 
 .del__t {
-  font-size: 25rpx;
+  font-size: var(--fs-sub);
   color: $coral-deep;
   font-weight: 600;
 }
 
-/* ============ 骨架 ============ */
-.sk {
+/* ============ 字号 ============ */
+/* 跟底下「使用协议」那几行同一个行高形状，只是右边是三个胶囊而不是一个箭头 */
+.row--fs {
+  flex-wrap: wrap;
+}
+
+.fss {
+  display: flex;
+  margin-left: 20rpx;
+}
+
+.fs {
+  display: flex;
+  align-items: center;
+  border: 2rpx solid $rule-2;
+  border-radius: $r-chip;
   background: $paper-2;
-  border-radius: 24rpx;
-  height: 120rpx;
-  margin-bottom: 20rpx;
+  padding: 8rpx 22rpx;
+  margin-left: 12rpx;
 
-  &--title {
-    height: 56rpx;
-    width: 45%;
-    margin-top: 40rpx;
-    border-radius: $r-sm;
+  &--on {
+    background: $amber;
+    border-color: $amber-line;
   }
+}
 
-  &--card {
-    height: 140rpx;
-    border-radius: 28rpx;
+.fs__ck {
+  width: 22rpx;
+  height: 22rpx;
+  margin-right: 8rpx;
+}
+
+.fs__t {
+  font-size: var(--fs-sub);
+  color: $ink-2;
+
+  &--on {
+    color: $ink;
+    font-weight: 600;
   }
 }
 </style>

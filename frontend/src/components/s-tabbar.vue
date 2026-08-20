@@ -80,7 +80,7 @@ function go(name) {
 }
 
 .s-tabbar__label {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   letter-spacing: 0.03em;
   margin-top: 6rpx;
   color: inherit;

@@ -14,6 +14,8 @@
         :class="{ 'fil--on': status === s.key }"
         @tap="setStatus(s.key)"
       >
+        <!-- 打勾不是装饰：黄底压次级底只有 1.51:1，光靠颜色分不出哪个被选中 -->
+        <image v-if="status === s.key" class="fil__ck" :src="checkInk" mode="widthFix" />
         <text class="fil__t" :class="{ 'fil__t--on': status === s.key }">
           {{ s.label }}{{ counts[s.key] ? ` ${counts[s.key]}` : '' }}
         </text>
@@ -27,28 +29,32 @@
         :class="{ 'fil--on': ageGroup === a.key }"
         @tap="setAge(a.key)"
       >
+        <image v-if="ageGroup === a.key" class="fil__ck" :src="checkInk" mode="widthFix" />
         <text class="fil__t" :class="{ 'fil__t--on': ageGroup === a.key }">{{ a.label }}</text>
       </view>
     </view>
 
     <!-- 加载中 -->
     <template v-if="loading && !items.length">
-      <view v-for="n in 3" :key="`sk-${n}`" class="sk" />
+      <s-skel v-for="n in 3" :key="`sk-${n}`" kind="card" />
     </template>
 
-    <template v-else-if="loadError">
-      <text class="err">{{ loadError }}</text>
-      <s-button label="重试" variant="plain" @press="reload" />
-    </template>
+    <s-state
+      v-else-if="loadError"
+      :kind="stateKind(loadError)"
+      :text="loadError.message"
+      action-label="重试"
+      @action="reload"
+    />
 
     <!-- 一份都没有。空手而归时不要只给一句「暂无数据」，给一条出路 -->
-    <template v-else-if="!items.length">
-      <view class="empty">
-        <text class="empty__t">{{ emptyText }}</text>
-        <s-button v-if="isFiltered" label="看全部" variant="plain" @press="clearFilter" />
-        <s-button v-else label="写一份新的" arrow @press="goHome" />
-      </view>
-    </template>
+    <s-state
+      v-else-if="!items.length"
+      kind="empty"
+      :text="emptyText"
+      :action-label="isFiltered ? '看全部' : '写一份新的'"
+      @action="onEmptyAction"
+    />
 
     <template v-else>
       <!--
@@ -96,12 +102,13 @@
 import { computed, reactive, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { listConversations, removeConversation } from '../../api/conversations.js'
-import { iconChevron } from '../../utils/icons.js'
+import { iconCheck, iconChevron } from '../../utils/icons.js'
 import { COLORS } from '../../utils/colors.js'
 import { navTo, reLaunch } from '../../utils/nav.js'
-import { showApiError, toast } from '../../utils/ui.js'
+import { showApiError, stateKind, toast } from '../../utils/ui.js'
 
 const chevron = iconChevron(COLORS.ink3)
+const checkInk = iconCheck(COLORS.ink, 2.6)
 
 const STATES = [
   { key: 'all', label: '全部' },
@@ -122,7 +129,8 @@ const status = ref('all')
 const ageGroup = ref('all')
 const loading = ref(true)
 const loadingMore = ref(false)
-const loadError = ref('')
+/** 存 ApiError 本身，不再只存 message —— s-state 要靠 code 分辨「没网」和「后端出错」 */
+const loadError = ref(null)
 
 const isFiltered = computed(() => status.value !== 'all' || ageGroup.value !== 'all')
 
@@ -139,7 +147,7 @@ onShow(() => reload())
 
 async function reload() {
   loading.value = true
-  loadError.value = ''
+  loadError.value = null
   cursor.value = null
   try {
     const data = await listConversations({ status: status.value, ageGroup: ageGroup.value })
@@ -147,7 +155,7 @@ async function reload() {
     Object.assign(counts, data.counts || {})
     cursor.value = data.next_cursor || null
   } catch (err) {
-    loadError.value = err.message
+    loadError.value = err
   } finally {
     loading.value = false
   }
@@ -183,13 +191,21 @@ function setAge(k) {
   reload()
 }
 
-function clearFilter() {
-  status.value = 'all'
-  ageGroup.value = 'all'
-  reload()
-}
-
-function goHome() {
+/**
+ * 空态那个按钮做什么，取决于空是怎么来的：
+ * 筛出来的空 → 把筛选清掉（她的教案还在，只是这个组合下没有）；
+ * 真的一份都没有 → 回首页开始写。
+ *
+ * 合成一个 handler 而不是两个按钮：s-state 只有一个主行动位，
+ * 而这两件事永远不会同时是对的。
+ */
+function onEmptyAction() {
+  if (isFiltered.value) {
+    status.value = 'all'
+    ageGroup.value = 'all'
+    reload()
+    return
+  }
   reLaunch('home')
 }
 
@@ -261,14 +277,14 @@ function fmtDate(iso) {
 }
 
 .q {
-  font-size: 42rpx;
+  font-size: var(--fs-title);
   font-weight: 700;
   color: $ink;
   letter-spacing: -0.012em;
 }
 
 .hd__n {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
 }
 
@@ -284,6 +300,8 @@ function fmtDate(iso) {
 }
 
 .fil {
+  display: flex;
+  align-items: center;
   border: 2rpx solid $rule-2;
   border-radius: $r-chip;
   background: $paper-2;
@@ -297,8 +315,14 @@ function fmtDate(iso) {
   }
 }
 
+.fil__ck {
+  width: 22rpx;
+  height: 22rpx;
+  margin-right: 8rpx;
+}
+
 .fil__t {
-  font-size: 25rpx;
+  font-size: var(--fs-sub);
   color: $ink-2;
   line-height: 1.5;
 
@@ -358,7 +382,7 @@ function fmtDate(iso) {
 }
 
 .badge__t {
-  font-size: 22rpx;
+  font-size: var(--fs-tag);
   color: $ink-3;
   line-height: 1.6;
 
@@ -369,25 +393,25 @@ function fmtDate(iso) {
 }
 
 .card__age {
-  font-size: 22rpx;
+  font-size: var(--fs-tag);
   color: $ink-2;
   margin-right: 12rpx;
 }
 
 .card__img {
-  font-size: 22rpx;
+  font-size: var(--fs-tag);
   color: $sky-deep;
   margin-right: 12rpx;
 }
 
 .card__date {
-  font-size: 22rpx;
+  font-size: var(--fs-tag);
   color: $ink-3;
 }
 
 .card__t {
   display: block;
-  font-size: 31rpx;
+  font-size: var(--fs-card);
   font-weight: 600;
   color: $ink;
   line-height: 1.45;
@@ -395,7 +419,7 @@ function fmtDate(iso) {
 
 .card__p {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   line-height: 1.6;
   margin-top: 6rpx;
@@ -408,7 +432,7 @@ function fmtDate(iso) {
 }
 
 .card__go-t {
-  font-size: 25rpx;
+  font-size: var(--fs-sub);
   color: $ink-2;
   font-weight: 600;
 
@@ -423,7 +447,7 @@ function fmtDate(iso) {
   margin-left: 8rpx;
 }
 
-/* ============ 翻页 / 空 / 骨架 ============ */
+/* ============ 翻页 ============ */
 .more {
   border: 2rpx dashed $rule-2;
   border-radius: 24rpx;
@@ -435,39 +459,8 @@ function fmtDate(iso) {
 }
 
 .more__t {
-  font-size: 26rpx;
+  font-size: var(--fs-sub);
   color: $ink-3;
 }
 
-.empty {
-  border: 3rpx dashed $rule-2;
-  border-radius: $r-card;
-  background: $paper-2;
-  padding: 56rpx 32rpx;
-  margin-top: 40rpx;
-}
-
-.empty__t {
-  display: block;
-  font-size: $fs-sub;
-  color: $ink-3;
-  line-height: 1.7;
-  text-align: center;
-  margin-bottom: 24rpx;
-}
-
-.sk {
-  height: 180rpx;
-  background: $paper-2;
-  border-radius: 28rpx;
-  margin-bottom: 20rpx;
-}
-
-.err {
-  display: block;
-  font-size: $fs-body;
-  color: $ink-2;
-  line-height: 1.7;
-  margin: 60rpx 0 32rpx;
-}
 </style>

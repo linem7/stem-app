@@ -20,7 +20,7 @@ export const COLORS = {
   amberDeep: '#8A6410',
 
   mint: '#6FBF8B',
-  mintDeep: '#3E8F5D',
+  mintDeep: '#327648',
   mintSoft: '#EAF6EE',
   mintLine: '#C3E0CE',
 
@@ -33,13 +33,13 @@ export const COLORS = {
 
   ink: '#3A3630',
   ink2: '#6B655C',
-  ink3: '#7A7368',
+  ink3: '#736D62',
   rule: '#EBE5D6',
   rule2: '#DDD9CC',
   white: '#FFFFFF',
 
   amberShadow: '#E8B62A',
-  mintShadow: '#35784F',
+  mintShadow: '#27593A',
   disabledBg: '#EFEADE',
   disabledInk: '#948D81',
 }

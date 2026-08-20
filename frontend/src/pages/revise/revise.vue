@@ -21,15 +21,18 @@
 
     <!-- 加载中 -->
     <template v-if="!loaded && !loadError">
-      <view class="sk sk--title" />
-      <view class="sk sk--para" />
-      <view class="sk sk--para sk--short" />
+      <s-skel kind="title" />
+      <s-skel kind="para" />
+      <s-skel kind="para" w="55%" />
     </template>
 
-    <template v-else-if="loadError">
-      <text class="err">{{ loadError.message }}</text>
-      <s-button label="重试" variant="plain" @press="load" />
-    </template>
+    <s-state
+      v-else-if="loadError"
+      :kind="stateKind(loadError)"
+      :text="loadError.message"
+      action-label="重试"
+      @action="load"
+    />
 
     <!-- ============ 第一段：说哪里不对 ============ -->
     <template v-else-if="stage === 'ask'">
@@ -169,7 +172,7 @@ import { getLessonPlan, startRevise, submitReviseAnswers } from '../../api/lesso
 import { iconCheck } from '../../utils/icons.js'
 import { COLORS } from '../../utils/colors.js'
 import { back, redirectTo } from '../../utils/nav.js'
-import { showApiError } from '../../utils/ui.js'
+import { showApiError, stateKind } from '../../utils/ui.js'
 
 const checkMint = iconCheck(COLORS.mintDeep, 2.4)
 
@@ -365,7 +368,7 @@ async function submit() {
 /* ============ 第一段 ============ */
 .kicker {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -374,7 +377,7 @@ async function submit() {
 
 .q {
   display: block;
-  font-size: 40rpx;
+  font-size: var(--fs-question);
   font-weight: 700;
   color: $ink;
   letter-spacing: -0.012em;
@@ -388,7 +391,7 @@ async function submit() {
   border-radius: $r-btn;
   background: $white;
   padding: 26rpx 26rpx;
-  font-size: 30rpx;
+  font-size: var(--fs-body);
   line-height: 1.6;
   color: $ink;
   min-height: 200rpx;
@@ -400,7 +403,7 @@ async function submit() {
 
 .fb__count {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   text-align: right;
   margin-top: 8rpx;
@@ -414,7 +417,7 @@ async function submit() {
 }
 
 .seeds__lb {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   margin: 0 16rpx 12rpx 0;
 }
@@ -428,7 +431,7 @@ async function submit() {
 }
 
 .seed__t {
-  font-size: 25rpx;
+  font-size: var(--fs-sub);
   color: $ink-2;
   line-height: 1.5;
 }
@@ -464,7 +467,7 @@ async function submit() {
 }
 
 .prog__lb {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   letter-spacing: 0.02em;
 }
@@ -475,7 +478,7 @@ async function submit() {
 }
 
 .prog__hint {
-  font-size: $fs-sub;
+  font-size: var(--fs-sub);
   color: $ink-3;
 }
 
@@ -490,14 +493,14 @@ async function submit() {
 
 .said__lb {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   margin-bottom: 6rpx;
 }
 
 .said__t {
   display: block;
-  font-size: 27rpx;
+  font-size: var(--fs-read);
   color: $ink;
   line-height: 1.65;
 }
@@ -510,7 +513,7 @@ async function submit() {
 }
 
 .ack__t {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-2;
   line-height: 1.65;
 }
@@ -545,7 +548,7 @@ async function submit() {
 }
 
 .qb__n-t {
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   font-weight: 700;
   color: $ink-3;
 }
@@ -557,7 +560,7 @@ async function submit() {
 
 .qb__t {
   flex: 1;
-  font-size: $fs-card;
+  font-size: var(--fs-card);
   font-weight: 600;
   line-height: 1.45;
   letter-spacing: -0.01em;
@@ -566,7 +569,7 @@ async function submit() {
 
 .qb__hint {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   line-height: 1.6;
   margin: 0 0 20rpx 62rpx;
@@ -582,7 +585,7 @@ async function submit() {
   border: 2rpx solid $amber-line;
   border-radius: $r-btn;
   padding: 24rpx 26rpx;
-  font-size: 30rpx;
+  font-size: var(--fs-body);
   line-height: 1.55;
   color: $ink;
   background: $white;
@@ -598,40 +601,11 @@ async function submit() {
 /* ============ 底部 ============ */
 .dock__why {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   color: $ink-3;
   line-height: 1.6;
   text-align: center;
   margin-top: 12rpx;
 }
 
-/* ============ 四态 ============ */
-.err {
-  display: block;
-  font-size: $fs-body;
-  color: $ink-2;
-  line-height: 1.7;
-  margin: 60rpx 0 32rpx;
-}
-
-.sk {
-  background: $paper-2;
-  border-radius: $r-sm;
-  margin-bottom: 20rpx;
-
-  &--title {
-    height: 56rpx;
-    width: 60%;
-    margin-top: 32rpx;
-  }
-
-  &--para {
-    height: 140rpx;
-    border-radius: 20rpx;
-  }
-
-  &--short {
-    width: 55%;
-  }
-}
 </style>

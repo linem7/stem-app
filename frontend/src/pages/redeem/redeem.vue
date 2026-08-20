@@ -1,7 +1,29 @@
 <template>
   <s-page>
-    <image v-show="step === 'code'" class="illo" :src="illo" mode="widthFix" />
+    <!--
+      返回键**只在续兑/换绑那条路上给**（`?topup=1`，从「我的」或任务页点进来的）。
 
+      首次激活时故意没有：那时候她还没有账号，这一屏就是闸门，
+      `back()` 在没有页面栈时会 reLaunch 回首页，而首页的 gate 立刻又把她弹回这儿 ——
+      表现是「闪一下首页又回来」。**一个看得见却什么都不做的按钮比没有按钮更糟**。
+      那条路上要往回走只有「上一步」（在页面里，管 码→园所→哪一位 这三步）。
+    -->
+    <template v-if="topup" #top>
+      <s-topbar title="兑换" />
+    </template>
+
+    <!--
+      启动还没走完。这一屏原来**没有加载态** —— `onLoad` 里要先 await 一次登录，
+      那段时间她看到的是一个能打字的空表单，而 gate 随后可能直接把她弹到首页或协议页。
+      表现是「刚要输码，页面自己跳走了」。先给骨架，等知道她该在哪儿再画。
+    -->
+    <template v-if="booting">
+      <s-skel kind="card" />
+      <s-skel kind="title" />
+      <s-skel kind="opt" />
+    </template>
+
+    <template v-else>
     <!--
       同一个页面管三件事，因为对老师来说它们是同一个动作：输一个码。
         · 首次激活：码 → 从名单里选自己是哪一位
@@ -78,21 +100,22 @@
     <text v-show="step === 'code' && !topup" class="meta meta--foot">
       还没有码？找发问卷给你的那位老师要。
     </text>
+    </template>
   </s-page>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { illoRedeem } from '../../utils/illustrations.js'
 import { ensureSession, gate, redeem } from '../../stores/session.js'
 import { rosterOptions } from '../../api/auth.js'
 import { reLaunch } from '../../utils/nav.js'
 import { showApiError, toast } from '../../utils/ui.js'
 
-const illo = illoRedeem()
 const code = ref('')
 const submitting = ref(false)
+/** 登录还没回来。为 true 时整屏是骨架，别让她对着一个马上要跳走的表单打字 */
+const booting = ref(true)
 /** 已经激活过的老师进来兑新码（任务奖励），或者换绑 —— 这时不用选身份 */
 const topup = ref(false)
 
@@ -128,11 +151,15 @@ onLoad(async (query) => {
   // 从「我的」页点「兑换」进来的：她已经激活了，这一趟是续兑或换绑，别把她弹走
   if (query?.topup) {
     topup.value = true
+    booting.value = false
     return
   }
-  // 已经激活过的老师不该停在这页（换设备重登、或从别处误跳进来）
-  if (where === 'agreement') reLaunch('agreement')
-  else if (where === 'main') reLaunch('home')
+  // 已经激活过的老师不该停在这页（换设备重登、或从别处误跳进来）。
+  // **要跳走的这两条不解 booting** —— 让骨架一直挂着直到页面被换掉，
+  // 否则会闪出一整屏「输入兑换码」再消失
+  if (where === 'agreement') return reLaunch('agreement')
+  if (where === 'main') return reLaunch('home')
+  booting.value = false
 })
 
 /**
@@ -228,25 +255,21 @@ async function doRedeem() {
 </script>
 
 <style lang="scss" scoped>
-.illo {
-  width: 100%;
-  margin-top: 60rpx;
-  border-radius: $r-card;
-}
-
 .q {
   display: block;
-  font-size: 42rpx;
+  font-size: var(--fs-title);
   font-weight: 700;
   color: $ink;
   letter-spacing: -0.012em;
   line-height: 1.45;
-  margin: 36rpx 0 16rpx;
+  /* 顶上那张图撤掉了（2026-08-20 用户定）。首次激活那条路没有顶栏，
+     标题直接贴着状态栏，所以这里的上边距要顶住 */
+  margin: 52rpx 0 16rpx;
 }
 
 .meta {
   display: block;
-  font-size: $fs-sub;
+  font-size: var(--fs-sub);
   color: $ink-3;
   line-height: 1.7;
 }
@@ -270,7 +293,7 @@ async function doRedeem() {
 
 .ask__input {
   width: 100%;
-  font-size: 34rpx;
+  font-size: var(--fs-card);
   color: $ink;
   letter-spacing: 0.08em;
   line-height: 1.6;
@@ -310,13 +333,13 @@ async function doRedeem() {
 }
 
 .pick__t {
-  font-size: 32rpx;
+  font-size: var(--fs-card);
   color: $ink;
   font-weight: 600;
 }
 
 .pick__s {
-  font-size: $fs-sub;
+  font-size: var(--fs-sub);
   color: $ink-3;
   margin-left: 20rpx;
 }
@@ -332,7 +355,7 @@ async function doRedeem() {
 }
 
 .back__t {
-  font-size: 27rpx;
+  font-size: var(--fs-sub);
   color: $ink-3;
 }
 </style>

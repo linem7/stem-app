@@ -74,7 +74,7 @@ function onBack() {
 .s-topbar__title {
   flex: 1;
   min-width: 0;
-  font-size: 27rpx;
+  font-size: var(--fs-sub);
   font-weight: 600;
   color: $ink-2;
   letter-spacing: 0.02em;

@@ -53,7 +53,7 @@ function onPress() {
   border: none;
   border-radius: $r-card;
   padding: $sp-3 $sp-2;
-  font-size: 31rpx;
+  font-size: var(--fs-body);
   font-weight: 600;
   letter-spacing: 0.02em;
   display: flex;
@@ -95,7 +95,7 @@ function onPress() {
 .s-btn--ghost {
   background: transparent;
   color: $ink-3;
-  font-size: 27rpx;
+  font-size: var(--fs-sub);
   font-weight: 500;
   padding: $sp-2;
 }

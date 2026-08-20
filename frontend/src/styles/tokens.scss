@@ -46,9 +46,18 @@ page {
   background-color: #{$paper};
   color: #{$ink};
   font-family: #{$font-family};
-  font-size: #{$fs-body};
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
+
+  /*
+    字号**不在这里定**。八级梯子的唯一源是 utils/typography.js，
+    由 s-page 内联到根节点上（微信的样式隔离让类选择器进不了组件，
+    所以只能内联 —— 理由写在那个文件的头上）。
+
+    这里只留一个兜底字号，给「万一有文字画在了 s-page 外面」的情况。
+    它故意不跟字号档走：那种地方本来就不该有文字，退化成不放大比塌成 16px 好。
+  */
+  font-size: 30rpx;
 }
 
 view,

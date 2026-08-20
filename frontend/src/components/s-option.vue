@@ -68,7 +68,7 @@ const checkIcon = iconCheck()
 }
 
 .opt__key-t {
-  font-size: 24rpx;
+  font-size: var(--fs-tag);
   font-weight: 700;
   color: $ink-3;
   letter-spacing: 0.02em;
@@ -80,14 +80,14 @@ const checkIcon = iconCheck()
 
 .opt__label {
   display: block;
-  font-size: 30rpx;
+  font-size: var(--fs-body);
   line-height: 1.55;
   color: $ink;
 }
 
 .opt__sub {
   display: block;
-  font-size: 25rpx;
+  font-size: var(--fs-sub);
   color: $ink-3;
   margin-top: 4rpx;
   line-height: 1.5;

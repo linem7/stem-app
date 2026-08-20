@@ -106,7 +106,7 @@ async function submit() {
 <style lang="scss" scoped>
 .kicker {
   display: block;
-  font-size: $fs-tag;
+  font-size: var(--fs-tag);
   letter-spacing: 0.02em;
   color: $ink-3;
   font-weight: 600;
@@ -115,7 +115,7 @@ async function submit() {
 
 .q {
   display: block;
-  font-size: 42rpx;
+  font-size: var(--fs-title);
   font-weight: 700;
   color: $ink;
   letter-spacing: -0.012em;
@@ -132,7 +132,7 @@ async function submit() {
 
 .hero__line {
   display: block;
-  font-size: 29rpx;
+  font-size: var(--fs-body);
   line-height: 1.75;
   color: $ink;
 
@@ -152,7 +152,7 @@ async function submit() {
 }
 
 .sec__h {
-  font-size: 26rpx;
+  font-size: var(--fs-sub);
   font-weight: 700;
   color: $ink-2;
   letter-spacing: 0.04em;
@@ -181,7 +181,7 @@ async function submit() {
 }
 
 .dot__t {
-  font-size: 27rpx;
+  font-size: var(--fs-read);
   line-height: 1.75;
   color: $ink-2;
 }
@@ -193,7 +193,7 @@ async function submit() {
 
 .meta {
   display: block;
-  font-size: $fs-sub;
+  font-size: var(--fs-sub);
   color: $ink-3;
   line-height: 1.7;
   margin-top: 32rpx;
