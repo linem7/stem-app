@@ -134,7 +134,7 @@
         />
         <!-- 禁用不能只靠变灰，旁边要说清还差什么 -->
         <text v-if="!feedback.trim()" class="dock__why">先说一句哪里不对</text>
-        <s-button v-else label="算了，不改了" variant="ghost" @press="cancel" />
+        <s-button v-else label="取消" variant="ghost" @press="cancel" />
       </template>
       <template v-else>
         <s-button

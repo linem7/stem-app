@@ -1,17 +1,23 @@
 <template>
   <!--
-    写完且拿到了 id 的那一瞬**整条操作条收掉**。
-    只把按钮去掉不够 —— dock 那条横杠自己带一道上边框和底色，
-    留着就是「跳转前底下闪一条空白横条」，跟原来闪一个按钮一样碍眼。
+    **只在真的有按钮时才留操作条。**
+    dock 那条横杠自己带一道上边框和底色，里面没东西时就是一条空白横条,
+    看起来像按钮没加载出来。所以这里判的是「有没有按钮」，不是「有没有写完」。
+
+    现在只有三种情况有按钮：断网（接着等）、真没写成（再试一次）、
+    写完了但后端没回 id（去教案库找 —— 那条路唯一的出口）。
+    **正常等待中没有按钮**（2026-08-21 用户去掉了「去教案库等」）。
   -->
-  <s-page :dock="!(done && lessonPlanId)">
+  <s-page :dock="hasDockButton">
     <template #top>
       <s-topbar :title="headline" />
     </template>
 
     <view class="hd">
       <text class="kicker">{{ isRevise ? '正在改' : '正在写' }}</text>
-      <text class="q">{{ done ? (isRevise ? '改好了' : '写好了') : '给我二三十秒' }}</text>
+      <!-- 「二三十秒」改成「20-30 秒」（用户 2026-08-21）：口语的约数读起来像敷衍，
+           而她要的是一个能对表的数 —— 20 到 30 才是真实区间 -->
+      <text class="q">{{ done ? (isRevise ? '改好了' : '写好了') : '等我 20-30 秒' }}</text>
     </view>
 
     <!-- 阶段清单。progress_hint 由后端按生成阶段推进，等待才有反馈 -->
@@ -76,7 +82,15 @@
         loading-text="正在重试"
         @press="retry"
       />
-      <s-button v-else label="去教案库等" variant="plain" @press="leave" />
+      <!--
+        原来这里还有一个「去教案库等」（`v-else`，也就是**等待中一直挂着**）。
+        2026-08-21 用户去掉了：等待中不该劝她走。而且这一屏本来就有两个离开的出口
+        （中间那块「可以先去忙」+ 顶栏返回），底下再摆一个是第三个。
+
+        去掉按钮之后 **dock 必须跟着收掉** —— 那条横杠自己带上边框和底色，
+        留着就是一条空白横条，看起来像按钮没加载出来。
+        所以上面 s-page 的 :dock 判的是「到底有没有按钮」，不是「有没有写完」。
+      -->
     </template>
   </s-page>
 </template>
@@ -117,6 +131,17 @@ const lessonPlanId = ref(0)
 /** 从改一改过来的。只影响文案，链路完全一样 */
 const isRevise = ref(false)
 const headline = computed(() => (isRevise.value ? '正在改教案' : '正在写教案'))
+
+/**
+ * 底下那条操作条里到底有没有按钮。
+ *
+ * 三个条件跟下面 #dock 里那三个 s-button 的 v-if 链**一一对应**，
+ * 加一个按钮就要同时加在这里 —— 少加了就是「按钮画在了收起来的条里」（点不到），
+ * 多算了就是「一条空白横条」。这两个地方必须一起改。
+ */
+const hasDockButton = computed(
+  () => failed.value || (done.value && !lessonPlanId.value)
+)
 const steps = computed(() => (isRevise.value ? REVISE_STEPS : STEPS))
 
 let handle = null

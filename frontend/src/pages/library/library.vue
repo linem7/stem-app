@@ -231,7 +231,7 @@ function askDelete(it) {
     content: `删掉「${it.title || '未命名教案'}」？删了就找不回来了。`,
     confirmText: '删掉',
     confirmColor: COLORS.coralDeep,
-    cancelText: '算了',
+    cancelText: '取消',
     success: (r) => {
       if (r.confirm) doDelete(it)
     },
@@ -255,16 +255,29 @@ async function doDelete(it) {
   }
 }
 
-/** 今天/昨天/几天前，比「2026-08-18 02:38」好读 */
+/**
+ * 「今天 14:05」「昨天 09:30」「3 天前 16:20」「8 月 12 日 10:15」。
+ *
+ * **日期后面一律带时刻**（用户 2026-08-21 要的）。原来只有日期，
+ * 而她一天里常常连着写两三份 —— 三张卡片全写「今天」，
+ * 就分不出哪张是刚才那份、哪张是早上被打断的那份，
+ * 而这一列排序用的正是 updated_at。日期挡住了排序依据，卡片顺序看起来就是乱的。
+ *
+ * 时刻用 24 小时制、补零：`9:5` 这种参差的宽度在一列卡片里很显眼，
+ * 而这一列的作用就是让她扫。
+ */
 function fmtDate(iso) {
   if (!iso) return ''
   const then = new Date(iso)
   const now = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  const hm = `${p(then.getHours())}:${p(then.getMinutes())}`
+
   const days = Math.floor((now - then) / 86400000)
-  if (days <= 0 && now.getDate() === then.getDate()) return '今天'
-  if (days <= 1) return '昨天'
-  if (days < 7) return `${days} 天前`
-  return `${then.getMonth() + 1} 月 ${then.getDate()} 日`
+  if (days <= 0 && now.getDate() === then.getDate()) return `今天 ${hm}`
+  if (days <= 1) return `昨天 ${hm}`
+  if (days < 7) return `${days} 天前 ${hm}`
+  return `${then.getMonth() + 1} 月 ${then.getDate()} 日 ${hm}`
 }
 </script>
 
@@ -353,6 +366,12 @@ function fmtDate(iso) {
   align-items: center;
   flex-wrap: wrap;
   margin-bottom: 10rpx;
+  /*
+    换行时两行之间要有缝。日期加上时刻之后这一行变长了
+    （「已完成 · 中班 · 有配图 · 今天 14:05」），在特大字号档下会折到第二行，
+    没有行间距的话那一行会贴在上一行底下，看起来像渲染坏了。
+  */
+  row-gap: 6rpx;
 }
 
 .badge {
