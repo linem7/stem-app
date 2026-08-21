@@ -84,10 +84,12 @@
         六项连起来是一长串，在记忆那一列里读起来像第七条记忆，
         而且她要做的事就是「进去改」，摊在外面并不省她一次点击。
       -->
-      <view class="mem mem--pf" @tap="openProfileEdit">
-        <text class="mem__n mem__n--pf" />
+      <view class="mem mem--pf" @tap="onProfileTap">
         <text class="mem__t">个人档案</text>
-        <image class="mem__i" :src="chevron" mode="widthFix" />
+        <!-- 收起时朝右、展开时朝下。**箭头必须跟着转**：这一行既是入口又是开关，
+             展开区里已经没有「取消」了，靠再点一次这一行收起 ——
+             箭头是唯一告诉她「这东西是可以收的」的东西。同 s-why 那套 -->
+        <image class="mem__i" :class="{ 'mem__i--on': profileOpen }" :src="chevron" mode="widthFix" />
       </view>
 
       <!--
@@ -140,11 +142,13 @@
           />
           <text class="pf__u">年</text>
         </view>
+        <!--
+          只有「改好了」，**没有「取消」**（用户 2026-08-21 定）。
+          放弃就再点一次上面那一行「个人档案」—— 那一行本来就是开关，
+          多一个「取消」等于给同一件事留两个入口。
+        -->
         <view class="pf__ops">
           <s-button label="改好了" :loading="savingProfile" @press="saveProfile" />
-          <view class="pf__c" @tap="shutProfileEdit">
-            <text class="pf__c-t">取消</text>
-          </view>
         </view>
       </view>
 
@@ -451,10 +455,20 @@ async function load() {
 /* ============ 档案 ============ */
 
 /**
- * 打开档案编辑。每次都从 session 重新灌一遍，不留上次没保存的残留 ——
- * 她点开、改了两个字、点「取消」，下次点开还看到那两个字，会以为已经存进去了。
+ * 「个人档案」那一行 = 开关。点开，再点一次收起（用户 2026-08-21 定）。
+ *
+ * 展开区里没有「取消」，收起就靠再点这一行 —— 所以这个函数必须是 toggle，
+ * 不能是「只负责打开」：那样她点第二下没反应，而唯一的出路是把表单填完。
+ *
+ * 每次**打开**都从 session 重新灌一遍，不留上次没保存的残留：
+ * 她点开、改两个字、再点一次收起，下次点开还看到那两个字，会以为已经存进去了。
  */
-function openProfileEdit() {
+function onProfileTap() {
+  if (profileOpen.value) {
+    // 收起 = 放弃这次改动。不存，也不提示 —— 她自己点的，不需要被告知
+    profileOpen.value = false
+    return
+  }
   const t = teacher.value
   pfKg.value = t.kindergarten_name || ''
   pfYears.value = t.teaching_years == null ? '' : String(t.teaching_years)
@@ -465,6 +479,7 @@ function openProfileEdit() {
   cancelEditMem()
 }
 
+/** 存好之后收起。**不给界面用** —— 界面上收起走 onProfileTap 那条 */
 function shutProfileEdit() {
   profileOpen.value = false
 }
@@ -831,23 +846,9 @@ function goAgreement() {
   }
 }
 
-/*
-  按钮独占一行、「取消」在它下面 —— 跟紧挨着的记忆编辑框（.add__ops + .editops）
-  完全一样的排法。s-button 自己是 width:100%，塞进 flex 行里宽度会不稳
-  （小程序里自定义组件根节点才是那个 flex item，width:100% 落在它内部的 button 上）。
-*/
+/* 只有一个「改好了」，独占一行。放弃靠再点一次上面那行「个人档案」 */
 .pf__ops {
   margin-top: 20rpx;
-}
-
-.pf__c {
-  padding: 10rpx 20rpx;
-  margin-top: 14rpx;
-}
-
-.pf__c-t {
-  font-size: var(--fs-sub);
-  color: $ink-3;
 }
 
 /* ============ 额度 ============ */
@@ -963,19 +964,22 @@ function goAgreement() {
 
 /*
   档案那一行。跟记忆行同一个形状（所以两者读起来是一列），只有两点不同：
-  · 编号那一格是空的 —— 编号是给「一条条攒起来的记忆」的，档案只有一份、删不掉
-  · 右边带一个箭头，因为它点开的是一个表单，不是一个输入框
+  · 没有编号 —— 编号是给「一条条攒起来的记忆」的，档案只有一份、删不掉
+  · 右边带一个箭头，因为它是个开关（点开表单，再点收起）
 
   ⚠️ **不给它加底色也不加边框。** 试过一下就知道为什么：它一有底色就从
   「这一列的第一条」变成「压在列表上面的一个卡片」，而用户要的正是前者。
+
+  🔴 **不许缩进。** 「个人档案」四个字要跟下面 `01` `02` 那一列的**左边缘**齐平，
+  不是跟记忆的正文齐平（用户 2026-08-21 两次提的，第一次我理解反了）。
+  编号那一列定义了这个板块的视觉左边界；档案行往右让 44rpx 之后，
+  它看起来就是「缩进的一条」，而它明明是这一列的第一条。
+
+  所以这里**没有 padding-left**，也别用一个空的 `<text class="mem__n">` 去占位
+  （那两种做法都是在重新制造缩进）。
 */
 .mem--pf {
   align-items: center;
-}
-
-/* 空的编号格。宽度必须跟 .mem__n 一样，否则档案行的文字跟下面的记忆对不齐 */
-.mem__n--pf {
-  width: 44rpx;
 }
 
 .mem__i {
@@ -983,6 +987,11 @@ function goAgreement() {
   width: 20rpx;
   height: 20rpx;
   margin-left: 12rpx;
+
+  /* 展开时转成朝下。这是「可以收起来」的唯一提示 —— 展开区里没有取消按钮 */
+  &--on {
+    transform: rotate(90deg);
+  }
 }
 
 .mem__none {
