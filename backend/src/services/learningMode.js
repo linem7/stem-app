@@ -98,3 +98,141 @@ export function attachWhy(questions, mode) {
  */
 export const LEARNING_LEAD =
   '这 4 个问题也是你自己写教案时要先想清楚的 4 件事。每题下面写了为什么。';
+
+/* ===================================================================
+   教案解读（content_json.commentary）—— api-spec 第 5 节
+   =================================================================== */
+
+/**
+ * 可以挂解读的板块，**这是白名单**：模型返回别的键一律丢掉。
+ *
+ * 为什么要白名单：解读是模型自由写的一段 JSON，而它会被存进 content_json、
+ * 跟着版本走、由前端逐键渲染。放任它长出新键，等于让模型决定界面上出现什么。
+ *
+ * 为什么只有这 9 个：解读讲的是**设计决定**，所以挂在「有得选、选了这个没选那个」
+ * 的板块上。`indicators`（《指南》指标）和 `dialogue`（师生对话）不在里面 ——
+ * 前者是照着文件对号，后者是实例，两样都不是决定。
+ */
+export const COMMENTARY_KEYS = [
+  'intent',
+  'objectives',
+  'key_points',
+  'preparation',
+  'flow',
+  'flow_stages',
+  'extension',
+  'safety',
+  'steam',
+];
+
+/** 每条解读的字数上限。超了截断而不是丢掉 —— 半段有用的话比没有好 */
+const COMMENTARY_MAX = 200;
+
+/**
+ * 解读那一次调用的用户提示词。
+ *
+ * 【为什么这段话写得这么防御】
+ *
+ * 解读最可能的失败**不是写不出来，是写出套话**：
+ * 「这样设计符合幼儿的年龄特点」「体现了以幼儿为主体的理念」——
+ * 语法正确、听着专业、信息量为零。而老师一眼就认得出这种话，
+ * 认出来之后她对整个学习模式的信任就没了（比不做更糟）。
+ *
+ * 所以三条硬要求写进提示词，每条都对着一种具体的废话：
+ *   1. 必须给对比（「为什么不是另一种做法」）—— 对着「符合年龄特点」那种空话
+ *   2. 不许复述教案里已经写着的内容 —— 对着「本环节让幼儿观察沉浮现象」这种改写
+ *   3. 答不上来就不写这一条 —— 对着为了填满九个键而硬凑
+ *
+ * 第 3 条是最要紧的一条，也是最容易在后续改动里被删掉的一条：
+ * 「宁可缺一条，不要凑一条」跟 STEAM 五域那条「宁可诚实标注缺席，不要虚假齐全」
+ * 是同一个判断。
+ */
+export function buildCommentaryUserPrompt(contentJson, ageGroup) {
+  const stageCount = Array.isArray(contentJson?.flow) ? contentJson.flow.length : 0;
+
+  return `下面是你刚写好的这份【${ageGroup}】教案。
+
+${JSON.stringify(contentJson)}
+
+现在换一个身份：你在带一位想学会自己写教案的幼儿园老师。
+请逐个板块告诉她**你为什么这么设计**——不是这一段写了什么，而是你当时在权衡什么。
+
+三条硬要求：
+
+1. **每条都要有一个具体的对比**：你选了这个做法，那个更常见的做法是什么，为什么不选它。
+   只说「这样符合${ageGroup}幼儿的年龄特点」是废话，她已经知道要符合年龄特点，
+   她不知道的是「具体到这一步，符合和不符合差在哪儿」。
+2. **不许复述教案正文**。她看得到教案，把「本环节让幼儿观察沉浮现象」换个说法再讲一遍，
+   对她一点用都没有。
+3. **答不上来的板块就不要写那个键**。九个键缺几个完全没关系；
+   凑一句空话进去，会让她连真有价值的那几条一起不信。
+
+只输出 JSON，键从下面这些里选，每个键的值是一段 60-${COMMENTARY_MAX} 字的中文：
+
+{
+  "intent":      "为什么从这个切入点开始，而不是直接讲道理或直接发材料",
+  "objectives":  "为什么是这三条目标；为什么不再加一条（或为什么某个显而易见的目标故意没写）",
+  "key_points":  "为什么难点是这个，而不是看起来更难的那件事",
+  "preparation":  "为什么是这些材料；哪样材料是特意换掉的，换掉的那个会出什么问题",
+  "flow":        "为什么是这个顺序；为什么不先讲规则再动手（或反过来）",
+  "flow_stages": ["按顺序，第 1 个环节为什么这么安排", "第 2 个……", "一共 ${stageCount} 个环节，可以只写前几个"],
+  "extension":   "为什么延伸是这么放的（区角／回家／下一次活动），别的放法会怎样",
+  "safety":      "这几条为什么是【${ageGroup}】的必查项，换个年龄班会不一样吗",
+  "steam":       "这次哪个领域重、哪个刻意不做，为什么不凑齐五个"
+}`;
+}
+
+/**
+ * 收敛模型给的解读。
+ *
+ * 白名单过滤 + 截断 + `flow_stages` 对齐 `flow` 的长度。
+ *
+ * ⚠️ **返回 null 而不是 `{}`**（空对象也返回 null）。
+ * 契约是「效率模式下这个键根本不存在」，而前端判断「有没有解读」只看一个条件：
+ * `content_json.commentary` 有没有内容。存一个空对象进去，
+ * 前端就得多写一条「有键但是空的」分支 —— 那种分支永远有一半没人测。
+ *
+ * @param {object} raw       模型返回的 JSON
+ * @param {number} flowLen   flow 有几个环节，用来裁 flow_stages
+ */
+export function normalizeCommentary(raw, flowLen = 0) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+
+  /*
+    超长要**切在句末**，不是切在第 200 个字上。
+
+    这条是 buildImagePrompt 那个坑的同一课（见 lessonGenerator.js 里那段注释）：
+    半句话对读者只是噪音。而解读比提示词更要紧 —— 它是直接给老师看的，
+    一段停在「因为中班幼儿还难以」的解释，比没有这段解释更糟：
+    她会觉得这个功能是坏的。
+
+    切不到句号（整段一句话都没断过）才硬切，那时至少不留一个悬着的半句标点。
+  */
+  const clean = (v) => {
+    const s = typeof v === 'string' ? v.trim() : '';
+    if (!s) return '';
+    if (s.length <= COMMENTARY_MAX) return s;
+
+    const cut = s.slice(0, COMMENTARY_MAX);
+    // 从后往前找最后一个句末标点。太靠前就不用它 ——
+    // 只留 30 字的一句话等于把整段解读丢了
+    const stop = Math.max(cut.lastIndexOf('。'), cut.lastIndexOf('！'), cut.lastIndexOf('？'));
+    return stop > COMMENTARY_MAX * 0.5 ? cut.slice(0, stop + 1) : cut.replace(/[，、；：…\-—\s]+$/, '');
+  };
+
+  const out = {};
+  for (const key of COMMENTARY_KEYS) {
+    if (key === 'flow_stages') {
+      // 下标要对得上 flow —— 前端是按下标取的，多出来的几条会挂到不存在的环节上
+      const list = (Array.isArray(raw.flow_stages) ? raw.flow_stages : []).slice(0, flowLen).map(clean);
+      // 末尾的空串截掉，中间的留着（保持下标对齐）
+      while (list.length && !list[list.length - 1]) list.pop();
+      if (list.length) out.flow_stages = list;
+      continue;
+    }
+    const v = clean(raw[key]);
+    if (v) out[key] = v;
+  }
+
+  return Object.keys(out).length ? out : null;
+}

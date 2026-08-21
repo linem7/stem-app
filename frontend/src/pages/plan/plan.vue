@@ -72,9 +72,16 @@
 
       <template v-else>
       <!-- ============ 设计意图 ============ -->
+      <!--
+        每个板块下面那条「为什么这样设计 ›」= 学习模式的教案解读。
+        **默认折叠**（用户 2026-08-20 定）：这一屏已经很长，她第二次打开这份教案
+        想找的是「第三环节我要干什么」，常驻穿插会让她每次都从解读里翻过去。
+        开合状态在 s-why 自己身上，这一页不加任何 handler —— 理由见那个组件的注释。
+      -->
       <template v-if="c.intent">
         <view class="sec"><text class="sec__h">设计意图</text></view>
         <text class="para">{{ c.intent }}</text>
+        <s-why :text="wh.intent" />
         <view class="hr" />
       </template>
 
@@ -110,6 +117,10 @@
         </view>
       </view>
 
+      <!-- 五域的解读挂在整组下面，不是每一域一条 ——
+           她真想知道的是「为什么这次不凑齐五个」，那是一个关于整组的判断 -->
+      <s-why :text="wh.steam" />
+
       <view class="hr" />
 
       <!-- ============ 活动目标 ============ -->
@@ -123,6 +134,7 @@
         <view v-if="o.dimension" class="obj__d"><text class="obj__d-t">{{ o.dimension }}</text></view>
         <text class="obj__t">{{ o.text }}</text>
       </view>
+      <s-why :text="wh.objectives" />
 
       <!-- ============ 重点与难点 ============ -->
       <template v-if="c.key_points && (c.key_points.focus || c.key_points.difficulty)">
@@ -136,6 +148,7 @@
           <text class="kp__lb kp__lb--hard">难点</text>
           <text class="kp__t">{{ c.key_points.difficulty }}</text>
         </view>
+        <s-why :text="wh.key_points" />
       </template>
 
       <!-- ============ 活动准备 ============ -->
@@ -158,6 +171,7 @@
           <text class="mat__t">{{ shortMat(m) }}</text>
         </view>
       </view>
+      <s-why :text="wh.preparation" />
 
       <!-- ============ 活动过程 ============ -->
       <view class="hr" />
@@ -165,19 +179,28 @@
         <text class="sec__h">活动过程</text>
         <text class="sec__m">{{ (c.flow || []).length }} 环节 · {{ plan.duration_min }} 分钟</text>
       </view>
+      <!--
+        环节的解读是**逐环节**的（wh.flow_stages 按下标对齐 c.flow），
+        整组的那条（wh.flow，讲的是「为什么是这个顺序」）挂在下面。
+        `flow_stages` 可能比 flow 短 —— 模型只解读了前几个环节是允许的，
+        取不到就是空串，那一块自己不出现。
+      -->
       <view v-for="(f, i) in c.flow || []" :key="`flow-${i}`" class="flow">
         <view class="flow__h">
           <text class="flow__stage">{{ f.stage }}</text>
           <text class="flow__min">{{ f.minutes }} 分钟</text>
         </view>
         <text class="flow__d">{{ f.detail }}</text>
+        <s-why :text="stageWhy(i)" label="为什么这个环节这么安排" />
       </view>
+      <s-why :text="wh.flow" />
 
       <!-- ============ 活动延伸 ============ -->
       <template v-if="c.extension">
         <view class="hr" />
         <view class="sec"><text class="sec__h">活动延伸</text></view>
         <text class="para">{{ c.extension }}</text>
+        <s-why :text="wh.extension" />
       </template>
 
       <!-- ============ 安全提示 ============ -->
@@ -189,6 +212,7 @@
       <view v-for="(x, i) in c.safety || []" :key="`safe-${i}`" class="dot dot--safe">
         <text class="dot__t">{{ x }}</text>
       </view>
+      <s-why :text="wh.safety" />
 
       <!--
         ============ 以下不是教案正文 ============
@@ -452,6 +476,28 @@ const isLegacy = computed(() => Boolean(plan.value) && !Array.isArray(c.value.ob
  * 抽屉里得列得出材料，否则那一屏是空的、只能自己打字描述。
  */
 const materials = computed(() => c.value.preparation?.material || c.value.materials || [])
+
+/**
+ * 教案解读（学习模式，api-spec 第 5 节）。
+ *
+ * 效率模式下后端**连这个键都不下发**，所以这里是个空对象，
+ * 每个 `<s-why :text="">` 拿到空串就整块不渲染 —— 页面上一个字都不多。
+ *
+ * 不判断「是不是学习模式」：那等于把同一件事记在两个地方
+ * （会话的 mode 和这份教案里有没有解读），而两处迟早不一致。
+ * 判据只有一个 —— **有解读就显示**。
+ */
+const wh = computed(() => c.value.commentary || {})
+
+/**
+ * 第 i 个环节的解读。`flow_stages` 按下标对齐 `flow`，但**允许比它短** ——
+ * 模型只解读前几个环节是被后端明确允许的（normalizeCommentary 会截到 flow 的长度）。
+ * 取不到就返回空串，那一块 s-why 自己不渲染。
+ */
+function stageWhy(i) {
+  const list = wh.value.flow_stages
+  return (Array.isArray(list) && list[i]) || ''
+}
 
 /** 模型对没涉及的域会写「本次未涉及」，用它判断哪几域是刻意不做 */
 const skipped = computed(() =>

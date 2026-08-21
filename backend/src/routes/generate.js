@@ -145,6 +145,11 @@ export function enqueueLessonGeneration({ conv, teacher, memories, qaHistory }) 
         token_in: plan.tokenIn,
         token_out: plan.tokenOut,
         age_band_violations: plan.quality_self?.age_band_violations?.length ?? 0,
+        // 学习模式下解读写成了几个板块（效率模式是 null）。
+        // 解读失败完全没有声音 —— 老师只会以为这个模式就是没有解读，
+        // 所以它必须在日志里留一行，否则「多少比例真写出来了」以后查不到
+        mode: conv.mode || 'efficient',
+        commentary_keys: plan.quality_self?.commentary_keys?.length ?? null,
       });
 
       // 记忆提取是另一个独立任务：它失败了不该影响老师已经拿到的教案

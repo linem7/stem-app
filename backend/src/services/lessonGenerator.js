@@ -1,10 +1,15 @@
 /**
- * 教案生成 + 自检。
+ * 教案生成 + 自检 + （学习模式的）教案解读。
  *
- * 两次模型调用：
+ * 模型调用两次，学习模式三次：
  *   第一次：生成结构化教案（要求返回 JSON，便于分节编辑）
  *   第二次：自检（8 个质量维度 + 年龄班越界检查）
+ *   第三次：教案解读（**只有学习模式**，见 api-spec 第 5 节）
  * 中间夹一层代码层的年龄班硬校验（promptBuilder.enforceAgeBand）。
+ *
+ * 后两次**都是 try/catch，失败只记日志**。这不是偷懒，是定死的规矩：
+ * 老师等的是教案，自检是给我们看的、解读是加分项，
+ * 任何一个把「拿不到教案」当作失败结果的写法都是错的。
  *
  * 为什么要 JSON 而不是直接要 Markdown：
  * db-schema.md 要求同时存 md 和 json，且「编辑时以 json 为准，md 由 json 渲染」。
@@ -17,6 +22,7 @@ import {
   getAgeBand,
   enforceAgeBand,
 } from './promptBuilder.js';
+import { isLearning, buildCommentaryUserPrompt, normalizeCommentary } from './learningMode.js';
 import { AppError, ErrorCode } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 
@@ -84,6 +90,9 @@ const JSON_SHAPE = `{
  * @returns {Promise<{title,age_group,duration_min,content_json,content_md,quality_self,tokenIn,tokenOut}>}
  */
 export async function generateLessonPlan({ conversation, teacher, memories, qaHistory = [], onProgress = () => {} }) {
+  // 模式挂在会话上（017 迁移）。这里不 resolveMode ——
+  // 值是开会话时收敛过才落库的，重新收敛一遍只会掩盖「库里怎么会有乱值」这个问题
+  const learning = isLearning(conversation.mode);
   const collected = conversation.collected || {};
   const ageGroup = collected.age_group || conversation.age_group || teacher?.age_group || '中班';
   const band = getAgeBand(ageGroup);
@@ -168,6 +177,29 @@ ${JSON_SHAPE}`;
     logger.warn('self_check_failed', { conversation_id: conversation.id, code: err?.code });
   }
 
+  /*
+    教案解读 —— 学习模式才有（api-spec 第 5 节）。
+
+    【为什么是单独一次调用，不塞进生成那一次】
+    生成那次已经是最贵最慢的（maxTokens 4000、超时 3 分钟）。再往里塞一千多字解读，
+    挤占的是教案本身的质量 —— 而教案是她真正要的东西。
+    分开还白得两样好处：解读**看得到已经写完的教案**（解释的是真产出，
+    不是在生成的同时预测自己会写什么），以及解读挂了不影响出稿。
+
+    ⚠️ 放在 enforceAgeBand **之后**：硬校验会自动收敛超时长之类的问题，
+    放在它前面，解读讲的就是一份已经被改过的教案，对不上号。
+  */
+  let commentary = null;
+  if (learning) {
+    try {
+      commentary = await buildCommentary(contentJson, ageGroup, system, teacher?.id ?? null);
+      if (commentary) contentJson.commentary = commentary;
+    } catch (err) {
+      // 学习模式的老师拿到的会是一份没有解读的教案。比拿不到教案好得多。
+      logger.warn('commentary_failed', { conversation_id: conversation.id, code: err?.code });
+    }
+  }
+
   onProgress('finishing');
 
   const qualitySelf = {
@@ -176,6 +208,14 @@ ${JSON_SHAPE}`;
     age_band_violations: violations, // 代码查出来的越界（这几条最要紧）
     age_band_auto_fixed: fixed, // 代码自动纠正掉的
     model: modelSelfCheck, // 模型的 8 维度打分
+    /*
+      学习模式下这份教案的解读写成了没有、写了哪几个板块。
+      记这个是因为它的失败**完全没有声音**：老师看到一份没有「为什么这样设计」的
+      教案，只会以为这个模式就是这样。不留痕的话，
+      「学习模式的解读到底有多少比例真的写出来了」这个问题以后没法回答。
+      效率模式下是 null（不是空数组）—— 区分「没写成」和「压根不该有」。
+    */
+    commentary_keys: learning ? Object.keys(commentary || {}) : null,
   };
 
   const contentMd = renderMarkdown({
@@ -277,6 +317,15 @@ function normalizePlan(raw, ageGroup, durationTarget) {
   const material = arr(raw.preparation?.material ?? raw.materials).map(str).filter(Boolean);
   const experience = arr(raw.preparation?.experience).map(str).filter(Boolean);
 
+  /*
+    ⚠️ 这里**故意不接 raw.commentary**，即使模型自己写了一个。
+
+    解读是另一次调用的产物，要过 normalizeCommentary 那道白名单才准进 content_json。
+    生成那次的提示词从来没提过 commentary，所以它真出现了只能是模型自作主张 ——
+    那份内容既没被白名单过滤、也没被截断，直接放进去等于让模型决定界面上出现什么。
+    下面返回的是一个显式对象，所以「不接」是天然的；写这段注释是为了防止
+    以后有人为了「顺手兼容一下」把它加回来。
+  */
   return {
     title,
     age_group: ageGroup,
@@ -335,14 +384,72 @@ ${JSON.stringify(contentJson)}
 }
 
 /**
+ * 教案解读：给各板块挂一段「为什么这样设计」（学习模式，api-spec 第 5 节）。
+ *
+ * 提示词在 `learningMode.js` —— 学习模式的文案集中在那一个文件，
+ * 改措辞不用进这里。这边只管调用和收敛，跟上面 selfCheck 对称。
+ *
+ * temperature 比生成低（0.7 → 0.45）：这一段是在解释一份**已经定稿**的教案，
+ * 要的是说准，不是说得花。但也不能压到 0.2 那么死 ——
+ * 全是同一个句式的九段话读起来像表格，她会跳过去不看。
+ */
+async function buildCommentary(contentJson, ageGroup, systemPrompt, teacherId = null) {
+  const { data } = await chatJSON({
+    system: systemPrompt,
+    messages: [{ role: 'user', content: buildCommentaryUserPrompt(contentJson, ageGroup) }],
+    temperature: 0.45,
+    maxTokens: 1600,
+    timeoutMs: 90000,
+    purpose: 'lesson_commentary',
+    teacherId,
+  });
+
+  return normalizeCommentary(data, Array.isArray(contentJson.flow) ? contentJson.flow.length : 0);
+}
+
+/**
  * 由 content_json 渲染 Markdown。
  *
  * 编辑教案时也调这个函数重渲染（PATCH /lesson-plans/:id），
  * 保证 md 永远是 json 的投影，不会两边各改一半。
+ *
+ * @param {object} plan
+ * @param {object} [opts]
+ * @param {boolean} [opts.withCommentary=false]  带上学习模式的教案解读
+ *
+ * 【为什么解读要一个开关，而不是永远带或永远不带】
+ *
+ * 存进 `lesson_plans.content_md` 的那一份**必须不带**（默认值就是 false）。
+ * 那一列是「教案正文」的规范形式：内容安全检查过的是它、
+ * 版本快照存的是它、以后比对两版差异读的是它。
+ * 把解读混进去，`content_md` 就不再是那份教案，而是教案加旁白。
+ *
+ * 但**导出的时候要带**（用户 2026-08-21 定）：她导出是为了把东西带走，
+ * 解读是这份教案里唯一只存在于屏幕上的部分，不导就等于导不全。
+ * 所以开关由调用方给：落库不带，导出带。
  */
-export function renderMarkdown(plan) {
+export function renderMarkdown(plan, { withCommentary = false } = {}) {
   const c = plan.content_json || {};
   const L = [];
+  // 解读只在导出时出现。cm 为空对象时下面每个 why() 都返回空，一行都不会多
+  const cm = withCommentary && c.commentary && typeof c.commentary === 'object' ? c.commentary : {};
+
+  /**
+   * 一段解读。**排版上要一眼看出这不是教案正文** —— 她可能把导出的东西
+   * 直接交上去，混在正文里的旁白会被当成她自己写的话。
+   * 用引用块 + 抬头，跟界面上那一行对得上。
+   *
+   * `head` 只有逐环节那几条要换（'为什么这个环节这么安排'）。
+   * 屏幕上环节的解读嵌在那张环节卡里，上下文一目了然；
+   * 导出成一份文档之后卡片没了，最后一个环节的解读和「整组为什么是这个顺序」
+   * 会紧挨着，两条抬头一样就分不出哪条讲的是整体。
+   */
+  const pushWhy = (v, head = '为什么这样设计') => {
+    if (!v || typeof v !== 'string') return;
+    L.push(`> **${head}**：${v.replace(/\n+/g, ' ')}`);
+    L.push('');
+  };
+  const why = (key) => pushWhy(cm[key]);
 
   L.push(`# ${plan.title || c.title || '未命名教案'}`);
   L.push('');
@@ -360,9 +467,8 @@ export function renderMarkdown(plan) {
     这个顺序就是以后导出 docx 的顺序 —— 老师是打印出来交给园里的，
     所以正文（设计意图 … 安全提示）必须先出完，特征标注和教学实例排在后面。
 
-    ⚠️ **不要输出 `commentary`（学习模式的教案解读）。**
-    她导出是为了打印交给园里，把「为什么这样设计」印在教案上，
-    园长看到的是一份夹着旁白的教案。要导解读得是单独的选项。
+    解读（`commentary`）只在 `withCommentary` 为真时出现，也就是**只在导出时**。
+    落库那一份不带 —— 理由见这个函数的文档注释。
   */
 
   if (c.intent) {
@@ -370,6 +476,7 @@ export function renderMarkdown(plan) {
     L.push('');
     L.push(c.intent);
     L.push('');
+    why('intent');
   }
 
   if (c.steam) {
@@ -384,6 +491,7 @@ export function renderMarkdown(plan) {
       L.push(`| ${names[k]} | ${String(v).replace(/\|/g, '/')} |`);
     }
     L.push('');
+    why('steam');
   }
 
   if (c.objectives?.length) {
@@ -394,6 +502,7 @@ export function renderMarkdown(plan) {
       L.push(`- ${d}${o?.text || ''}`);
     });
     L.push('');
+    why('objectives');
   }
 
   if (c.key_points?.focus || c.key_points?.difficulty) {
@@ -403,6 +512,7 @@ export function renderMarkdown(plan) {
     if (c.key_points.focus && c.key_points.difficulty) L.push('');
     if (c.key_points.difficulty) L.push(`**难点**：${c.key_points.difficulty}`);
     L.push('');
+    why('key_points');
   }
 
   const prep = c.preparation || {};
@@ -421,6 +531,7 @@ export function renderMarkdown(plan) {
       prep.material.forEach((x) => L.push(`- ${x}`));
       L.push('');
     }
+    why('preparation');
   }
 
   if (c.flow?.length) {
@@ -431,7 +542,11 @@ export function renderMarkdown(plan) {
       L.push('');
       L.push(s.detail);
       L.push('');
+      // 逐环节的那一条。下标对齐 flow，取不到就不出现（模型可能只解读了前几个）
+      pushWhy(Array.isArray(cm.flow_stages) ? cm.flow_stages[i] : '', '为什么这个环节这么安排');
     });
+    // 整组那一条（讲的是「为什么是这个顺序」）排在全部环节之后，跟界面一致
+    why('flow');
   }
 
   if (c.extension) {
@@ -439,6 +554,7 @@ export function renderMarkdown(plan) {
     L.push('');
     L.push(c.extension);
     L.push('');
+    why('extension');
   }
 
   if (c.safety?.length) {
@@ -446,6 +562,7 @@ export function renderMarkdown(plan) {
     L.push('');
     c.safety.forEach((x) => L.push(`- ${x}`));
     L.push('');
+    why('safety');
   }
 
   // ---- 以下不是教案正文，是特征标注与教学实例 ----

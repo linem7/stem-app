@@ -174,5 +174,21 @@ L('\n=== 4. 模式不改变答题与额度 ===');
   );
 }
 
+/* ============ 5. 教案解读不在这个脚本里 ============ */
+//
+// ⚠️ 这个脚本**不测 content_json.commentary**，别以为它测了。
+//
+// 解读是生成阶段的第三次模型调用，要验它端到端就得真生成一份教案
+// （20-30 秒 + DeepSeek 的钱），而这个脚本的全部价值是「能天天跑」。
+//
+// 它的收敛逻辑（白名单、截断、flow_stages 对齐、renderMarkdown 不许输出它）
+// 全部是纯函数，单独一个脚本盯着，也不花钱：
+//
+//     npm run test:commentary
+//
+// 动 learningMode.js 或 renderMarkdown 之后那个必跑。
+
+L('\n=== 5. 教案解读 —— 见 npm run test:commentary（纯函数，不花钱）===');
+
 L(`\n${failed === 0 ? '全部通过' : `${failed} 项没过`}`);
 process.exit(failed === 0 ? 0 : 1);
