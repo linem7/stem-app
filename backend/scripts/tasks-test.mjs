@@ -169,8 +169,24 @@ await adm('POST', `/tasks/${t5.id}/close`);
 chk(!(await sees(浙城大, t5.id)), '收了之后就不出现了');
 
 L('=== 截止日期：当天还算，过期不出现，过期的也不许发布 ===');
-const today = new Date().toISOString().slice(0, 10);
-const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+/*
+  ⚠️ 日期必须按**本地时区**算，不能用 `toISOString().slice(0,10)`。
+
+  后端那条筛选是 `deadline >= current_date`，而库的时区是 Asia/Shanghai
+  （`current_setting('TimeZone')` 查得到）。`toISOString()` 给的是 UTC 日 ——
+  东八区在**每天 00:00 到 08:00 之间**，UTC 日比本地日少一天。
+  于是「今天截止」写进去的是昨天，那条 🔴 断言从午夜到上午八点一直是红的。
+
+  2026-08-21 凌晨一点撞上这个。不是后端错了，是脚本算错了日期 ——
+  而一个每天有八小时会红的脚本，红两次之后就没人看了。
+*/
+const localDay = (offsetMs = 0) => {
+  const d = new Date(Date.now() + offsetMs);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+const today = localDay();
+const yesterday = localDay(-86400000);
 const t8 = await publish('今天截止', { kindergarten_ids: [gdRural] });
 await adm('POST', `/tasks/${t8.id}/update`, { deadline: today });
 chk(await sees(粤农小, t8.id), '🔴 今天截止的任务今天还看得到（写成 < 就会当天消失）');

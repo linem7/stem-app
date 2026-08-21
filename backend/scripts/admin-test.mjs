@@ -118,7 +118,25 @@ if(devT){
     chk(cur.versions.length===multi.versions.length, '响应里带全部版本号，界面才能给切换条');
     const v1=(await adm('GET',`/plans/${multi.plan_id}?version=1`)).data;
     chk(v1.shown_version===1, '能取到 v1');
-    chk(v1.plan.content_md!==cur.plan.content_md, '两版正文真的不一样（不是同一份换个标签）');
+
+    /*
+      「取到的真是那一版，不是同一份换个标签」—— 但**不能拿 v1 跟当前比**。
+      2026-08-21 这条红了一次，而错的是断言不是代码：库里那份教案昨天被
+      **回退到 v1** 了（current_version=1），于是它的当前正文本来就该等于 v1 的。
+      而回退是这个产品明确支持的事（「来回切都行」），所以那种状态迟早会出现。
+
+      改成拿**两个不同版本**互相比：随便挑一个不是当前版的，它的正文该跟当前不一样。
+      挑不出来（只有一版，或者所有版本内容雷同）就跳过 —— 一个会随库里数据
+      变红的断言，红两次之后整份脚本就没人看了。
+    */
+    const otherV=multi.versions.map(v=>v.version).find(v=>v!==(cur.shown_version));
+    if(otherV){
+      const other=(await adm('GET',`/plans/${multi.plan_id}?version=${otherV}`)).data;
+      chk(other.plan.content_md!==cur.plan.content_md,
+        `v${otherV} 和当前 v${cur.shown_version} 的正文不一样（不是同一份换个标签）`);
+    }else{
+      L(`  · 这份教案只有一版在用（当前 v${cur.shown_version}），跳过跨版本比对`);
+    }
     chk(v1.plan.real_name===cur.plan.real_name,
       '身份字段不随版本变（谁写的、哪个园不在版本快照里）');
     chk((await adm('GET',`/plans/${multi.plan_id}?version=99`)).status===404, '不存在的版本给 404');
