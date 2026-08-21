@@ -22,11 +22,10 @@
     />
 
     <template v-else>
-      <!-- 档案。这里的昵称是微信昵称，**不是**问卷里那个真实姓名 ——
-           真实姓名永不下发前端（手机号 016 迁移之后库里根本没有这一列）-->
+      <!-- 昵称是微信昵称，**不是**问卷里那个真实姓名 ——
+           真实姓名永不下发前端（016 迁移之后库里根本没有这一列） -->
       <view class="hd">
         <text class="q">{{ teacher.nickname || '老师' }}</text>
-        <text v-if="profileLine" class="hd__sub">{{ profileLine }}</text>
       </view>
 
       <!--
@@ -70,6 +69,86 @@
       </view>
 
       <!--
+        档案是这一列的**第一条，但不参与编号**（用户 2026-08-21 定）。
+
+        为什么它归在「我的记忆」底下：这一节的副标题就是「写教案时会自动带上」，
+        而园所、年级、职称正是每次都会带上的东西 —— 它跟下面那些记忆是同一类信息，
+        只是它有固定的格子、不是一句自由文字。
+
+        为什么不给它编号：编号是给「一条条攒起来的记忆」的（她会说「第 3 条删掉」）。
+        档案只有一份、删不掉，给它一个 00 或者把记忆挤到从 02 开始都是错的。
+        所以它占一行、留出编号那一列的宽度对齐，但那一格是空的。
+
+        **这一行只写「个人档案」四个字，不预览里面填了什么**（用户 2026-08-21 定）。
+        原来这里摊着「阳光幼儿园 · 中班 · 主班 · 本科 · 一级教师 · 教龄 5 年」——
+        六项连起来是一长串，在记忆那一列里读起来像第七条记忆，
+        而且她要做的事就是「进去改」，摊在外面并不省她一次点击。
+      -->
+      <view class="mem mem--pf" @tap="openProfileEdit">
+        <text class="mem__n mem__n--pf" />
+        <text class="mem__t">个人档案</text>
+        <image class="mem__i" :src="chevron" mode="widthFix" />
+      </view>
+
+      <!--
+        档案编辑。**v-show 不是 v-if** —— v-if/v-else 一对占同一个模板位置，
+        两个 handler 会拿到同一个缓存 key，微信端把点击派发错人（这一页撞过四次）。
+      -->
+      <view v-show="profileOpen" class="pf">
+        <view class="pf__r">
+          <text class="pf__k">园所</text>
+          <input
+            class="pf__in"
+            :value="pfKg"
+            placeholder="阳光幼儿园"
+            placeholder-class="pf__ph"
+            :maxlength="64"
+            @input="onKgTyping"
+          />
+        </view>
+
+        <!--
+          年级 / 岗位 / 最高学历 / 职称都是「从几个里挑一个」，所以用同一套胶囊。
+          挑中的那个**必须多一个打勾**：黄底压奶油底亮度差只有 1.51:1，
+          光靠颜色分不出哪个选中了（design-tokens 规则 3）。
+          再点一次同一个 = 取消，她可能就是不想标。
+        -->
+        <view v-for="g in PICKS" :key="g.key" class="pf__r pf__r--wrap">
+          <text class="pf__k">{{ g.label }}</text>
+          <view class="pf__opts">
+            <view
+              v-for="o in g.options"
+              :key="o"
+              class="band"
+              :class="{ 'band--on': picks[g.key] === o }"
+              @tap="onPickTap(g.key, o)"
+            >
+              <image v-if="picks[g.key] === o" class="band__ck" :src="checkInk" mode="widthFix" />
+              <text class="band__t" :class="{ 'band__t--on': picks[g.key] === o }">{{ o }}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="pf__r">
+          <text class="pf__k">教龄</text>
+          <input
+            class="pf__in pf__in--n"
+            :value="pfYears"
+            type="number"
+            :maxlength="2"
+            @input="onYearsTyping"
+          />
+          <text class="pf__u">年</text>
+        </view>
+        <view class="pf__ops">
+          <s-button label="改好了" :loading="savingProfile" @press="saveProfile" />
+          <view class="pf__c" @tap="shutProfileEdit">
+            <text class="pf__c-t">取消</text>
+          </view>
+        </view>
+      </view>
+
+      <!--
         **点整行就是改**，不额外挂一个「改」字按钮 —— 一行只有一个动作，
         那就让整行成为那个动作。也不显示 mem_type（「教学信息」之类）：
         这一屏叫「我的记忆」，每条都是记忆，再标一遍类型是给数据库看的，不是给她看的。
@@ -104,7 +183,7 @@
               <text class="editops__x-t">删掉这条</text>
             </view>
             <view class="editops__c" @tap="cancelEditMem">
-              <text class="editops__c-t">算了</text>
+              <text class="editops__c-t">取消</text>
             </view>
           </view>
         </view>
@@ -118,7 +197,7 @@
         这两块**不能写成 v-if / v-else 一对**。uni 按「模板位置」给事件处理器分配缓存 key，
         一对 v-if/v-else 占的是同一个位置：编译出来 cancelAdd 和「＋ 再记一条」
         拿到了同一个 key（实测都是 "97"），微信运行时会把点击派发到另一个上 ——
-        表现就是点「算了」反而又打开一次输入框。`npm run test:mp` 第 2 条查的正是这个。
+        表现就是点「取消」反而又打开一次输入框。`npm run test:mp` 第 2 条查的正是这个。
         用 v-show 而不是 v-if：两块都真实存在于节点树里（只是藏起来一块），
         编译器才会给它们分配**不同**的 handler key。改回 v-if 会立刻复现。
       -->
@@ -135,7 +214,7 @@
         />
         <view class="add__ops">
           <s-button label="记下来" :disabled="!newFact.trim()" :loading="savingMem" @press="saveMem" />
-          <s-button label="算了" variant="ghost" @press="cancelAdd" />
+          <s-button label="取消" variant="ghost" @press="cancelAdd" />
         </view>
       </view>
       <view v-show="!adding" class="memadd" @tap="startAdd">
@@ -247,7 +326,7 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { addMemory, deleteMyAccount, getQuota, listMemories, removeMemory, updateMemory } from '../../api/me.js'
+import { addMemory, deleteMyAccount, getQuota, listMemories, removeMemory, updateMe, updateMemory } from '../../api/me.js'
 import { sendFeedback } from '../../api/feedback.js'
 import { listTasks } from '../../api/tasks.js'
 import { session } from '../../stores/session.js'
@@ -270,6 +349,31 @@ const ABOUT = [
   { k: '版本', v: '内测 · 2026-08' },
 ]
 
+/**
+ * 档案里「从几个里挑一个」的四项。
+ *
+ * ⚠️ **这几份清单是后端的副本，不是源。** 后端白名单在
+ * `backend/src/services/promptBuilder.js`（AGE_GROUPS）和
+ * `backend/src/services/roster.js`（POSITIONS / EDUCATIONS / TITLES），
+ * 传不在名单上的值会被 400 顶回来。**改一档记得两边一起改。**
+ *
+ * 顺序照后端那几个数组，别自己重排 —— 她两次打开看到的次序不一样会以为选错了。
+ *
+ * 「职称」里的**「未评定」是一个她主动选的值**，跟「没填过」不是一回事：
+ * 没填过是空的、这一格不显示；选了未评定会显示出来。研究上这两者要分得开，
+ * 所以不许在任何地方把空值显示成「未评定」。
+ */
+const PICKS = [
+  { key: 'age_group', label: '年级', options: ['小班', '中班', '大班'] },
+  { key: 'position', label: '岗位', options: ['主班', '配班', '保育员', '园长', '其他'] },
+  { key: 'education', label: '最高学历', options: ['中专及以下', '大专', '本科', '硕士及以上'] },
+  {
+    key: 'professional_title',
+    label: '职称',
+    options: ['未评定', '三级教师', '二级教师', '一级教师', '高级教师', '正高级教师'],
+  },
+]
+
 const CATEGORIES = [
   { key: 'quality', label: '教案质量' },
   { key: 'feature', label: '想要新功能' },
@@ -288,6 +392,14 @@ const adding = ref(false)
 const newFact = ref('')
 const savingMem = ref(false)
 
+/* ---- 档案编辑 ---- */
+const profileOpen = ref(false)
+const pfKg = ref('')
+const pfYears = ref('')
+/** 四个胶囊项的当前选择。用一个 reactive 而不是四个 ref —— 模板里按 key 取，少四个名字 */
+const picks = reactive({ age_group: '', position: '', education: '', professional_title: '' })
+const savingProfile = ref(false)
+
 /** 正在改哪一条。null = 没在改 */
 const editingMem = ref(null)
 const editing = computed(() => Boolean(editingMem.value))
@@ -301,16 +413,8 @@ const sent = ref(false)
 
 const teacher = computed(() => session.teacher || {})
 
-/** 园所 · 年龄班 · 教龄，有哪样写哪样 —— 缺的不要留一串「·」 */
-const profileLine = computed(() =>
-  [
-    teacher.value.kindergarten_name,
-    teacher.value.age_group,
-    teacher.value.teaching_years ? `教龄 ${teacher.value.teaching_years} 年` : '',
-  ]
-    .filter(Boolean)
-    .join(' · ')
-)
+// 这里曾经有个 profileLine，把六项拼成「阳光幼儿园 · 中班 · 主班 · …」摊在列表上。
+// 2026-08-21 撤掉了 —— 那一行只写「个人档案」，预览不省她一次点击（理由在模板那边）。
 
 onShow(() => load())
 
@@ -344,6 +448,84 @@ async function load() {
   }
 }
 
+/* ============ 档案 ============ */
+
+/**
+ * 打开档案编辑。每次都从 session 重新灌一遍，不留上次没保存的残留 ——
+ * 她点开、改了两个字、点「取消」，下次点开还看到那两个字，会以为已经存进去了。
+ */
+function openProfileEdit() {
+  const t = teacher.value
+  pfKg.value = t.kindergarten_name || ''
+  pfYears.value = t.teaching_years == null ? '' : String(t.teaching_years)
+  for (const g of PICKS) picks[g.key] = t[g.key] || ''
+  profileOpen.value = true
+  // 两个输入区同时开着不知道该往哪里打字，跟记忆那两块一个道理
+  adding.value = false
+  cancelEditMem()
+}
+
+function shutProfileEdit() {
+  profileOpen.value = false
+}
+
+function onKgTyping(e) {
+  pfKg.value = e.detail.value
+}
+
+function onYearsTyping(e) {
+  pfYears.value = e.detail.value
+}
+
+/** 再点一次同一个 = 取消选择。她可能就是不想标（尤其职称） */
+function onPickTap(key, value) {
+  picks[key] = picks[key] === value ? '' : value
+}
+
+/**
+ * 存档案。
+ *
+ * 只发**真的改了**的字段：后端那几项各自要过校验，昵称和园所还要过一次内容安全，
+ * 每次把三样都发过去等于每次都白跑一遍内容安全（一次微信调用）。
+ *
+ * 清空要发 `null` 而不是 `''` —— 后端 `push('age_group', v || null)` 那几行
+ * 靠的是「传了这个键」，`undefined` 会被 `!== undefined` 判掉、整项不改。
+ */
+async function saveProfile() {
+  if (savingProfile.value) return
+  const t = teacher.value
+  const fields = {}
+
+  const kg = pfKg.value.trim()
+  if (kg !== (t.kindergarten_name || '')) fields.kindergarten_name = kg || null
+
+  for (const g of PICKS) {
+    if (picks[g.key] !== (t[g.key] || '')) fields[g.key] = picks[g.key] || null
+  }
+
+  const yearsRaw = pfYears.value.trim()
+  const years = yearsRaw === '' ? null : Number(yearsRaw)
+  if (years !== null && (!Number.isInteger(years) || years < 0 || years > 60)) {
+    return toast('教龄填 0 到 60 之间的整数')
+  }
+  if (years !== (t.teaching_years ?? null)) fields.teaching_years = years
+
+  // 一个字都没动就直接收起来，不发请求
+  if (!Object.keys(fields).length) return shutProfileEdit()
+
+  savingProfile.value = true
+  try {
+    // 后端返回的就是更新后的 teacher DTO，直接接住，省一次 GET /me
+    session.teacher = await updateMe(fields)
+    shutProfileEdit()
+    toast('改好了')
+  } catch (err) {
+    showApiError(err)
+  } finally {
+    savingProfile.value = false
+  }
+}
+
 /* ============ 记忆 ============ */
 
 // 都用具名函数，不写内联箭头：内联的在编译产物里更容易跟别处撞同一个 handler key
@@ -364,6 +546,7 @@ function pickFont(key) {
 function startAdd() {
   adding.value = true
   cancelEditMem()
+  profileOpen.value = false
 }
 
 function onNewFactTyping(e) {
@@ -381,8 +564,9 @@ function startEditMem(m) {
   if (!m) return
   editingMem.value = m
   editFact.value = m.fact
-  // 打开编辑就把「新增」收起来，两个输入框同时开着不知道该往哪个打字
+  // 打开编辑就把「新增」和档案收起来，几个输入框同时开着不知道该往哪个打字
   adding.value = false
+  profileOpen.value = false
 }
 
 function onEditFactInput(e) {
@@ -436,7 +620,7 @@ function askDeleteMem(m) {
     content: `删掉「${m.fact}」？以后写教案就不带上它了。`,
     confirmText: '删掉',
     confirmColor: COLORS.coralDeep,
-    cancelText: '算了',
+    cancelText: '取消',
     success: (r) => {
       if (r.confirm) doDeleteMem(m)
     },
@@ -493,7 +677,7 @@ function onDeleteDataTap() {
       '已经用于科研的那部分（你提交过的建议和评价）撤不回来，但不再关联到你。',
     confirmText: '我要删除',
     confirmColor: COLORS.coralDeep,
-    cancelText: '算了',
+    cancelText: '取消',
     success: (r) => {
       if (r.confirm) confirmDeleteAccount()
     },
@@ -551,11 +735,119 @@ function goAgreement() {
   letter-spacing: -0.012em;
 }
 
-.hd__sub {
-  display: block;
+/* ============ 档案编辑 ============ */
+.pf {
+  background: $white;
+  border: 2rpx solid $rule-2;
+  border-radius: 28rpx;
+  padding: 24rpx 26rpx;
+  margin-bottom: 24rpx;
+}
+
+.pf__r {
+  display: flex;
+  align-items: center;
+  min-height: 72rpx;
+
+  /*
+    职称有六档，一行摆不下 —— 必须能换行，而且换行之后标签要回到第一行的顶上，
+    不能垂直居中（居中的话「职称」两个字会飘到两行胶囊的中间）。
+  */
+  &--wrap {
+    align-items: flex-start;
+    padding: 12rpx 0;
+  }
+}
+
+.pf__k {
+  width: 120rpx;
+  flex: none;
+  font-size: var(--fs-sub);
+  color: $ink-2;
+}
+
+.pf__in {
+  flex: 1;
+  min-width: 0;
+  height: 64rpx;
+  border-bottom: 2rpx solid $rule-2;
+  font-size: var(--fs-body);
+  color: $ink;
+
+  /* 教龄只有两位数，占满一行会让「年」飘到很远的地方 */
+  &--n {
+    flex: none;
+    width: 120rpx;
+  }
+}
+
+.pf__ph {
+  color: $ink-3;
+}
+
+.pf__u {
+  font-size: var(--fs-sub);
+  color: $ink-2;
+  margin-left: 12rpx;
+}
+
+.pf__opts {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  /* 换行之后两行胶囊之间要有缝，靠 .band 的 margin-bottom 给（gap 在低版本微信里不稳） */
+  margin-top: 2rpx;
+}
+
+.band {
+  display: flex;
+  align-items: center;
+  border: 2rpx solid $rule-2;
+  border-radius: $r-chip;
+  background: $paper-2;
+  padding: 8rpx 20rpx;
+  margin: 0 10rpx 10rpx 0;
+
+  &--on {
+    background: $amber;
+    border-color: $amber-line;
+  }
+}
+
+.band__ck {
+  width: 22rpx;
+  height: 22rpx;
+  margin-right: 8rpx;
+}
+
+.band__t {
+  font-size: var(--fs-sub);
+  color: $ink-2;
+
+  &--on {
+    color: $ink;
+    font-weight: 600;
+  }
+}
+
+/*
+  按钮独占一行、「取消」在它下面 —— 跟紧挨着的记忆编辑框（.add__ops + .editops）
+  完全一样的排法。s-button 自己是 width:100%，塞进 flex 行里宽度会不稳
+  （小程序里自定义组件根节点才是那个 flex item，width:100% 落在它内部的 button 上）。
+*/
+.pf__ops {
+  margin-top: 20rpx;
+}
+
+.pf__c {
+  padding: 10rpx 20rpx;
+  margin-top: 14rpx;
+}
+
+.pf__c-t {
   font-size: var(--fs-sub);
   color: $ink-3;
-  margin-top: 8rpx;
 }
 
 /* ============ 额度 ============ */
@@ -667,6 +959,30 @@ function goAgreement() {
   font-size: var(--fs-read);
   color: $ink-2;
   line-height: 1.65;
+}
+
+/*
+  档案那一行。跟记忆行同一个形状（所以两者读起来是一列），只有两点不同：
+  · 编号那一格是空的 —— 编号是给「一条条攒起来的记忆」的，档案只有一份、删不掉
+  · 右边带一个箭头，因为它点开的是一个表单，不是一个输入框
+
+  ⚠️ **不给它加底色也不加边框。** 试过一下就知道为什么：它一有底色就从
+  「这一列的第一条」变成「压在列表上面的一个卡片」，而用户要的正是前者。
+*/
+.mem--pf {
+  align-items: center;
+}
+
+/* 空的编号格。宽度必须跟 .mem__n 一样，否则档案行的文字跟下面的记忆对不齐 */
+.mem__n--pf {
+  width: 44rpx;
+}
+
+.mem__i {
+  flex: none;
+  width: 20rpx;
+  height: 20rpx;
+  margin-left: 12rpx;
 }
 
 .mem__none {

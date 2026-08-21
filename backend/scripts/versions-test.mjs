@@ -313,6 +313,98 @@ chk(/sheet of 3 separate cut-out headband templates/.test(hw3.style), '构图规
 chk(/one outlined shape in the center/.test(hw1.style), '只说一样时还是单条那套');
 chk(purposeSpec('worksheet', 3).height === purposeSpec('worksheet', 1).height, '记录表不受这条影响');
 
+// ---------------------------------------------------------------
+L('\n=== 11. 两个 POST .../update 别名（2026-08-21）===');
+//
+// 小程序发不出 PATCH，所以 PATCH /me 和 PATCH /lesson-plans/:id 各挂了一条 POST 别名。
+// 这一节要钉住的**不是「POST 通了」**，而是「两个方法真的是同一个 handler」——
+// 别名很容易被写成第二份实现，而两份实现里总有一份是没人测的：
+// 表现会是「小程序里改了没生效、H5 里改了生效」，还不报错。
+{
+  // ---- POST /lesson-plans/:id/update ----
+  const before = (await call('GET', `/lesson-plans/${planId}`)).data;
+  const NEW_EXT = `别名测试改的延伸_${RND}`;
+
+  const viaPost = await call('POST', `/lesson-plans/${planId}/update`, { path: 'extension', value: NEW_EXT });
+  chk(viaPost.ok, `POST /lesson-plans/:id/update → ${viaPost.status}`);
+  chk(viaPost.data?.content_json?.extension === NEW_EXT, '按 path 改的那一段真的变了');
+  chk(
+    viaPost.data?.content_md?.includes(NEW_EXT),
+    'content_md 跟着重渲染了 —— md 是 json 的投影，不许各自漂移'
+  );
+
+  // 同一个 handler：PATCH 也必须收，且行为一致
+  const viaPatch = await call('PATCH', `/lesson-plans/${planId}`, { path: 'extension', value: `${NEW_EXT}_2` });
+  chk(viaPatch.ok, `PATCH /lesson-plans/:id 仍然收（${viaPatch.status}）—— 别名不是替换`);
+  chk(viaPatch.data?.content_json?.extension === `${NEW_EXT}_2`, 'PATCH 的效果跟 POST 一样');
+
+  // 图片不许被编辑碰掉（跟改稿、回退同一条铁律）
+  chk(viaPatch.data?.images?.length === before.images.length, `编辑之后图还是 ${before.images.length} 张`);
+
+  // 别名不许绕过校验：不存在的路径要被拒
+  const badPath = await call('POST', `/lesson-plans/${planId}/update`, { path: 'nope.deep.x', value: '1' });
+  chk(badPath.status === 400, `别名照样校验路径（不存在的路径 → ${badPath.status}）`);
+  const nothing = await call('POST', `/lesson-plans/${planId}/update`, {});
+  chk(nothing.status === 400, `空 body 被拒（${nothing.status}）`);
+
+  // 别人的教案改不动 —— 别名最容易漏掉的正是这道 teacher_id 过滤
+  const stolen = await call('POST', `/lesson-plans/999999/update`, { path: 'extension', value: 'x' });
+  chk(stolen.status === 404, `别人（或不存在）的教案 → ${stolen.status}`);
+
+  // ---- POST /me/update ----
+  const KG = `别名测试园_${RND}`;
+  const up = await call('POST', '/me/update', { kindergarten_name: KG, teaching_years: 7, age_group: '中班' });
+  chk(up.ok, `POST /me/update → ${up.status}`);
+  chk(up.data?.kindergarten_name === KG, '园所名存下来了');
+  chk(up.data?.teaching_years === 7, '教龄存下来了');
+  chk(up.data?.age_group === '中班', '年龄班改掉了（激活时名单给的是小班）');
+
+  // profile_completed 在这条路通之前对任何老师都恒为 false ——
+  // 因为它要 kindergarten_name，而激活只写 kindergarten_id
+  chk(up.data?.profile_completed === true, 'profile_completed 终于能变成 true 了');
+
+  const me = (await call('GET', '/me')).data;
+  chk(me.kindergarten_name === KG && me.teaching_years === 7, '重新拉一次档案，改动确实落了库');
+
+  // 白名单：不在名单上的字段一个都不许进
+  await call('POST', '/me/update', { openid: 'hacked', activated_at: '2000-01-01', real_name: '张三' });
+  const after = (await call('GET', '/me')).data;
+  chk(after.kindergarten_name === KG, '传了白名单外的字段，已有数据没被冲掉');
+  chk(!('openid' in after) && !('real_name' in after), 'openid 和真实姓名从来不下发前端');
+
+  const badBand = await call('POST', '/me/update', { age_group: '托班' });
+  chk(badBand.status === 400, `年龄班校验还在（"托班" → ${badBand.status}）`);
+  const badYears = await call('POST', '/me/update', { teaching_years: 99 });
+  chk(badYears.status === 400, `教龄上限还在（99 → ${badYears.status}）`);
+
+  // ---- 018 加的三项挑选题：岗位 / 最高学历 / 职称 ----
+  const picked = await call('POST', '/me/update', {
+    position: '配班', education: '本科', professional_title: '一级教师',
+  });
+  chk(picked.ok && picked.data?.position === '配班', '岗位能改（名单给的是主班）');
+  chk(picked.data?.education === '本科' && picked.data?.professional_title === '一级教师',
+    '最高学历和职称存下来了（018 迁移那两列）');
+
+  for (const [k, v] of [['position', '实习生'], ['education', '博士后'], ['professional_title', '特级教师']]) {
+    const r = await call('POST', '/me/update', { [k]: v });
+    chk(r.status === 400, `${k} 的白名单挡住了 "${v}"（${r.status}）`);
+    chk(/只能是/.test(r.error?.message || ''), `  报错里列出了可选项：${String(r.error?.message).slice(0, 28)}…`);
+  }
+
+  // 「未评定」是她主动选的值，跟 null（没填过）不是一回事 —— 两者都要存得进去
+  const unrated = await call('POST', '/me/update', { professional_title: '未评定' });
+  chk(unrated.data?.professional_title === '未评定', '「未评定」是一个可选值，不是空');
+  const cleared = await call('POST', '/me/update', { professional_title: null });
+  chk(cleared.data?.professional_title === null, '传 null 能清回「没填过」—— 跟「未评定」分得开');
+
+  // 教龄 0 是有意义的值（今年刚入职），不许被当成空丢掉
+  const zero = await call('POST', '/me/update', { teaching_years: 0 });
+  chk(zero.data?.teaching_years === 0, '教龄 0 年存得进去（新手老师那一档）');
+
+  const patchMe = await call('PATCH', '/me', { teaching_years: 8 });
+  chk(patchMe.ok && patchMe.data?.teaching_years === 8, 'PATCH /me 仍然收，行为一致');
+}
+
 L(`\n${failed === 0 ? '全部通过' : `${failed} 项没过`}`);
 await closePool();
 process.exit(failed === 0 ? 0 : 1);

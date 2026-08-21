@@ -86,11 +86,16 @@ export function request({ method = 'GET', path, data, timeout = 20000, auth = tr
   }
 
   // 微信 wx.request 的 method 只认 OPTIONS/GET/HEAD/POST/PUT/DELETE/TRACE/CONNECT，
-  // **没有 PATCH**。而 api-spec 里 PATCH /me、PATCH /memories/:id、PATCH /lesson-plans/:id
-  // 三个接口都是 PATCH。目前还没有页面用到它们，所以先在这里拦下来说清楚，
-  // 免得等做「我的」和成稿编辑时又是一场「点了没反应」。
-  // 真要修得改接口约定（后端同时接受 POST，或加 X-HTTP-Method-Override），
-  // 按项目规矩得先改 api-spec.md —— 不在这儿偷偷绕过去。
+  // **没有 PATCH**。api-spec 里那三个 PATCH 接口现在都有 POST 别名，
+  // 前端 api 层一律走别名（memories 2026-08-18，me 和 lesson-plans 2026-08-21）：
+  //
+  //   PATCH /memories/:id      → POST /memories/:id/update
+  //   PATCH /me                → POST /me/update
+  //   PATCH /lesson-plans/:id  → POST /lesson-plans/:id/update
+  //
+  // 这道拦截**留着不删**：它是给下一个人的。新加接口时顺手写成 PATCH 很自然，
+  // 而那样写在 H5 预览里是通的、只有微信里静默失败 —— 拦在这里会当场报出人话。
+  // 真要放开得先改 api-spec.md，不在这儿偷偷绕过去。
   if (method === 'PATCH') {
     return Promise.reject(
       new ApiError({

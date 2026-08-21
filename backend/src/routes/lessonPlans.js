@@ -3,6 +3,7 @@
  *
  *   GET   /lesson-plans/:id          取教案（含配图列表）
  *   PATCH /lesson-plans/:id          局部编辑
+ *   POST  /lesson-plans/:id/update   同上，给小程序用（wx.request 发不出 PATCH）
  *   POST  /lesson-plans/:id/export   导出
  */
 import { Router } from 'express';
@@ -180,11 +181,16 @@ lessonPlansRouter.post(
 );
 
 // ---------------------------------------------------------------
-// PATCH /lesson-plans/:id
+// PATCH /lesson-plans/:id  ＝  POST /lesson-plans/:id/update
+//
+// **两个方法同一个 handler**，因为 wx.request 发不出 PATCH（同 memories.js）。
+//
+// 小程序端**目前没有调用方**，这是有意的（用户 2026-08-21 定）：成稿页不给
+// 「自己动手改文字」的入口，老师改教案一律走「改一改」那条 AI 重写的路 ——
+// 手打改教案在手机上本来就难用，而 AI 重写是这个产品的核心。
+// 别看到「没人调」就把这条路删掉：接口通着，哪天要用不必再动后端。
 // ---------------------------------------------------------------
-lessonPlansRouter.patch(
-  '/:id',
-  asyncRoute(async (req, res) => {
+const updateLessonPlan = asyncRoute(async (req, res) => {
     const plan = await loadPlan(req.params.id, req.teacherId);
     const body = req.body || {};
 
@@ -258,8 +264,10 @@ lessonPlansRouter.patch(
       images: await loadImages(updated.id),
       updated_at: updated.updated_at,
     });
-  })
-);
+  });
+
+lessonPlansRouter.patch('/:id', updateLessonPlan);
+lessonPlansRouter.post('/:id/update', updateLessonPlan);
 
 // ---------------------------------------------------------------
 // POST /lesson-plans/:id/export
@@ -269,6 +277,24 @@ lessonPlansRouter.post(
   asyncRoute(async (req, res) => {
     const plan = await loadPlan(req.params.id, req.teacherId);
     const format = String(req.body?.format || 'docx');
+
+    /*
+      🔴 **导出不带教案解读**（`content_json.commentary`）。用户 2026-08-21 定，
+      当天先改成带、又撤回了 —— 撤回的原因值得记下来，免得下次又来一遍：
+
+      他说的「导出的时候解读也导出」，指的是**「设计意图」（`intent`）**——
+      那是教案正文的第一节，跟活动目标、活动过程同级，**本来就一直在导出里**。
+      而我说的「解读」是学习模式下挂在各板块底下那行折叠的「为什么这样设计」，
+      讲的是「我为什么这么写这份教案」，是给她看的旁白、不是教案内容。
+      两样东西名字太像，说的时候必须带上字段名。
+
+      所以导出就是 `plan.content_md` —— 落库时渲染好的那一份，不含 commentary。
+      不需要重渲染。
+
+      要改回带解读只有一行：把下面 `plan.content_md` 换成
+      `renderMarkdown({...plan}, { withCommentary: true })`
+      （`renderMarkdown` 那个开关留着没删，就是为了这一行）。
+    */
 
     if (format === 'md') {
       // Markdown 是现成的，直接内联返回，前端可以自己存文件或复制
@@ -282,6 +308,7 @@ lessonPlansRouter.post(
     if (format !== 'docx') throw badRequest('暂时只支持导出 Word 和 Markdown');
 
     // ============ TODO：导出 docx ============
+    // 照着 `plan.content_md` 的板块顺序排 —— 那一份**不含**学习模式的教案解读（见上面那段）。
     // 待补的三步（拿到对象存储之后做）：
     //   1. npm i docx          —— 纯 JS 生成 .docx，不需要装 Office
     //      文档：https://docx.js.org/  按 content_json 的结构逐段建 Paragraph

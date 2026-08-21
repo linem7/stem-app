@@ -1,14 +1,21 @@
 /** 教案、改稿、配图、评价 —— api-spec 第 1.6、5、6 节 */
-import { get, post, patch } from '../utils/request.js'
+import { get, post } from '../utils/request.js'
 import { poll } from '../utils/poll.js'
 
 export function getLessonPlan(id) {
   return get(`/lesson-plans/${id}`)
 }
 
-/** 局部编辑。后端据此重渲染 content_md，两份不允许各自漂移。 */
-export function updateLessonPlan(id, contentJson) {
-  return patch(`/lesson-plans/${id}`, { content_json: contentJson })
+/**
+ * 局部编辑。后端据此重渲染 content_md，两份不允许各自漂移。
+ * 走 `POST /lesson-plans/:id/update`（wx.request 发不出 PATCH）。
+ *
+ * ⚠️ **目前没有页面调用它，这是有意的**（用户 2026-08-21 定）：
+ * 成稿页不给「自己动手改文字」的入口，老师改教案一律走「改一改」那条 AI 重写的路。
+ * 留着这个函数是因为接口通着 —— 哪天要用，前后端都不必再动。
+ */
+export function updateLessonPlan(id, patchBody) {
+  return post(`/lesson-plans/${id}/update`, patchBody)
 }
 
 /** 导出 docx。后端还没实现，现在会返回 NOT_IMPLEMENTED（不可重试）。 */

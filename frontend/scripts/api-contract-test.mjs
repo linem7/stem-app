@@ -273,6 +273,71 @@ chk(Boolean(added.id ?? added.item?.id), '手动加记忆成功')
 const fb = await feedbackApi.sendFeedback({ category: 'usability', text: '契约测试提交的建议' })
 chk(fb.received === true, '产品建议已收到')
 
+/* ============ 10.5 改档案走的是 POST 别名，不是 PATCH ============ */
+//
+// 这一节的价值在于它跑的是**真的 src/api/me.js**：
+// 请求层会直接拒掉 PATCH（微信发不出），所以 updateMe 要是哪天被改回 patch()，
+// 这里会当场红。光在后端测别名通不通是抓不到这个的 ——
+// 后端两个方法都收，错的是前端选了哪一个。
+
+L('\n=== 10.5 改档案（POST /me/update 别名）===')
+{
+  const KG = `契约测试园_${Date.now().toString().slice(-6)}`
+  const updated = await meApi.updateMe({ kindergarten_name: KG, teaching_years: 3, age_group: '大班' })
+  chk(updated.kindergarten_name === KG, 'updateMe 改园所名成功（说明走的是 POST 别名）')
+  chk(updated.teaching_years === 3 && updated.age_group === '大班', '教龄和年龄班一起改')
+  chk(updated.profile_completed === true, 'profile_completed 变成 true')
+
+  const back = await meApi.getMe()
+  chk(back.kindergarten_name === KG, '重新拉一次，改动确实落了库')
+  chk(!('real_name' in back) && !('openid' in back), '真实姓名和 openid 从来不下发前端')
+
+  // 清空要发 null 而不是 ''（后端靠「传了这个键」判断要不要改）
+  const cleared = await meApi.updateMe({ teaching_years: null })
+  chk(cleared.teaching_years === null, '传 null 能清空教龄')
+
+  /*
+    「我的」页那一行档案涵盖六项（用户 2026-08-21）。这里把六项一次全发出去，
+    再逐项对回来 —— 少一项没下发，那一格在界面上就是永远空的，而且不报错。
+
+    ⚠️ 前端那四份选项清单（me.vue 的 PICKS）是后端白名单的**副本**。
+    这一节的价值就在于两份对不上时它会红：清单里多了一个后端不认的档，
+    老师点它会吃一个 400，而那时候我们只会听到「保存不了」。
+  */
+  const SIX = {
+    kindergarten_name: '契约测试幼儿园',
+    age_group: '中班',
+    position: '配班',
+    education: '本科',
+    professional_title: '一级教师',
+    teaching_years: 6,
+  }
+  const full = await meApi.updateMe(SIX)
+  const wrong = Object.entries(SIX).filter(([k, v]) => full[k] !== v).map(([k]) => k)
+  chk(wrong.length === 0, `六项档案全部存下且回显一致${wrong.length ? '（对不上：' + wrong.join('、') + '）' : ''}`)
+
+  // me.vue 里 PICKS 的每一档都要真能存进去 —— 副本和白名单对不上就在这里红
+  const PICKS = {
+    age_group: ['小班', '中班', '大班'],
+    position: ['主班', '配班', '保育员', '园长', '其他'],
+    education: ['中专及以下', '大专', '本科', '硕士及以上'],
+    professional_title: ['未评定', '三级教师', '二级教师', '一级教师', '高级教师', '正高级教师'],
+  }
+  const rejected = []
+  for (const [key, opts] of Object.entries(PICKS)) {
+    for (const v of opts) {
+      try {
+        const r = await meApi.updateMe({ [key]: v })
+        if (r[key] !== v) rejected.push(`${key}=${v}`)
+      } catch (e) {
+        rejected.push(`${key}=${v}`)
+      }
+    }
+  }
+  chk(rejected.length === 0,
+    `me.vue 那四份选项清单的 ${Object.values(PICKS).flat().length} 个档后端全认${rejected.length ? '（被拒：' + rejected.join('、') + '）' : ''}`)
+}
+
 if (WITH_GENERATE) {
   L('\n=== 11. 生成教案（异步 + 轮询）===')
   const started = await convApi.startGenerate(conv.conversation_id)

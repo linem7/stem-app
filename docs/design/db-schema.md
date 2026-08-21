@@ -27,10 +27,14 @@ CREATE TABLE teachers (
   nickname          VARCHAR(64),
   avatar_url        TEXT,
 
-  -- 档案（首次登录引导填写，可随时改）
+  -- 档案（「我的」页点档案整行就能改，走 POST /me/update）
   kindergarten_name VARCHAR(128),
-  age_group         VARCHAR(8),                     -- '小班' | '中班' | '大班'
-  teaching_years    SMALLINT,
+  age_group         VARCHAR(8),                     -- '小班' | '中班' | '大班'（界面上叫「年级」）
+  teaching_years    SMALLINT,                       -- 0 是有意义的值（今年刚入职），别当空处理
+  -- 下面两列是 018 迁移加的。**不是装饰性档案，是研究要用的自变量**：
+  -- 「AI 写的教案对新手和对一级教师，帮助是不是同一回事」—— 教龄答不了这个问题
+  education          VARCHAR(32),                   -- 白名单见 services/roster.js EDUCATIONS
+  professional_title VARCHAR(32),                   -- 同上 TITLES。'未评定' ≠ NULL，见下
 
   -- 显式偏好（与自动提取的 memories 并存，显式优先）
   preferences       JSONB NOT NULL DEFAULT '{}',
@@ -45,7 +49,20 @@ CREATE TABLE teachers (
 CREATE INDEX idx_teachers_last_login ON teachers (last_login_at DESC);
 ```
 
-⚠️ **不存手机号、不存真实姓名、不存所带幼儿的任何信息。** 幼儿数据一旦入库，合规复杂度会指数上升。这条要写进后端的 code review 清单。
+⚠️ **上面这段建表语句是 `001_init.sql` 的原貌，不是这张表现在的样子。**
+002 / 013 / 014 / 015 / 016 / 018 都往这张表加过列
+（`real_name` `position` `class_name` `kindergarten_id` `activated_at` `agreed_at`
+`token_version` `roster_entry_id` `education` `professional_title`）。
+要看当前真实结构，读 `src/db/migrations/` 或者直接查库 —— **别拿这一段当准。**
+
+⚠️ **不存所带幼儿的任何信息。** 这条永远不变：幼儿数据一旦入库，合规复杂度指数上升。
+写进后端 code review 清单。
+
+⚠️ **手机号确实不存**（016 迁移把 `teachers.phone` 和 `teacher_roster.phone` 都删了），
+**但真实姓名是存的**（`real_name`，2026-08-17 用户明确反转了旧红线，
+因为这是合作研究项目）。它有三条铁律：**永不下发前端、永不进模型提示词、永不进日志**。
+`education` 和 `professional_title` 跟它**不同级** —— 那两项是她自己填的、她自己要看，
+可以下发；别顺手把三样塞进同一个屏蔽清单。全套见 `operations.md`。
 
 ---
 

@@ -1,14 +1,19 @@
 /** 老师档案、额度、记忆 —— api-spec 第 1.5、2、8 节 */
-import { get, post, patch, del } from '../utils/request.js'
+import { get, post, del } from '../utils/request.js'
 
 /** 返回 teacher 对象（含 activated / agreed / profile_completed） */
 export function getMe() {
   return get('/me')
 }
 
-/** 只传要改的字段 */
+/**
+ * 改档案。只传要改的字段（后端白名单，只认园所 / 年龄班 / 教龄 / 昵称 / 头像 / 偏好）。
+ *
+ * 走 `POST /me/update` 而不是语义正确的 PATCH —— **wx.request 发不出 PATCH**。
+ * 后端两个方法指向同一个 handler（同 memories，见 routes/me.js 的注释）。
+ */
 export function updateMe(fields) {
-  return patch('/me', fields)
+  return post('/me/update', fields)
 }
 
 /** 余额 + 台账。grants 是给老师自己看的对账明细，额度不能是黑箱。 */

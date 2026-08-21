@@ -84,6 +84,10 @@ export function toTeacherDTO(row) {
     preferences: row.preferences || {},
     class_name: row.class_name,
     position: row.position,
+    // 018：她自己填的两项。跟教龄同级 —— 关于老师这个从业者，不关于任何一个孩子。
+    // 可以下发（是她自己填的、她自己要看），跟 real_name 不同级，别一起屏蔽掉。
+    education: row.education,
+    professional_title: row.professional_title,
     // 档案引导页的判定条件：这两项齐了才算填过档案
     profile_completed: Boolean(row.kindergarten_name && row.age_group),
     // 前端靠这两位决定落在哪个页：没激活 → 待激活页，没同意 → 协议页，都齐了才进主流程
