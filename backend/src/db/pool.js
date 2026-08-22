@@ -16,6 +16,30 @@ pg.types.setTypeParser(20, (v) => (v === null ? null : Number(v)));
 // NUMERIC(3,2) 的 confidence 同理，默认是字符串
 pg.types.setTypeParser(1700, (v) => (v === null ? null : Number(v)));
 
+/* 🔴 **DATE（oid 1082）原样回字符串，不要让 pg 转成 Date 对象。**
+   （2026-08-22 加，量出来的，不是预防性的。）
+
+   pg 默认把 DATE 解析成**本地时区午夜**的 Date。东八区里
+   `2026-09-01` 就成了 `2026-09-01T00:00+08:00`，`JSON.stringify` 按 UTC 序列化
+   之后变成 `"2026-08-31T16:00:00.000Z"` —— 前端一 `.slice(0,10)` 就得到
+   **8 月 31 日**，整整差一天。
+
+   踩到的两处：
+     · 园所的「起始合作日期」：填 9 月 1 日，列表显示 8 月 31 日
+     · 任务的「截止日期」：这个更糟 —— 编辑弹窗把 8 月 31 日填回输入框，
+       一保存就真的存成了 8 月 31 日。**每打开保存一次，截止日期往前退一天**，
+       而且从头到尾不报错
+
+   DATE 就是一个「哪一天」，它本来就没有时刻也没有时区，
+   转成时间点这一步本身就是错的。回字符串是唯一不丢信息的形态。
+
+   ⚠️ 改这行之前先想清楚：有两处对 deadline 做过日期算术
+   （admin.js 的发布闸门、services/tasks.js 的 days_left）。
+   两处都验算过：字符串走 `new Date('2026-09-05')` 是 UTC 午夜，
+   跟本地午夜差 8 小时，而它们一个是比大小、一个是 Math.round 到天，
+   8 小时的偏移改不了结果。再加新的日期算术时要重新验一遍。 */
+pg.types.setTypeParser(1082, (v) => v);
+
 export const pool = new pg.Pool({
   connectionString: config.db.url,
   ssl: config.db.ssl ? { rejectUnauthorized: false } : false,
