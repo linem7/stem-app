@@ -770,14 +770,43 @@
 |---|---|---|
 | GET | `/image-models` | 列表。`api_key` 一律遮成 `sk-abcd…wxyz` |
 | POST | `/image-models` | 加一个。`format` 必须是已知的三种之一 |
-| POST | `/image-models/:key/update` | 改。**`api_key` 留空 = 不改** |
-| POST | `/image-models/:key/delete` | 删。已经画出来的图不受影响 |
+| POST | `/image-models/:key/update` | 改。**`api_key` 留空 = 不改**。内置那两家也能改，见下 |
+| POST | `/image-models/:key/delete` | 删。已经画出来的图不受影响。**内置代号删不掉** |
 | POST | `/image-models/:key/test` | 试画一张，直接看效果 |
 | POST | `/image-models/:key/default` | **设为默认**（老师配图用的就是这一个） |
 
 「设为默认」存进 `app_settings` 表而不是 `.env`，所以**改完立刻生效、不用重启**。
 取值顺序：`app_settings` > `.env` 的 `IMAGE_PROVIDER` > 列表第一个 ——
 全新部署时数据库里什么都没有，靠 `.env` 兜底照样能跑。
+
+#### `.env` 里那两家在启动时播种进库，之后不再读 `.env`（2026-08-22）
+
+用户两次提这件事：先是「无法修改已有模型的属性，例如名称或者 api 线路」，
+确认时又明确「**不要写死在 .env 中，应该是可以删除或者编辑的**」。
+
+所以做法是**彻底搬过去**：`server.js` 启动时调 `seedEnvModels()`，
+把 `.env` 里那两家（含 `api_key`）插进 `image_models` 表，
+然后在 `app_settings` 写一个 `env_models_seeded=1` 的标记。
+播过之后 `listModels()` **只从库里读**，`.env` 再也不看。
+
+为什么不能「用到才抄」（那是第一版做法）：只要还会读 `.env`，
+**在后台删掉的模型下次重启就会自己回来** —— 而「删了它还在」比不给删除按钮更糟。
+
+- 🔴 **`ON CONFLICT (key) DO NOTHING`**：库里已经有同 key 的行就不动它。
+  那一行是人改过的，拿 `.env` 覆盖回去等于把他的修改静默还原
+- 🔴 **标记要在插完之后才写**：先写标记再插、中间挂掉，就成了
+  「标记说播过了、库里什么都没有」—— 那时 `listModels` 返回空，配图整个瘫，而且不自愈。
+  插失败时**不写标记**，下次启动再试
+- **播种之前**（全新部署、迁移刚跑完那一瞬）仍然退回 `.env` 那两家，
+  按 key 去重、库里的胜出 —— 不去重两份会同时在列表里，
+  而 `pickModel` 取 find 的第一个，于是「改完了不生效」而界面上显示改过了
+- 于是 `POST /image-models/:key/delete` 对**任何** key 都放行，
+  `POST /image-models` 也不再硬拦 `gpt` / `minimax` 那两个代号
+  （删掉之后要能用同名重建），重名靠原有的 exists 检查兜着
+- 响应里的 `builtin` 播种之后**恒为 false**。字段留着只是给「播种之前那一瞬」用
+
+**代价写在这里**：播种之后**改 `.env` 不再生效**，改模型一律走后台。
+那正是用户要的 —— 锁在服务器文件里等于锁给会 ssh 的人。
 
 `format` 决定怎么拼请求、怎么解返回，目前三种：
 `openai_images`（Bearer，size 用「宽x高」）、`gemini`（key 走 URL，尺寸用
@@ -1011,27 +1040,34 @@
 | GET | `/topups` | 充值台账 | |
 | POST | `/topups` | 记一笔充值 | |
 | GET | `/kindergartens` | 园所列表：**特征 ＋ 用量汇总**，见下 | |
-| POST | `/kindergartens` | 建园所（重名拒绝） | |
+| POST | `/kindergartens` | 建园所（重名拒绝）。**全部特征字段都可以一起传**，见下 | |
 | POST | `/kindergartens/:id/update` | 改名字 / 备注 / **全部特征字段** | |
+| GET | `/kindergartens/template` | 下载批量导入的 xlsx 模板 | |
+| POST | `/kindergartens/import` | xlsx 批量导入。`dry_run=true` 只预览不写库，见下 | |
 | GET | `/roster` | 名单列表。手机号对一般管理员**打码** | |
-| POST | `/roster/import` | 粘贴一段文本导入。`dry_run=true` 只预览不写库 | |
+| POST | `/roster/import` | 粘贴文本**或**上传 xlsx 导入。`dry_run=true` 只预览不写库 | |
+| GET | `/roster/template` | 下载名单的 xlsx 模板 | |
 | POST | `/roster/:id/void` | 作废一行（填错了、人不来了） | |
 | POST | `/roster/:id/reassign` | **她换班了**：新开一行、同一个 `teacher_ref` | |
-| GET | `/teachers` | 列表。`q` 搜姓名/班级/**兑换码**/`teacher_ref`，`kindergarten_id` 筛园所 | |
+| GET | `/teachers` | **名单 ∪ 已激活账号，一张表**。`q` 搜姓名/班级/兑换码/`teacher_ref`，`status=` 筛激活状态。见下 | |
 | GET | `/teachers/:id` | 详情，见下 | |
 | POST | `/teachers/:id/grant` | 发额度。**界面上已经没有入口了**，见下 | |
 | POST | `/teachers/:id/status` | 停用 / 恢复 | |
 | POST | `/teachers/:id/rebind-code` | **她换微信了**：生成换绑码，见下 | ✓ |
 | POST | `/rebind-codes/:id/void` | 作废换绑码 | ✓ |
-| GET | `/codes` | 兑换码列表，`status=all\|unused\|used\|void` | |
-| POST | `/codes` | 建一个码。手机号姓名可留空 = 匿名码 | |
-| POST | `/codes/batch` | 批量建 N 个匿名码（最多 200），返回**整批的码** | |
-| POST | `/codes/:id/void` | 作废（只能作废还没被用的） | |
-| GET | `/codes/export` | 导出 CSV（可能带手机号全号，所以锁超管） | ✓ |
+| GET | `/codes` | **一行一次建码操作**（019 迁移）。`status=` 筛「这批里还有这种状态的码」 | |
+| GET | `/codes/items` | 按**单个码**查状态。界面没有调用方，别删 —— 见下 | |
+| GET | `/codes/batches/:id` | 一批里的码（纯码单，不标已用） | |
+| POST | `/codes/batches/delete` | 删几次操作。**已兑的码留着**，见下 | ✓ |
+| POST | `/codes` | 建一个码，同时记一次 `single` 操作 | |
+| POST | `/codes/batch` | 批量建 N 个（最多 200），记一次 `batch` 操作，返回整批的码 | |
+| POST | `/codes/:id/void` | 作废（只能作废还没被用的）。**界面上没有入口了**，见下 | |
+| GET | `/codes/export` | 导出 CSV（锁超管） | ✓ |
 | GET | `/plans/:id` | **教案正文 + 对话记录**，`?version=` 看历史版本 | ✓ |
 | GET | `/feedback` | 反馈，`kind=all\|lesson_rating\|suggestion` | |
 | POST | `/feedback/:id/handled` | 标已处理 / 未处理 | |
 | GET | `/tasks` | 任务列表（带覆盖人数、已读数） | |
+| GET | `/tasks/:id` | **详情 + 覆盖人群特征**，见下 | |
 | POST | `/tasks` | 建任务（草稿） | |
 | POST | `/tasks/:id/update` | 改 | |
 | POST | `/tasks/:id/publish` | 发布（draft → open） | |
@@ -1039,8 +1075,40 @@
 | POST | `/tasks/preview` | **试算覆盖人数**：传 target，回会发给几位老师 | |
 | GET/POST | `/admins`、`/admins/:id/*` | 管理员账号 | ✓ |
 | POST | `/me/password` | 改自己的密码（一般管理员也能改自己的） | |
+| POST | `/me/profile` | 改自己的称呼（`display_name`）。用户名和角色**改不了** | |
 | GET | `/logs` | 操作审计，带筛选与分页，见下 | ✓ |
 | — | `/image-models*` | 见第 6 节 | ✓ |
+
+### `GET /teachers` · 名单和账号合成一张表（2026-08-21）
+
+```jsonc
+// ?status=current（默认）| claimed | pending | moved | void | all
+// → { "items": [ {
+//   "id": 42,            // **账号 id**，没激活时是 null（老师详情按它打开）
+//   "roster_id": 88,     // **位置**（人×园×班×岗位），没有名单行时是 null
+//   "teacher_ref": 1042, // **人**，她换班也不变
+//   "real_name": "王**", "name_masked": true,
+//   "kindergarten": "阳光幼儿园", "class_name": "小一班", "position": "主班",
+//   "activated": true, "roster_status": "claimed",
+//   "quota": { "text": {...}, "image": {...} }
+// } ], "counts": { "pending": 12, "claimed": 8 } }
+```
+
+原来是两页：「名单」列还没人来认领的岗位，「老师」列已激活的账号。
+用户的判断是那两页重复了 ——「所谓的名单，要么是园所名单（已经存在），
+要么是教师名单（应该归属到教师页面）」。于是「名单」这个顶级页撤掉了。
+
+- 主体是 **`teacher_roster`（岗位）**，不是 `teachers`（账号）
+- ⚠️ **UNION 那半截不是可选的**：早于名单体系的账号 `roster_entry_id` 是空的，
+  只查名单它们会**静默消失** —— 而「一个有 21 份教案的账号不在老师列表里」
+  是没人会想到去查的
+- **`activated` 只看有没有账号**，不许再判一次 `roster_status`
+  （那等于把同一件事记在两个地方）
+- 默认 `status=current`（pending + claimed）：`moved` 是她换班后留下的历史行，
+  跟当前那一行是同一个人，都列出来同一个人会出现两次
+- 🔴 **姓名一律「名单优先、账号兜底」**，列表和详情用同一套顺序。
+  换班（`reassign`）新开名单行时**不回写** `teachers.real_name`，
+  两处不统一就会出现「列表显示甲小美、点进详情是 null」，而两处都不报错
 
 ### `GET /teachers/:id` · 老师详情
 
@@ -1063,6 +1131,12 @@
     "redeem_code": "STEM-A3F9-K7QD",   // 她兑的是哪个码
     "kindergarten": "阳光幼儿园", "class_name": "小一班",
     "position": "主班", "age_group": "小班",
+    // 城市是**园所的**城市，不是她的住址 —— 库里没有那个，也不该有
+    "city": "广州",
+    // 学历 / 职称 / 教龄（018 迁移）。她自己在小程序档案里填的，是研究要用的自变量。
+    // 🔴 **null = 没填过**。任何地方不许把它显示成「未评定」（那是职称里
+    // 她主动选的一个值），`teaching_years: 0` 同理（那是「今年刚入职」）
+    "education": "本科", "professional_title": "一级教师", "teaching_years": 5,
     "status": "active",
     "activated_at": "...", "agreed_at": "...", "last_login_at": "..."
   },
@@ -1116,11 +1190,51 @@
 这一屏的用处是拿去做研究分析，一个能整块选中复制的 JSON 比一张排好的表更有用。
 `system` 那条不在库里（每次实时拼装，见 `001_init.sql` 的注释），所以本来就不会出现。
 
+**2026-08-22 起多回一个 `transcript`：把消息卷成问答对。** 用户原话
+「呈现了问题但不呈现用户的答案，当前结构太长了」——
+原来是 `messages` 原样铺开，而每条 assistant 的 payload 里装着那道题的**全部推荐选项**，
+一份四题的教案能滚出两百多行（实测 1854 字符 → 124 字符）。
+
+```jsonc
+{
+  "transcript": {
+    "引导": [ { "问": "这次活动是给哪个年龄班的？", "答": "中班" }, … ],
+    "改稿": [ { "轮次": 1, "她说": "孩子人数对不上",
+                "追问": [ { "问": "班上实际有多少个孩子？", "答": "约20人，分4组" } ] } ]
+  },
+  "messages": [ … ]     // 原始记录**原样保留**：研究要拿去分析，不能只剩卷过的那份
+}
+```
+
+配对按 `question_id` ↔ 题目的 `id`。🔴 **答不上的题也留一行（`答` 为 null）**：
+「这道题她没答」本身是信号（题目看不懂 / 她被叫走了），丢掉之后那一屏看起来像她全答了。
+
+⚠️ **`quality_self` 照旧下发，只是界面上不显示了**（2026-08-22 撤掉「模型自检」那一块）。
+撤的是入口不是数据，要查年龄班违规走 SQL。
+
 ### `GET /logs` · 操作审计（超管）
 
-`?admin_id=&action=&from=&to=&page=`，每页 100 条，响应带 `total` / `page` / `pages`。
+`?admin_id=&group=&range=&page=&per=`，**默认每页 20，`per` 只收 20 / 50 / 100**
+（白名单而不是直接 `Number(per)` —— `?per=100000` 会把这一页变成一次全表扫描，
+而它是超管随手能改的 URL）。响应带 `total` / `page` / `pages` / `per_page`。
 **保留这一页**（2026-08-18 用户定：不是删掉，是加筛选和翻页）——
 攒到几百条之后一张倒序裸表翻不动，而「这 20 次额度是谁发的」要查得到才算数。
+
+**2026-08-22 两处改动**（用户：「操作类型的类别太多了，保持在 5 类之内」）：
+
+- `group` 把二十多个动作收成 **5 组**：`quota` 额度与兑换码 / `org` 园所与名单 /
+  `task` 任务 / `teacher` 教师账号 / `system` 后台管理。
+  响应带 `groups: [{key, cn, n}]`，下拉直接用它 —— **前端不再自己维护一份动作清单**。
+  🔴 **`system` 是兜底组，用「不属于其他四组」定义，不是列举**：
+  列举的话以后新加一个动作会同时不属于任何一组，于是按组筛时一条都查不到，
+  而「全部操作」里又看得见。回归里有一条「五组之和 = 总条数」盯着这件事。
+- `range` 三档预设：`24h` / `7d` / `30d`。查记录的实际问题永远是
+  「刚才 / 这两天 / 这个月谁动过什么」，手敲两个日期是替系统做算术。
+
+⚠️ **`action`（单个动作）和 `from` / `to` 都还收**，只是界面不发了：
+回归脚本按它们断言，而且出事时按具体动作查更准。
+表格里那一列仍然显示**具体动作**而不是它所在的组 ——
+审计要答的是「他到底动了什么」，写成「后台管理」这一页就没用了。
 
 ### `GET /kindergartens` · 园所：特征 + 用量
 
@@ -1142,17 +1256,34 @@
   "child_count": 210,          // 在园幼儿总数 —— 机构规模，不是幼儿个体信息，见 CLAUDE.md
   "contact_name": "李园长",
   "contact_phone": "138****1234",   // **一般管理员看到打码的，全号只给超管**
+  // 起始合作日期（020 迁移，2026-08-22）。**纯 `YYYY-MM-DD` 字符串，不是时间戳**
+  "cooperation_started_at": "2026-09-01",
 
   // ---- 用量汇总 ----
   "teachers": 6,          // 在本平台已激活的
   "active_7d": 2,         // 近 7 天登录过
-  "codes_unused": 4,      // 还没被兑的码 —— 配上 teachers 就知道发出去的码有没有人用
+  "codes_unused": 4,      // 还没被兑的码。⚠️ 兑换码 2026-08-22 起不绑园所，这个数从此恒为 0
   "plans": 23, "images": 9,
   "granted_text": 120, "used_text": 23,     // 台账 Σ发放 − 事实表数消耗，跟老师页同一套算法
-  "cost_cents": 210,
+  "image_cost_cents": 84, "text_cost_cents": 126,
+  "cost_cents": 210,       // = 配图 + 文本。**2026-08-22 前它只算配图**
   "last_active_at": "..."  // 这个园最近一次有人登录
 } ] }
 ```
+
+**`cost_cents` 现在含文本成本。** 它以前只算配图，那时只喂详情弹窗里一张小卡；
+2026-08-22 起它是「这个园花了我多少钱」的唯一显示处（概览那张「按园所消耗」的表
+跟着撤了），漏掉文本成本就是每份教案漏一次 DeepSeek 调用，而那是大头。
+
+🔴 **`cooperation_started_at` 跟 `created_at` 不是一回事**：后者是这一行被导进库的时刻。
+拿 `created_at` 兜底会得到一个**看起来完全正常的错数** —— 而「这个园合作多久了」
+正是这一列存在的唯一理由。没填就是 `null`，界面显示「—」。
+
+⚠️ **所有 `DATE` 列一律回 `"YYYY-MM-DD"` 字符串**（`db/pool.js` 里给 oid 1082
+设了原样解析）。默认行为是转成「本地时区午夜」的 Date，序列化成 JSON 之后
+东八区会变成**前一天**的 UTC 时刻 —— 前端 `.slice(0,10)` 就少一天。
+任务的 `deadline` 也在这条规则里（它被这个 bug 咬过：编辑弹窗填回前一天，
+一保存就真的存成前一天，**每编辑一次退一天**，全程不报错）。
 
 `contact_phone` 打码的规则跟老师手机号一致：**一般管理员只看打码**。
 它是园长的号，不是老师的，但同一条纪律——永不下发老师端、永不进日志。
@@ -1162,15 +1293,95 @@
 
 ### `POST /kindergartens/:id/update`
 
-`{ name, note, province, city, area_type, ownership, teacher_count, child_count, contact_name, contact_phone }`
+`{ name, note, province, city, area_type, ownership, teacher_count, child_count,
+   contact_name, contact_phone, cooperation_started_at }`
 全部可选，只传哪项改哪项（`undefined` = 不动，空字符串 = 清空）。
 改名字会查重；进 `admin_logs`。
+
+`cooperation_started_at` 收 `YYYY-MM-DD`（也认 `2026/9/1`、`2026年9月1日`）。
+认不出来**报错**，不静默留空 —— 跟城乡、办园性质同一条纪律。
+**不用 `new Date(字符串)` 兜底**：它能把 `9/1/2026` 按美式月日序读成 1 月 9 日，
+认错比认不出来糟得多。
 
 省市**不做级联下拉**：合作园有几个就有几行，一份维护不动的行政区划全量表
 带来的错误（漏更新、名称不一致）比手填多。填错了在详情里改。
 
 （用 `POST .../update` 而不是 `PATCH`：后台自己不受小程序那条限制，
 但整个项目统一走这一种形状，省得两套约定并存。）
+
+### 兑换码 · 一行一次操作（2026-08-21，019 迁移）
+
+```jsonc
+// GET /codes → { "items": [ {
+//   "id": 42, "kind": "batch",     // 'single' = 建 1 个，'batch' = 批量建 N 个
+//   "requested": 20,               // 这次要建几个
+//   "total": 20, "used": 3, "unused": 17, "voided": 0,
+//   "init_text": 20, "init_image": 10,
+//   "grant_reason": "9 月问卷奖励", "kindergarten": null,
+//   "created_by_name": "超级管理员", "created_at": "..."
+// } ] }
+```
+
+原来是**一个码一行**。而实际动作是「批量建 20 个灌进问卷星」——
+那一次操作在列表里摊成 20 行，几批混在一起按时间倒序，
+分不出哪 20 个是刚才那一批的。
+
+- **`requested` 和 `total` 都给**：不一样就是有几张没建成（撞码重试失败），
+  那本身是要看见的信息，不该被抹平
+- **「共几张 / 已用几张」一律 COUNT 出来，不存计数列** ——
+  跟额度台账、平台账同一条纪律。存一列 `used_count` 就有了两份事实，
+  而老师兑码的时候没人会记得去 +1
+- `status=` 的语义是「这一批**里还有**这种状态的码」，不是「整批都是」。
+  她筛「未使用」是想找还能发出去的那几批
+- **列表上没有「谁兑的」**：一次批量操作对应很多个兑换者，那一列在这个模型下没有意义
+
+**2026-08-22：界面上「新建兑换码」和「批量建码」合成了一个入口，由数量决定。**
+两个按钮做的是同一件事，区别只有「要几个」—— 而那是表单里的第一个字段；
+两个入口逼人先决定「我这次算新建还是算批量」，那个判断对她没有意义。
+
+于是 **`POST /codes/batch` 收到 `count: 1` 时把这次操作记成 `kind: 'single'`**，
+列表里显示「建 1 个码」而不是「批量建 1 个」（后者读起来像出了什么错）。
+
+⚠️ **`POST /codes`（建单个）和它的 `kindergarten_id` 参数都还在**，只是界面不再调用：
+回归脚本在测它。**别看到「没人调」就删** —— 跟 `PATCH /lesson-plans/:id` 同一条纪律。
+界面不再传园所，是因为码的逻辑是「谁持有谁使用」（用户 2026-08-21 定）。
+
+#### `GET /codes/batches/:id` · 一批里的码
+
+回 `{ batch: {...}, codes: ["STEM-XXXX-XXXX", ...] }`。
+
+用处只有一个（用户原话）：**「发放对象没收到时重新抄录」**。
+所以是**纯码单，不标哪一张已被使用** —— 标注反而让人以为
+「已用的那些不用抄了」，而没收到的那个人可能正好拿的是已用的那一张。
+
+#### `POST /codes/batches/delete` · 删几次操作（超管）
+
+```jsonc
+{ "ids": [42, 43] }
+// → { "batches": 2, "dropped": 34, "kept": 6 }
+```
+
+用户定的规则：**删操作，已兑的码留在库里**。
+- 批次行删掉；这批里**未兑**的码跟着删（没发出去过，留着只是噪音）
+- **已兑的码留下**，`batch_id` 被外键 `ON DELETE SET NULL` 清空 ——
+  它变成一条无所属的历史。老师详情里「她兑的是哪个码」是她额度从哪来的
+  唯一凭据，删了出争议时查不到
+- 🔴 **代价**：列表上「共几张」从此跟库里的码数对不上（少了已兑的那些）。
+  这是那个取舍本身，不是 bug
+
+#### `GET /codes/items` · 按单个码查
+
+`?code=STEM-XXXX-XXXX`（连字符可省）、`?status=unused|used|void`。
+
+`GET /codes` 改成按操作列之后，「这一个码现在什么状态」没地方问了 ——
+而那是个真问题：老师说「码用不了」，得能查出它是没兑过、已经被别人兑了、还是被作废了。
+
+⚠️ **界面上暂时没有调用方，别删。** `activation-test` 靠它验
+「🔴 校验失败绝不能消耗那个码」那条红线，而那条红线的反面
+（码被悄悄消耗掉）在界面上是看不出来的。
+
+`POST /codes/:id/void`（作废单个码）同理：**界面上没有入口了**
+（单个码不再单独占一行），但接口和回归都留着，它是「某一批里只有一个码发错了人」时的应急通道。
 
 ### 名单 · `/roster*`
 
@@ -1223,6 +1434,59 @@
 - 每一行导入时分配一个新的 `teacher_ref`
 - 整批一个事务：要么全写进去，要么一行都不写
 
+#### 同一个接口也收 xlsx（2026-08-21）
+
+```jsonc
+{ "file_base64": "UEsDBBQABgAI...",   // 整个 .xlsx 文件
+  "file_name": "阳光幼儿园名单.xlsx",   // 只用来在报错里指名道姓，不参与解析
+  "kindergarten_id": 1,
+  "dry_run": true }
+// → 和 text 那条**完全一样**的响应
+```
+
+🔴 **`text` 和 `file_base64` 走的是同一个解析器。** 服务端把工作表的单元格
+用制表符连成行、行与行用换行连起来，然后喂给 `parseRoster` —— 也就是
+「Excel 复制粘贴」本来就已经支持的那个格式。
+
+这么做的理由不是省事，是**只有一套认字段的规则**：姓名/班级/岗位/年级
+按内容认而不按列位认，这套逻辑要是为 xlsx 再写一份，两份迟早分叉，
+而分叉的表现是「粘贴能导进去、上传同一份数据少认出三个人」。
+
+- 文件走 `express.json`（限 256kb），**不引 multer**：一份 50 人的名单
+  xlsx 约 20KB，base64 之后 27KB
+- 只读**第一个工作表**。模板就一个表，多表的情况说清楚而不是猜
+- 表头行由 `parseRoster` 原有的规则跳过，不用另外判
+
+#### `GET /roster/template` · 下载 xlsx 模板
+
+回 `.xlsx` 二进制（`Content-Disposition: attachment`）。第一行是列头，
+后面两行是**示例数据**，第四行起空着给人填。
+
+示例数据不是装饰：一份只有列头的空模板，人填出来的「岗位」会是
+「班主任」「带班老师」这种认不出来的写法。给两行样例等于把可选值说清楚，
+而且不用在界面上写一段说明小字。
+
+#### `POST /kindergartens/import` · xlsx 批量导入园所
+
+```jsonc
+{ "file_base64": "UEsDBBQABgAI...", "dry_run": true }
+// → { "rows": [ { "line": 2, "name": "阳光幼儿园", "province": "广东",
+//                 "city": "广州", "area_type": "city", "ownership": "public",
+//                 "teacher_count": 42, "child_count": 310,
+//                 "ok": true, "reason": null } ],
+//     "summary": { "total": 2, "ok": 2, "duplicate": 0, "invalid": 0 },
+//     "imported": 0 }
+```
+
+- **只有园所名称是必需的**，其余留空就是「还没从园长那儿问齐」——
+  跟单个新建同一条纪律：建的时候逼着填全等于逼人瞎填
+- 城乡和办园性质在表里填**中文**（城市/县镇/农村、公办/民办），
+  服务端映射回 `city|county|rural`、`public|private`。
+  填了但认不出来的那一行 **`ok: false`**，不静默丢掉那一格 ——
+  静默丢掉的下场是这个园收不到定向任务，而这件事只在园所页看得出来
+- 重名判定按园所名称，**跳过不覆盖**（`duplicate`）
+- 整批一个事务
+
 #### `POST /roster/:id/reassign` · 她换班了
 
 ```jsonc
@@ -1257,11 +1521,15 @@
 
 ```jsonc
 {
-  // 1. 我的钱。账面剩余 = Σ充值 − (配图成本 + 文本成本)
+  // 1. 花了多少。**只有支出，没有「还剩多少」**（2026-08-21 用户定）——
+  //    余额靠手录充值算出来，漏录一笔就静静地虚高，而它长得像个准数；
+  //    真实余额在 DeepSeek / 12ai / MiniMax 各自的后台里，那三个才能对账。
+  //    支出侧不一样，它是每次调用当场落库的事实。
+  //    🔴 `topup_cents` / `left_cents` 连字段一起删了，`admin-test` 有反向断言盯着不许回来
   "money": {
-    "topup_cents": 50000,
+    "spent_cents": 2050,
     "spent_image_cents": 210, "spent_text_cents": 1840,
-    "left_cents": 47950,
+    "month_cents": 712,
     "month_image_cents": 72, "month_text_cents": 640,
     // 成本数据从哪天起才完整。**必须显示出来** ——
     // 早期 12 张图没有成本记录、文本成本是 011 迁移之后才开始记的，
@@ -1274,11 +1542,12 @@
   "usage": { "kindergartens": 2, "kindergartens_active_7d": 1,
              "teachers": 23, "teachers_active_7d": 6 },
 
-  // 3. 哪个园用了多少（复用 /kindergartens 的聚合，只取要用的列）
-  "by_kindergarten": [
-    { "id": 1, "name": "童心幼儿园", "teachers": 19,
-      "granted_text": 680, "used_text": 16, "images": 31, "cost_cents": 72 }
-  ],
+  // 3.「按园所消耗」那张表 **2026-08-22 整个撤了**（用户定），连同后端那段 SQL。
+  //    它跟园所页那张表回答同一个问题、列还更少，而花费已经挪进了园所列表那一行 ——
+  //    判断「这个园值不值得续」要看的是那一整行（地区、性质、起始合作、花费）。
+  //    一件事写在两处，迟早两处算法分叉，而分叉的表现是两页数字对不上。
+  //    🔴 `admin-test` 有一条**反向断言**盯着 `by_kindergarten` 不许回来：
+  //    撤一个概念最容易留下的残骸就是「字段还在、只是没人显示」。
 
   // 4. 等我处理
   "todo": { "feedback_new": 8, "gen_failed_7d": 0, "images_failed_7d": 1,
@@ -1292,15 +1561,15 @@
 ⚠️ **`quality` 那一段以前永远是零**，因为查的是 `kind = 'rating'` 而真实值是 `'lesson_rating'`
 （2026-08-18 查出来的 typo）。库里其实一直有数据。修好了。
 
-### `GET /topups`、`POST /topups` · 充值台账
+### ~~`GET /topups`、`POST /topups` · 充值台账~~ · **2026-08-21 撤了，现在回 404**
 
-```jsonc
-// POST  { "amount_cents": 20000, "channel": "12ai", "note": "8月充值", "occurred_on": "2026-08-10" }
-```
+「账面还剩多少」整个概念撤掉了（用户定，理由见上面 `money` 那段）。
+两个路由、`costLedger.js` 的 `listTopups` / `addTopup`、概览那张卡和
+「该充值了」那条待办**是一起删的**。`admin-test` 有两条断言盯着它们回 404。
 
-只追加，不修改：记错了记一笔**负数**冲账，不改历史 —— 跟额度台账同一个纪律。
-`occurred_on` 由人填而不是用 `created_at`：常常隔几天才补录，按月对账要按实际发生的日子算。
-账面余额**是算出来的**，不存字段。
+`platform_topups` 那张表和库里已有的三笔记录**没删**，只是没有入口了。
+要恢复的话代码在 git 历史里 —— **别只恢复一半**
+（留一个能写不能读的接口，比没有更糟）。
 
 ### 任务 · `/tasks*`
 
@@ -1322,6 +1591,49 @@
 
 **`target` 的规则只有两条**：空数组 = 这一维不限；非空维度之间是 **AND**（都要命中）。
 上面这个例子 = 广东 + 农村园 + 带小班的老师。
+
+#### `GET /tasks/:id` · 详情 + 覆盖人群特征（2026-08-21）
+
+```jsonc
+// → {
+//   "task": { ...那一行... },
+//   "covers": 14, "reads": 3, "unrestricted": false,
+//   "breakdown": {
+//     "kindergarten": [{ "v": "阳光幼儿园", "n": 8 }, ...],
+//     "area_type":    [{ "v": "rural", "n": 9 }, ...],
+//     "ownership":    [{ "v": "public", "n": 11 }, ...],
+//     "age_group":    [{ "v": "小班", "n": 5 }, ...]
+//   },
+//   "teachers": [{ "id": 42, "real_name": "王**", "kindergarten": "...",
+//                  "class_name": "小一班", "position": "主班",
+//                  "read_at": "2026-08-21T..." }]   // 最多 200 位
+// }
+```
+
+任务列表上「发给谁」和「看过的」两列撤掉了（定向勾了六个维度，一列写不清），
+两件事挪到这里。这一屏还能回答列表回答不了的问题：
+**勾的那些条件实际筛出了什么样的一群人。**
+
+🔴 **谓词复用 `services/tasks.js` 的 `buildMatchSql`**，试算 / 老师端列表 / 这里三处同一个函数。
+写第二份的表现是「后台说发给 12 个人，实际只有 8 个人看到」，而且不报错。
+**2026-08-22：`GET /tasks`（列表）不再回 `covers` / `unrestricted`。**
+用户把列表列定成「标题 / 奖励 / 城市 / 办园性质 / 截止 / 状态 / 操作」，
+「覆盖」那一列撤了 —— 而算它是一个任务两条查询的 N+1，只为一个不显示的数。
+列表改回 `target`（`normalizeTarget` 洗过的），城市和办园性质两列直接读它。
+
+试算没有消失，它在真正要它的两处：**发送前的确认框**（`POST /tasks/preview`，必然跑一次）
+和**任务详情**（那一屏的主题就是「筛出了什么样的一群人」）。
+所以那条一致性红线现在是：`GET /tasks/:id` 的 `covers` 必须永远等于
+`POST /tasks/preview` 对同一个 target 的结果 —— `tasks-test` 盯着这一点。
+
+⚠️ 列表上草稿行的「发布」按钮也一起撤了（用户列的操作只有 详情 / 编辑 / 停止）。
+发布这条路没断：草稿走**编辑 → 发送**（存 + 强制试算 + 发布）。
+撤掉反而更稳 —— 那个按钮是拿页面加载那一刻算出的 `covers` 去问
+「确定发给这 N 个人吗」，中间新激活几位老师，那个数就是旧的。
+
+分布只按**机构与岗位属性**分组（园所 / 城乡 / 办园性质 / 她带的年龄班）。
+这几项都不指向任何一个孩子。姓名按权限打码；`read_at` 不是内容，一般管理员也能看
+（「这条通知有没有人看见」是运营要判断的事）。
 
 - **没有园所的老师**（匿名码激活、没填园所）只匹配「园所相关维度全空」的任务。
   否则她会永远收不到任何定向任务，而我们不知道
