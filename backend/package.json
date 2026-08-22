@@ -15,10 +15,13 @@
     "test:ageband": "node scripts/ageband-test.mjs",
     "test:commentary": "node scripts/commentary-test.mjs",
     "test:mode": "node scripts/mode-test.mjs",
-    "test:versions": "node scripts/versions-test.mjs"
+    "test:versions": "node scripts/versions-test.mjs",
+    "test:import": "node scripts/import-test.mjs",
+    "seed:demo": "node scripts/seed-demo.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
+    "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
     "openai": "^4.77.0",

@@ -1,21 +1,26 @@
 /**
- * 平台自己的账：充了多少钱、花了多少、还剩多少。
+ * 平台自己的账：**花了多少**。
  *
- * 起因（2026-08-18）：后台概览要回答「我账面上还剩多少」，而这个数以前算不出来 ——
- * 两头都缺。
+ * 起因（2026-08-18）：后台概览要回答「这东西花了我多少钱」，而支出侧当时是缺的 ——
+ * 只有配图成本，**文本成本一分钱都没记**：`deepseek.js` 每次调用都拿到了
+ * token 数，但只写进了日志；`messages` 表那两个 token 列存在却从来没被写过
+ * （240 行里 0 行有值）。而生成一份教案是最贵的那次调用，漏掉它「花了多少」就是错的。
  *
- *   · **收**：库里没有任何充值记录
- *   · **支**：只有配图成本。**文本成本一分钱都没记** ——
- *     `deepseek.js` 每次调用都拿到了 token 数，但只写进了日志。
- *     `messages` 表那两个 token 列存在却从来没被写过（240 行里 0 行有值）。
- *     而生成一份教案是最贵的那次调用，漏掉它，「花了多少」就是错的
+ * 🔴 **2026-08-21：「充了多少 / 还剩多少」整个概念撤掉了**（用户定）。
+ * 原来这里算 `账面剩余 = Σ充值 − Σ支出`，概览上一张卡显示余额、
+ * 「要处理」里还有一条「账面只剩 X，该充值了」。现在只记支出。
  *
- * 跟额度台账（quota.js）同一个纪律：**余额是算出来的，不是存出来的**。
+ * 为什么这是对的：余额那个数**永远不准**，而它看起来很准。
+ * 充值靠手录（漏录一笔余额就虚高），而真实余额分散在 DeepSeek、12ai、
+ * MiniMax 三个平台各自的后台里 —— 那三个数字才是能拿去对账的。
+ * 我们这边算出来的是「我记得我充了多少减去我算出来花了多少」，
+ * 两头都是估计值，凑出来的第三个数只会更不准。
  *
- *     账面剩余 = Σ充值 − (Σ配图成本 + Σ文本成本)
+ * **支出这一侧不一样**：它是每次调用当场落库的事实（`model_calls`、
+ * `lesson_images.cost_cents`），不依赖人记得录什么。所以它留着。
  *
- * 不存 balance 字段是因为那样就有两份事实，迟早对不上 ——
- * 而这是要拿去跟真金白银对账的数。
+ * `platform_topups` 那张表和库里已有的记录**没有删**，只是没有任何入口了。
+ * 哪天要恢复，接口和 listTopups / addTopup 在 git 历史里。
  */
 import { query, queryOne } from '../db/pool.js';
 import { config } from '../config.js';
@@ -92,8 +97,7 @@ async function sumTextSpend(sinceSql = '') {
  * 不说这件事，那个「花了多少」会被当成全部历史，而它不是。
  */
 export async function getMoney() {
-  const [topup, image, text, monthImage, monthText, since, missing] = await Promise.all([
-    queryOne(`SELECT COALESCE(SUM(amount_cents),0)::int AS n FROM platform_topups`),
+  const [image, text, monthImage, monthText, since, missing] = await Promise.all([
     queryOne(`SELECT COALESCE(SUM(cost_cents),0)::int AS n FROM lesson_images WHERE status = 'ready'`),
     sumTextSpend(),
     queryOne(`SELECT COALESCE(SUM(cost_cents),0)::int AS n FROM lesson_images
@@ -105,36 +109,17 @@ export async function getMoney() {
                WHERE status = 'ready' AND cost_cents IS NULL`),
   ]);
 
-  const spent = image.n + text;
+  // 没有 topup_cents / left_cents 了（2026-08-21）。**别加回去** ——
+  // 加回来就得有人手录充值，而漏录一笔余额就静静地虚高
   return {
-    topup_cents: topup.n,
     spent_image_cents: image.n,
     spent_text_cents: text,
-    spent_cents: spent,
-    left_cents: topup.n - spent,
+    spent_cents: image.n + text,
     month_image_cents: monthImage.n,
     month_text_cents: monthText,
+    month_cents: monthImage.n + monthText,
     // 这两个是**诚实标注**，不是装饰：不说的话上面那些数会被当成全部历史
     text_tracked_since: since.d,
     images_missing_cost: missing.n,
   };
-}
-
-/** 充值台账。只追加：记错了记一笔负数冲账，不改历史 */
-export async function listTopups() {
-  return (await query(
-    `SELECT t.*, a.display_name, a.username
-       FROM platform_topups t LEFT JOIN admins a ON a.id = t.created_by
-      ORDER BY t.occurred_on DESC, t.id DESC LIMIT 200`
-  )).rows;
-}
-
-export const TOPUP_CHANNELS = ['deepseek', '12ai', 'minimax', 'other'];
-
-export async function addTopup({ amountCents, channel, note, occurredOn, adminId }) {
-  return queryOne(
-    `INSERT INTO platform_topups (amount_cents, channel, note, occurred_on, created_by)
-     VALUES ($1,$2,$3,COALESCE($4::date, current_date),$5) RETURNING *`,
-    [amountCents, channel, note || null, occurredOn || null, adminId || null]
-  );
 }

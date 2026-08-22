@@ -5,12 +5,23 @@
  * 而换家的判断标准很朴素——「哪家把记录表的格子画对了」「哪家快」「哪家便宜」，
  * 是试出来的。每试一家就改代码、重启、发版，太慢，也把决定权锁在了会写代码的人手里。
  *
- * 内置那两家**不搬进数据库**：它们的 key 现在好好地待在 .env 里，
- * 搬进去等于凭空多一份明文密钥，只为了统一形状。不值得。
+ * 🔴 **.env 里那两家在启动时一次性播种进 image_models 表，之后就不再读 .env 了**
+ * （2026-08-22 用户定：「不要写死在 .env 中，应该是可以删除或者编辑的」）。
+ *
+ * 为什么必须彻底搬过去、不能「用到才抄」：只要还会读 .env，
+ * 在后台**删掉的模型下次重启就会自己回来** —— 而「删了它还在」
+ * 比不给删除按钮更让人困惑。
+ *
+ * 播种只发生一次，靠 app_settings 里 `env_models_seeded` 这个标记记住。
+ * 代价写在这里：**播种之后改 .env 不再生效**，改模型一律走后台。
+ * 那正是用户要的 —— 锁在服务器文件里等于锁给会 ssh 的人。
+ *
+ * 播种之前（全新部署、迁移刚跑完）仍然退回 .env 那两家，
+ * 否则第一次启动到播种完成之间配图是瘫的。
  */
 import { query } from '../db/pool.js';
 import { config } from '../config.js';
-import { getSetting, SETTING_KEYS } from './appSettings.js';
+import { getSetting, setSetting, SETTING_KEYS } from './appSettings.js';
 import { generateImage as gptGenerate } from './gptImage.js';
 import { generateImage as minimaxGenerate } from './minimax.js';
 import { generateImage as geminiGenerate } from './geminiImage.js';
@@ -40,7 +51,7 @@ export const FORMATS = {
 
 export const isKnownFormat = (f) => Boolean(FORMATS[String(f || '')]);
 
-/** 内置两家。key 与 .env 绑定，不能在后台删——删了老师会突然少两个选项 */
+/** .env 里那两家。**只在「还没播种」的时候用**，播种完就再也不读了（见文件头） */
 function builtins() {
   const list = [];
   if (config.gptImage.configured) {
@@ -115,9 +126,62 @@ async function customModels() {
   }
 }
 
-/** 全部模型，内置在前。带 account（含明文 key），**不要直接下发** */
+/**
+ * 把 .env 里那两家播种进 image_models 表 —— **一次，然后永不再读 .env**。
+ *
+ * 启动时调用（server.js）。已经播过就直接返回，所以重启多少次都只发生一次。
+ *
+ * 🔴 **`ON CONFLICT DO NOTHING`**：库里已经有同 key 的行（比如上一版
+ * 「用到才抄」抄过去的、或者手动加的）就不动它 —— 那一行是人改过的，
+ * 拿 .env 覆盖回去等于把他的修改静默还原。
+ *
+ * 🔴 **标记要在插完之后才写**：先写标记再插，中间挂掉就成了
+ * 「标记说播过了，但库里什么都没有」—— 那时 listModels 返回空，配图整个瘫，
+ * 而且不会自愈。
+ */
+export async function seedEnvModels() {
+  if (await getSetting(SETTING_KEYS.envModelsSeeded, '')) return { seeded: false };
+  const envs = builtins();
+  const done = [];
+  for (const m of envs) {
+    try {
+      await query(
+        `INSERT INTO image_models
+           (key, name_cn, hint, format, base_url, api_key, model, options, enabled, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'{}'::jsonb,true,$8)
+         ON CONFLICT (key) DO NOTHING`,
+        [m.key, m.name_cn, m.hint || '', m.format,
+          m.account?.baseURL || '', m.account?.apiKey || '', m.account?.model || '',
+          m.sort_order || 100]
+      );
+      done.push(m.key);
+    } catch (err) {
+      // 表还没建（迁移没跑）——**不写标记**，下次启动再试
+      logger.warn('image_model_seed_failed', { key: m.key, message: err.message });
+      return { seeded: false, error: err.message };
+    }
+  }
+  await setSetting(SETTING_KEYS.envModelsSeeded, '1');
+  logger.info('image_models_seeded_from_env', { keys: done });
+  return { seeded: true, keys: done };
+}
+
+/**
+ * 全部模型，按 sort_order 排。带 account（含明文 key），**不要直接下发**。
+ *
+ * 播种完之后**只从库里读** —— 这是「内置模型也能删」的前提：
+ * 只要还会读 .env，删掉的下次重启就会自己回来。
+ *
+ * 播种之前（全新部署、或者迁移刚跑完那一瞬）退回 .env 那两家，
+ * 按 key 去重、库里的胜出 —— 不去重两份会同时在列表里，
+ * 而 pickModel 取 find 的第一个，于是「改完了不生效」而界面上显示改过了。
+ */
 export async function listModels({ includeDisabled = false } = {}) {
-  const all = [...builtins(), ...(await customModels())];
+  const custom = await customModels();
+  const seeded = Boolean(await getSetting(SETTING_KEYS.envModelsSeeded, ''));
+  const overridden = new Set(custom.map((m) => m.key));
+  const all = (seeded ? custom : [...builtins().filter((b) => !overridden.has(b.key)), ...custom])
+    .sort((a, b) => (a.sort_order || 100) - (b.sort_order || 100) || a.key.localeCompare(b.key));
   return includeDisabled ? all : all.filter((m) => m.enabled);
 }
 

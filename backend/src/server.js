@@ -15,6 +15,7 @@ import { pingDatabase, query, closePool } from './db/pool.js';
 import { requireAuth, requireActivated } from './middleware/auth.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { recoverStuckTasks, taskQueue } from './services/taskQueue.js';
+import { seedEnvModels } from './services/imageModels.js';
 import { logger, startTimer } from './utils/logger.js';
 
 import { authRouter } from './routes/auth.js';
@@ -82,6 +83,15 @@ try {
   );
   await closePool();
   process.exit(1);
+}
+
+/* .env 里那两家配图模型 → image_models 表，**一次性播种**（2026-08-22）。
+   播完之后就再也不读 .env 了，所以后台能真正编辑和删除它们
+   （只要还会读 .env，删掉的下次重启就会自己回来）。
+   已经播过就是个空操作，重启多少次都只发生一次。见 imageModels.js 文件头。 */
+const seed = await seedEnvModels();
+if (seed.seeded) {
+  console.log(`  已把 .env 里的配图模型搬进数据库：${seed.keys.join(', ')}（以后在后台改）`);
 }
 
 // ---------------------------------------------------------------

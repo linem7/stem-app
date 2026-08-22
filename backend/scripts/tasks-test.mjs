@@ -13,7 +13,7 @@
  *
  * 自造隔离数据（三个特征不同的园 + 五位老师），可反复跑。
  */
-const B = 'http://localhost:3000';
+const B = process.env.API_BASE || 'http://localhost:3000';
 let A = null;
 const call = async (base, m, p, tok, b) => {
   const r = await fetch(base + p, {
@@ -215,11 +215,26 @@ chk(one.survey_url.startsWith('https://'), '正常任务带得出链接');
 chk(typeof one.days_left === 'number' || one.days_left === null,
   `带「剩几天」：${one.days_left}（她判断今天来不来得及靠这个，不是靠一个日期）`);
 
-L('=== 管理端列表带覆盖人数和已读数 ===');
+L('=== 管理端列表：定向摊在列上，覆盖人数挪进详情 ===');
 const admList = (await adm('GET', '/tasks')).data.items;
 const mine = admList.find((x) => x.id === t2.id);
-chk(mine && mine.covers === 2, `列表带覆盖人数：${mine?.covers}`);
 chk(admList.find((x) => x.id === one.id)?.reads >= 1, '也带已读数（不然那一页只是一堆标题）');
+
+// 「覆盖」这一列 2026-08-22 从列表撤了（用户定的列：标题/奖励/城市/办园性质/截止/状态）。
+// 那个数要为每个任务跑一次定向试算 —— 一个任务两条查询 × 几十行。
+// 🔴 **反向断言**：撤一个概念最容易留下的残骸是「字段还在、只是没人显示」，
+// 而下一个人看到 covers 会以为它可信（它算的是打开页面那一刻的人数）
+chk(mine && mine.covers === undefined, '列表不再逐个试算覆盖人数（那是详情页的事）');
+// 列表改摊定向：城市和办园性质要能直接读出来，否则那两列没东西可显示
+chk(mine && Array.isArray(mine.target?.cities) && Array.isArray(mine.target?.ownerships),
+  `列表带规范化的定向：城市 ${JSON.stringify(mine?.target?.cities)}、性质 ${JSON.stringify(mine?.target?.ownerships)}`);
+
+// 覆盖人数没有消失，它在详情里 —— 而且**必须跟试算是同一个数**。
+// 两处分叉的表现是「后台说发给 12 个人，实际只有 8 个人看到」，不报错
+const det = (await adm('GET', `/tasks/${t2.id}`)).data;
+const pv = (await adm('POST', '/tasks/preview', { target: det.task.target })).data;
+chk(det.covers === 2, `详情里的覆盖人数：${det.covers}`);
+chk(det.covers === pv.teachers, `详情 ${det.covers} = 试算 ${pv.teachers}（同一个 buildMatchSql）`);
 
 L(fail ? `\n✗ ${fail} 项失败` : '\n✓ 全部通过');
 process.exit(fail ? 1 : 0);

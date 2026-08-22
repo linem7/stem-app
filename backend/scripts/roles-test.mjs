@@ -1,5 +1,5 @@
 /** 两级权限验证：一般管理员看不到手机号全号、对话正文，也管不了账号 */
-const B='http://localhost:3000/admin/api';
+const B=(process.env.API_BASE||'http://localhost:3000')+'/admin/api';
 const RND=String(Date.now()).slice(-6);
 const call=async(m,p,tok,b)=>{
   const r=await fetch(B+p,{method:m,headers:{'Content-Type':'application/json',...(tok?{Authorization:`Bearer ${tok}`}:{})},...(b?{body:JSON.stringify(b)}:{})});
@@ -45,8 +45,18 @@ chk((await call('GET','/codes',NOR)).ok, '看兑换码');
 chk((await call('GET','/feedback',NOR)).ok, '看反馈');
 
 L('=== 他不能做的 ===');
-// 挑一位**有姓名**的老师来测打码，否则测的是 null vs null，什么都没验到
-const tid=(named[0] || tl.data.items[0])?.id;
+/**
+ * 挑一位**既有账号又有姓名**的老师。两个条件都不能少：
+ *
+ *   · 有姓名 —— 否则打码那两条测的是 null vs null，什么都没验到
+ *   · **有账号** —— 老师页 2026-08-21 改成了合并列表（名单 ∪ 已激活账号），
+ *     所以「列表里有一行」不等于「这一行有详情可开」：还没激活的岗位
+ *     `id` 是 null。原来写的是 `named[0]?.id`，挑到一个未激活的行时
+ *     tid 是 null / undefined，后面整段要么跳过要么拿 null 去请求，
+ *     红在一句看不懂的「超管看到全名：null」上。
+ */
+const target = tl.data.items.find(t=>t.id && t.real_name) || tl.data.items.find(t=>t.id);
+const tid = target?.id;
 if(tid){
   const det=await call('GET',`/teachers/${tid}`,NOR);
   chk(det.ok, '能开老师详情（要发额度）');
@@ -61,13 +71,15 @@ if(tid){
   const detS=await call('GET',`/teachers/${tid}`,SUP);
   chk(det.data.teacher.phone===undefined,
     '🔴 详情里也没有手机号字段（016 把那一列删了）');
-  if(named[0]){
+  // 守的是**我们打开的这一位**有没有姓名，不是「列表里某处有姓名」。
+  // 原来写的是 if(named[0])，那两件事在合并列表里不再等价
+  if(target?.real_name){
     chk(det.data.teacher.real_name.endsWith('**') && det.data.teacher.name_masked===true,
       `详情里姓名只给姓氏：${det.data.teacher.real_name}`);
     chk(detS.data.teacher.real_name && !detS.data.teacher.real_name.endsWith('**'),
       `超管看到全名：${detS.data.teacher.real_name}`);
   } else {
-    L('    （库里没有带姓名的老师，打码这几条跳过）');
+    L('    （挑到的这位老师名单里没填姓名，打码这两条跳过）');
   }
   chk(detS.data.plans.every(p=>'title' in p), '超管看得到教案标题');
 }

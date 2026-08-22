@@ -27,29 +27,36 @@ function imageModelsView() {
         <td>${esc(m.name_cn)}</td>
         <td class="mono" style="font-size:12px">${esc(m.model || '—')}</td>
         <td class="mono" style="font-size:12px">${esc(m.api_key_masked || '—')}</td>
-        <td>
+        <td style="white-space:nowrap">
           ${
             m.key === d.default_provider || !m.enabled
               ? ''
               : `<button class="btn-sm" onclick="setDefaultModel('${esc(m.key)}')">设为默认</button>`
           }
-          ${m.builtin ? '' : `<button class="btn-sm" onclick="editModel('${esc(m.key)}')">…</button>`}
+          <!-- 🔴 **每一个模型都给编辑按钮**（2026-08-22 用户提「无法修改已有模型的属性」）。
+               原来这里判了一下 m.builtin，于是 .env 带来的那两家（gpt / minimax）
+               在界面上一个入口都没有 —— 名称、接口地址、模型名全都改不了。
+               现在改内置模型时后端会把 .env 那份抄进库再改（见 imageModels.js 文件头）。
+               按钮上的字从「…」换成「编辑」：一个省略号说不出点下去会发生什么。 -->
+          <button class="btn-sm" onclick="editModel('${esc(m.key)}')">编辑</button>
         </td>
       </tr>`
     )
     .join('');
 
+  // 「教师配图使用默认模型，教师端无模型选项」删了（2026-08-22）。
+  // 「用的是哪一个」表里那个「默认」胶囊已经说了；
+  // 「教师端没有选项」是一条**设计决策**，属于 CLAUDE.md 和 operations.md
   return `<h2>配图模型</h2>
-    <div class="sub">老师配图用的是<b>默认</b>那个。老师自己不选模型</div>
-    <div class="row"><button class="btn" onclick="openNewModel()">＋ 加一个模型</button></div>
+    <div class="row"><button class="btn" onclick="openNewModel()">＋ 新增模型</button></div>
     <table>
-      <tr><th>代号</th><th>名字</th><th>模型</th><th>密钥</th><th></th></tr>
+      <tr><th>代号</th><th>名称</th><th>模型</th><th>密钥</th><th></th></tr>
       ${rows}
     </table>
-    ${items.length ? '' : '<div class="empty">还没有模型 —— 在 .env 里配 IMG_API_KEY，或者在这里加一个</div>'}`;
+    ${items.length ? '' : '<div class="empty">尚无配图模型。请在 .env 中配置 IMG_API_KEY，或在此新增</div>'}`;
 }
 
-/** 新建和编辑共用一张表单。编辑时代号和格式锁死——它们决定了数据怎么存、请求怎么拼 */
+/** 新增和编辑共用一张表单。编辑时代号和格式锁死——它们决定了数据怎么存、请求怎么拼 */
 function modelForm(m) {
   const v = m || {};
   const formats = (S.data.imagemodels && S.data.imagemodels.formats) || [];
@@ -65,7 +72,7 @@ function modelForm(m) {
       <input type="text" id="m_key" value="${esc(v.key || '')}" ${m ? 'disabled' : ''} placeholder="如 nanobanana" style="width:100%">
     </div>
     <div class="grid2">
-      <div class="field"><label>名字</label>
+      <div class="field"><label>名称</label>
         <input type="text" id="m_name" value="${esc(v.name_cn || '')}" placeholder="如 香蕉出图" style="width:100%"></div>
       <div class="field"><label>备注</label>
         <input type="text" id="m_hint" value="${esc(v.hint || '')}" style="width:100%"></div>
@@ -91,10 +98,10 @@ function modelForm(m) {
 
 window.openNewModel = function openNewModel() {
   S.modal = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="box">
-    <h3>加一个配图模型</h3>
+    <h3>新增配图模型</h3>
     ${modelForm(null)}
     <div class="foot">
-      <button class="btn btn-plain" onclick="closeModal()">取消</button>
+      <button class="btn-sm" onclick="closeModal()">取消</button>
       <button class="btn" onclick="saveNewModel()">保存</button>
     </div>
   </div></div>`;
@@ -107,13 +114,17 @@ window.editModel = function editModel(key) {
   const m = (S.data.imagemodels?.items || []).find((x) => x.key === key);
   if (!m) return;
   S.modal = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="box">
-    <h3>改「${esc(m.name_cn)}」</h3>
+    <h3>编辑「${esc(m.name_cn)}」</h3>
     ${modelForm(m)}
     <div class="foot">
-      <button class="btn-sm btn-danger" onclick="delModel('${esc(m.key)}')">删掉</button>
-      <button class="btn-sm" onclick="testModel('${esc(m.key)}')">试一张</button>
+      <!-- **每个模型都能删**（2026-08-22 用户定：「不要写死在 .env 中，
+           应该是可以删除或者编辑的」）。.env 那两家在启动时已经播种进
+           image_models 表，而播种只发生一次 —— 所以删掉不会在重启后自己回来。
+           见 services/imageModels.js 文件头。 -->
+      <button class="btn-sm btn-danger" onclick="delModel('${esc(m.key)}')">删除</button>
+      <button class="btn-sm" onclick="testModel('${esc(m.key)}')">模型测试</button>
       <span style="flex:1"></span>
-      <button class="btn btn-plain" onclick="closeModal()">取消</button>
+      <button class="btn-sm" onclick="closeModal()">取消</button>
       <button class="btn" onclick="saveEditModel('${esc(m.key)}')">保存</button>
     </div>
   </div></div>`;
@@ -127,7 +138,7 @@ function readModelForm() {
     try {
       options = JSON.parse(raw);
     } catch (e) {
-      toast('额外参数不是合法的 JSON');
+      toast('额外参数不是合法 JSON');
       return null;
     }
   }
@@ -151,7 +162,7 @@ window.saveNewModel = async function saveNewModel() {
   try {
     await api('POST', '/image-models', body);
     closeModal();
-    toast('加好了，点「试一张」看看能不能出图');
+    toast('已新增，可用「模型测试」验证出图');
     load();
   } catch (e) {
     toast(e.message);
@@ -164,7 +175,7 @@ window.saveEditModel = async function saveEditModel(key) {
   try {
     await api('POST', '/image-models/' + key + '/update', body);
     closeModal();
-    toast('改好了');
+    toast('已保存');
     load();
   } catch (e) {
     toast(e.message);
@@ -172,10 +183,10 @@ window.saveEditModel = async function saveEditModel(key) {
 };
 
 window.delModel = async function delModel(key) {
-  if (!confirm('删掉「' + key + '」？已经用它画出来的图不受影响，只是以后不能再选它。')) return;
+  if (!confirm('删除「' + key + '」？已生成的配图不受影响，仅表示此后不再使用该模型。')) return;
   try {
     await api('POST', '/image-models/' + key + '/delete');
-    toast('删了');
+    toast('已删除');
     load();
   } catch (e) {
     toast(e.message);
@@ -188,14 +199,14 @@ window.delModel = async function delModel(key) {
  * 不该跑回小程序开一份教案、选材料、等一分钟，才发现地址填错了。
  */
 window.testModel = async function testModel(key) {
-  toast('画一张试试，稍等…');
+  toast('正在测试出图，请稍候');
   try {
     const r = await api('POST', '/image-models/' + key + '/test', {});
     S.modal = `<div class="modal" onclick="if(event.target===this)closeModal()"><div class="box">
-      <h3>「${esc(key)}」能出图</h3>
-      <div class="sub">${r.width}×${r.height} · ${(r.bytes / 1024).toFixed(0)} KB · 用了 ${(r.ms / 1000).toFixed(1)} 秒</div>
+      <h3>「${esc(key)}」出图正常</h3>
+      <div class="sub">${r.width}×${r.height} · ${(r.bytes / 1024).toFixed(0)} KB · 耗时 ${(r.ms / 1000).toFixed(1)} 秒</div>
       <img src="${esc(r.url)}" style="width:100%;border:1px solid var(--rule-2);border-radius:12px;margin-top:12px">
-      <div class="foot"><button class="btn" onclick="closeModal()">知道了</button></div>
+      <div class="foot"><button class="btn" onclick="closeModal()">关闭</button></div>
     </div></div>`;
     render();
   } catch (e) {
@@ -210,7 +221,7 @@ window.testModel = async function testModel(key) {
 window.setDefaultModel = async function setDefaultModel(key) {
   try {
     await api('POST', '/image-models/' + key + '/default');
-    toast('以后配图都用「' + key + '」了');
+    toast('已设为默认，此后配图使用「' + key + '」');
     load();
   } catch (e) {
     toast(e.message);

@@ -33,6 +33,11 @@
   font-synthesis:none;
 }
 *{margin:0;padding:0;box-sizing:border-box}
+/* 永远给竖滚动条留出那一条位置（2026-08-22）。
+   不留的话：筛掉几行之后内容变短、滚动条消失，视口宽出 15px，
+   整张表的列跟着各宽 3px —— 用户报的「筛选后列宽发生改变」有一半是这个，
+   另一半是 table-layout（见下面 .tbl-fixed）。两处都得治，只治一处仍然会动。 */
+html{scrollbar-gutter:stable}
 body{background:var(--canvas);color:var(--ink);min-height:100vh;
   font-family:-apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
   -webkit-font-smoothing:antialiased;font-size:14px;line-height:1.6}
@@ -48,9 +53,17 @@ body{background:var(--canvas);color:var(--ink);min-height:100vh;
 .login input:focus{border-color:var(--amber-line);box-shadow:0 0 0 3px var(--amber-soft)}
 .login button{width:100%;margin-top:14px}
 
+/* 界面字号三档（标准/大/特大）**2026-08-22 整个撤掉了**（用户定：「不需要变化字号」）。
+   实现是 `.wrap,.login,.modal .box{zoom:var(--fs-zoom,1)}` 加 app.js 里那组
+   FONT_SCALES / FONT_ZOOM / applyFontScale，连同个人中心里那条分段控件一起删干净了。
+   ⚠️ 撤一个功能最容易留下的残骸是「样式还在、只是没人设那个变量」——
+   下一个人看到 `--fs-zoom` 会以为它还有人用。所以这里不留兜底值。 */
+
 /* 布局 */
 .wrap{display:flex;min-height:100vh}
-.side{width:190px;flex:none;background:var(--paper);border-right:1px solid var(--rule);padding:20px 14px}
+.side{width:190px;flex:none;background:var(--paper);border-right:1px solid var(--rule);padding:20px 14px;
+  /* 竖排 flex：底下那个账号块靠 margin-top:auto 钉在最下面 */
+  display:flex;flex-direction:column;min-height:100vh}
 .side .brand{font-size:14px;font-weight:700;padding:0 8px 16px;border-bottom:1px solid var(--rule);margin-bottom:12px}
 .side .brand small{display:block;font-size:11px;color:var(--ink-3);font-weight:400;margin-top:3px}
 .nav{display:block;width:100%;text-align:left;background:none;border:none;font:inherit;font-size:14px;
@@ -75,13 +88,50 @@ body{background:var(--canvas);color:var(--ink);min-height:100vh;
 .btn-danger:hover{border-color:var(--coral);color:var(--coral-deep)}
 
 .card{background:var(--paper);border:1px solid var(--rule-2);border-radius:14px;padding:16px 18px;margin-bottom:16px}
+/* ── 统计卡（2026-08-22 用户提两轮）─────────────────────────────────
+   ① 「各个卡片大小一致」：`flex:1 1 0` 是关键 —— `1 1 auto` 会让每张卡
+      按自己的内容撑，于是「￥1234.56」那张比「￥0.78」那张宽出一截，
+      一排卡看起来像没对齐的积木。`0` 基准 = 忽略内容宽度、均分整行。
+   ② 「核心数字放在正中间，标题小一点数字大一些」：标签压到 11.5px、
+      数字提到 30px。**标签在上、数字在下** —— 卡片是拿来扫的，
+      先知道这是什么、再读那个数，而不是先看见一个不知道在说什么的数字。
+   ③ 「只需要占据 50% 的横向版面」：`.stats--half` 限宽。
+      不写在 `.stats` 上是因为弹窗里那几排卡（任务详情、教师详情）
+      本来就在一个窄容器里，再砍一半会挤成一条。 */
 .stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
-.stat{background:var(--paper);border:1px solid var(--rule-2);border-radius:14px;padding:14px 18px;min-width:110px}
-.stat .n{font-size:24px;font-weight:700;letter-spacing:-.02em}
-.stat .l{font-size:12.5px;color:var(--ink-3);margin-top:2px}
+.stats--half{max-width:50%}
+.stat{background:var(--paper);border:1px solid var(--rule-2);border-radius:14px;
+  padding:14px 16px;flex:1 1 0;min-width:120px;text-align:center;
+  /* 竖排居中：一张卡里数字和标签行数不一定一样多（有的两行有的一行），
+     不定高的话同一排卡的数字会各在各的高度上 */
+  display:flex;flex-direction:column;justify-content:center}
+.stat .n{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.2}
+/* 主标签：小、灰、在数字上面。`.sub2` 是第二行那个「另一个数」 */
+.stat .t{font-size:11.5px;color:var(--ink-3);margin-bottom:3px}
+.stat .l{font-size:11.5px;color:var(--ink-3);margin-top:3px}
 
 table{width:100%;border-collapse:collapse;background:var(--paper);border-radius:14px;overflow:hidden;
   border:1px solid var(--rule-2)}
+/* ── 列宽固定（2026-08-22 用户提：「汇总表总是在筛选后各列宽度发生改变，最好固定」）──
+   `table-layout:auto`（默认）按**当前这一屏的内容**算列宽 —— 筛掉几行之后
+   最长的那个园所名不见了，那一列就窄一截，整张表跟着重排，
+   读的人会以为看的是另一张表。
+   `fixed` 让列宽只由第一行（也就是 th）决定，筛选前后完全一样。
+
+   🔴 **每一列都要写 width，宽度按那一列的实际内容定**（2026-08-22 用户第二次提：
+   「每个表格的宽度应该依据具体情况来定，例如教师的详情列太窄了，
+    任务页面的标题又太长了」）。
+   只给一部分列写 width 的话，剩下那些**平分余量** —— 于是
+   「年级」（两个字）和「园所」（十个字）一样宽 484px，而「操作」那一列
+   两个按钮被挤到 110px 换行。等宽从来不是目标，**筛选后不变**才是。
+   写全之后余量按各列 width 的比例分配，比例是我定的，所以还是可控的。
+
+   ⚠️ 代价：内容超宽不会再把列撑开，而是溢出 —— 所以下面给 td 统一加了
+   `overflow:hidden;text-overflow:ellipsis`。
+   加在 `.tbl-fixed` 上而不是 `table` 上：弹窗里那些小表列数少、
+   内容长短差得远，固定列宽反而会把「原因」挤成两个字。 */
+.tbl-fixed{table-layout:fixed}
+.tbl-fixed td{overflow:hidden;text-overflow:ellipsis}
 th{text-align:left;font-size:12px;font-weight:600;color:var(--ink-3);padding:10px 12px;
   background:var(--paper-2);border-bottom:1px solid var(--rule-2);white-space:nowrap}
 td{padding:11px 12px;border-bottom:1px solid var(--rule);font-size:13.5px;vertical-align:middle}
@@ -89,6 +139,40 @@ tr:last-child td{border-bottom:none}
 tr:hover td{background:oklch(1 0 0 / .5)}
 td.num{font-variant-numeric:tabular-nums}
 .mono{font-family:ui-monospace,"SF Mono",Consolas,monospace;font-size:13px;letter-spacing:.02em}
+
+/* ── 列标题里的筛选下拉（2026-08-22）─────────────────────────────
+   用户要「把下拉框放到汇总表的列标题上，方便直接筛选」。
+   做成裸 select：跟 th 同色同字号，只在 hover / 选中时才显出边框 ——
+   表头上一排带框的输入件会把标题行压得像工具栏，反而读不出这是列名。
+
+   🔴 **列名和选中值是同一个位置，不并排显示**（用户 08-22 第二次提）。
+   原来是 `类型<br><select>`，于是筛了「产品建议」之后那一格写着
+   「类型 / 产品建议」两行 —— 同一件事说了两遍，表头还高了一行。
+   现在「不筛」那个选项的文字**就是列名**（`<option value="">类型</option>`），
+   所以没筛时它显示列名，筛了就显示筛的是什么。少一行、少一次重复。
+
+   🔴 **筛中之后不换样式**（用户 08-22 第三次提：「筛选的功能不要有样式，
+   保持纯文本就好了」）。原来选中的列头会变成琥珀底 + 深黄字。
+
+   ⚠️ 这跟一条老规则冲突过：CLAUDE.md 说「这一列正在被筛」必须看得出来 ——
+   否则「表里怎么少了几行」会被当成数据丢了。那条规则**没有作废**，
+   只是换了两个载体来满足，都不靠颜色：
+     ① 这个 select 显示的就是**选中的那个值**（不筛才显示列名）——
+        写着「未激活」的列头本身就说明这一列正在被筛
+     ② 每个有筛选的页面都有一个**常驻的「清除筛选」按钮**（用户同一轮要的），
+        它一直在那儿，所以「我是不是筛过什么」永远问得出来
+   颜色只是第三层，撤掉它不影响前两层。 */
+th .thf{font:inherit;font-size:12px;font-weight:600;color:var(--ink-3);
+  background:none;border:1px solid transparent;border-radius:6px;padding:1px 3px;
+  cursor:pointer;max-width:100%}
+th .thf:hover{border-color:var(--rule-2);background:#fff}
+
+/* 表格里的行内链接（反馈页「对应教案」）。
+   用户 08-22：「汇总表保持纯文本，不要在文字外面套一个外框」——
+   所以这里不是按钮样式，只是一段可点的字 */
+.tlnk{background:none;border:none;padding:0;font:inherit;font-size:13.5px;
+  color:var(--sky-deep);cursor:pointer;text-align:left}
+.tlnk:hover{text-decoration:underline}
 
 .pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:999px;font-weight:600}
 .p-ok{background:var(--mint-soft);color:var(--mint-deep)}
@@ -98,12 +182,55 @@ td.num{font-variant-numeric:tabular-nums}
 .low{color:var(--coral-deep);font-weight:600}
 
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
-input[type=text],input[type=number],select,textarea{padding:8px 11px;border:1px solid var(--rule-2);
+/* 工具条：一行里混着 .btn（主行动）、.btn-sm（次级）和 select / input 时用它。
+   这三类的 padding 和字号都不一样，各自撑出的高度是 40 / 27 / 35px ——
+   挤在一行里高低参差。这里统一高度、保留各自的配色与字重（主次还分得出来），
+   只把「高度」这一维拉平。
+   2026-08-21 加，起因是兑换码页那四个控件。 */
+.row--tools>.btn,.row--tools>.btn-sm,.row--tools>select,
+.row--tools>input[type=text],.row--tools>input[type=number],.row--tools>input[type=date]{
+  height:36px;padding-top:0;padding-bottom:0;line-height:34px;font-size:13.5px}
+.row--tools>.btn{padding-left:16px;padding-right:16px}
+.row--tools>.btn-sm{padding-left:13px;padding-right:13px}
+/* ⚠️ `input[type=date]` 原来不在这个选择器里，于是任务表单里那个截止日期框
+   用的是浏览器默认样式 —— 比旁边的输入框矮一截、窄一大截、圆角也不一样
+   （用户 08-22：「截止日期的方框太小了，应该跟其他控件统一」）。
+   新加输入类型时记得加进来，漏了不报错，只是长得不一样 */
+input[type=text],input[type=number],input[type=date],select,textarea{
+  padding:8px 11px;border:1px solid var(--rule-2);
   border-radius:9px;font:inherit;font-size:13.5px;outline:none;background:#fff}
 input:focus,select:focus,textarea:focus{border-color:var(--amber-line)}
 label{font-size:12.5px;color:var(--ink-2);display:block;margin-bottom:4px}
 .field{margin-bottom:11px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+
+/* ── 折叠式多选（2026-08-22，任务表单的六个定向维度用它）────────────
+   用户提「目标群体的选项应该是下拉框而不是直接呈现选项内容，
+   当前使得整个新建页面太长了」。但这六项**必须能多选**
+   （一个任务要能同时发给城市和县镇），而原生 select 是单选。
+
+   🔴 **展开是就地撑开，不是绝对定位的浮层。** 浮层看着更像下拉框，
+   但这些控件在 `.modal .box`（`overflow-y:auto`）里 ——
+   绝对定位的面板会被那个 overflow 裁掉下半截，而裁掉的正是最后几个选项。
+
+   🔴 **复选框始终在 DOM 里**（收起时是父元素 display:none，不是不渲染）。
+   readTarget() 靠 `querySelectorAll('input:checked')` 读值 ——
+   收起时把节点拿掉的话，勾了再收起来就等于没勾，而且不报错。
+   同理开合只切 class，**不走 render()**：那会把整个弹窗按 HTML 字符串重建，
+   已经勾上的全丢。 */
+.ms{border:1px solid var(--rule-2);border-radius:9px;background:#fff}
+.ms-btn{display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;
+  font:inherit;font-size:13.5px;color:var(--ink);text-align:left;cursor:pointer;padding:8px 11px}
+.ms-btn .v{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ms-btn .v.none{color:var(--ink-3)}
+.ms-btn .car{font-size:10px;color:var(--ink-3);transition:transform .18s}
+.ms.open .ms-btn .car{transform:rotate(180deg)}
+.ms-body{display:none;border-top:1px solid var(--rule);padding:6px;max-height:190px;overflow-y:auto}
+.ms.open .ms-body{display:block}
+.ms-body label{display:flex;align-items:center;gap:7px;margin:0;padding:5px 7px;
+  border-radius:7px;font-size:13.5px;color:var(--ink);cursor:pointer}
+.ms-body label:hover{background:var(--paper-2)}
+.ms-empty{padding:6px 8px;font-size:12.5px;color:var(--ink-3)}
 
 .modal{position:fixed;inset:0;background:rgba(58,54,48,.4);display:flex;align-items:center;
   justify-content:center;z-index:50;padding:20px}
@@ -123,11 +250,33 @@ label{font-size:12.5px;color:var(--ink-2);display:block;margin-bottom:4px}
   color:var(--ink-2);line-height:1.65;margin-bottom:14px}
 .navsec{font-size:13px;color:var(--ink-3);padding:16px 10px 6px;letter-spacing:.03em;
   border-top:1px solid var(--rule);margin-top:10px}
-.who{margin-top:18px;padding-top:12px;border-top:1px solid var(--rule);font-size:13px;color:var(--ink-2)}
-.who .pill{display:inline-block;margin:5px 0}
 .lnk{display:block;background:none;border:none;font:inherit;font-size:13px;color:var(--ink-3);
   cursor:pointer;padding:3px 0;text-align:left}
 .lnk:hover{color:var(--amber-deep)}
+
+/* ── 个人中心（左下角，向上弹）─────────────────────────────────
+   margin-top:auto 把它推到侧栏最底下；position:relative 是给弹出面板当锚点，
+   面板用 bottom:100% 落在这一行的**上方** —— 它已经在屏幕最下面了，往下弹会出界。 */
+.me-wrap{margin-top:auto;padding-top:12px;border-top:1px solid var(--rule);position:relative}
+.me-row{display:flex;align-items:center;gap:6px;width:100%;background:none;border:none;font:inherit;
+  text-align:left;cursor:pointer;padding:7px 8px;border-radius:9px;color:var(--ink)}
+.me-row:hover{background:var(--paper-2)}
+.me-row.on{background:var(--amber-soft)}
+.me-row .nm{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+/* 箭头朝上 = 「点了会从上面出来」。展开后转 180°，是唯一告诉人这东西能收起来的东西 */
+.me-row .car{font-size:10px;color:var(--ink-3);transition:transform .18s}
+.me-row.on .car{transform:rotate(180deg)}
+
+.me-panel{position:absolute;bottom:100%;left:0;right:0;margin-bottom:8px;z-index:40;
+  background:var(--paper);border:1px solid var(--rule-2);border-radius:13px;padding:10px;
+  box-shadow:0 8px 28px rgba(58,54,48,.16)}
+.me-panel .hd{font-size:12px;color:var(--ink-3);padding:2px 6px 8px;border-bottom:1px solid var(--rule);
+  margin-bottom:6px;overflow:hidden;text-overflow:ellipsis}
+.me-item{display:block;width:100%;background:none;border:none;font:inherit;font-size:13px;color:var(--ink);
+  text-align:left;cursor:pointer;padding:7px 8px;border-radius:8px}
+.me-item:hover{background:var(--paper-2)}
+.me-item.danger:hover{background:oklch(0.95 0.03 30);color:var(--coral-deep)}
+/* `.me-fs` / `.seg`（界面字号那条分段控件）跟 zoom 一起删了，见文件上方那段 */
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);
   color:#fff;padding:11px 20px;border-radius:12px;font-size:13.5px;z-index:99;
   opacity:0;transition:.2s;pointer-events:none}

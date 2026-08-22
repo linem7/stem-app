@@ -49,4 +49,9 @@ export async function setSetting(key, value, adminId = null) {
 
 export const SETTING_KEYS = {
   imageProvider: 'image_provider',
+  /* .env 里那两家配图模型有没有播种进 image_models 表（2026-08-22）。
+     这个键**只是一个一次性的标记**，不是运营参数 ——
+     它存在的全部理由是：播种之后就不再读 .env 了，
+     否则在后台删掉的模型下次重启会自己回来（见 imageModels.js 文件头）。 */
+  envModelsSeeded: 'env_models_seeded',
 };

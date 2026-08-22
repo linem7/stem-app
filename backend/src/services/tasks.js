@@ -142,6 +142,80 @@ export async function previewTarget(target) {
 }
 
 /**
+ * 一个任务的详情与群体特征（2026-08-21 新增）。
+ *
+ * 用户要的是「每个任务到底有多少人收到、群体的基本特征是什么」——
+ * 因为发起时勾了一堆定向条件（城乡 / 办园性质 / 年龄班 / 省市 / 具体园所），
+ * 列表里那一列写不清，而勾对了没有只能靠**实际覆盖到的人**回答。
+ *
+ * 🔴 **谓词复用 `buildMatchSql`，一个字都不另写。**
+ * 试算（previewTarget）、老师端列表（listTasksFor）、这里的详情，三处同一个函数。
+ * 写两份的表现是「后台说发给 12 个人，实际只有 8 个人看到」，而且不报错 ——
+ * CLAUDE.md 里那条就是为这件事写的。
+ *
+ * 分布只按**机构属性**分组（园所 / 城乡 / 办园性质 / 老师带的年龄班）。
+ * 这几项都是园所或岗位的特征，不是关于某个孩子的信息。
+ */
+export async function taskAudience(task) {
+  const t = normalizeTarget(task.target);
+  const params = [];
+  const clause = buildMatchSql(t, params);
+  // 已读是按 (task_id, teacher_id) 记的，所以要把任务 id 也带进去
+  const readParam = params.length + 1;
+
+  const [rows, byArea, byOwner, byAge, byKg] = await Promise.all([
+    query(`
+      SELECT t.id, t.real_name, t.class_name, t.position, t.age_group,
+             k.name AS kindergarten, k.area_type, k.ownership,
+             tr.read_at
+        FROM teachers t
+        LEFT JOIN kindergartens k ON k.id = t.kindergarten_id
+        LEFT JOIN task_reads tr ON tr.teacher_id = t.id AND tr.task_id = $${readParam}
+       WHERE ${clause}
+       ORDER BY tr.read_at DESC NULLS LAST, t.last_login_at DESC NULLS LAST
+       LIMIT 200`, [...params, task.id]),
+    // 分组用同一个 clause —— 换一套条件就等于换了一批人，那些百分比会跟总数对不上
+    query(`SELECT COALESCE(k.area_type,'（未填）') AS v, COUNT(*)::int AS n
+             FROM teachers t LEFT JOIN kindergartens k ON k.id = t.kindergarten_id
+            WHERE ${clause} GROUP BY 1 ORDER BY n DESC`, params),
+    query(`SELECT COALESCE(k.ownership,'（未填）') AS v, COUNT(*)::int AS n
+             FROM teachers t LEFT JOIN kindergartens k ON k.id = t.kindergarten_id
+            WHERE ${clause} GROUP BY 1 ORDER BY n DESC`, params),
+    query(`SELECT COALESCE(t.age_group,'（未填）') AS v, COUNT(*)::int AS n
+             FROM teachers t LEFT JOIN kindergartens k ON k.id = t.kindergarten_id
+            WHERE ${clause} GROUP BY 1 ORDER BY n DESC`, params),
+    query(`SELECT COALESCE(k.name,'（未指定园所）') AS v, COUNT(*)::int AS n
+             FROM teachers t LEFT JOIN kindergartens k ON k.id = t.kindergarten_id
+            WHERE ${clause} GROUP BY 1 ORDER BY n DESC`, params),
+  ]);
+
+  const covered = rows.rows;
+  return {
+    covers: covered.length,
+    reads: covered.filter((r) => r.read_at).length,
+    unrestricted: isUnrestricted(t),
+    // 一行一位老师。姓名怎么打码由路由层决定（它才知道调用者是谁）
+    teachers: covered.map((r) => ({
+      id: r.id,
+      real_name: r.real_name,
+      kindergarten: r.kindergarten,
+      class_name: r.class_name,
+      position: r.position,
+      age_group: r.age_group,
+      area_type: r.area_type,
+      ownership: r.ownership,
+      read_at: r.read_at,
+    })),
+    breakdown: {
+      area_type: byArea.rows,
+      ownership: byOwner.rows,
+      age_group: byAge.rows,
+      kindergarten: byKg.rows,
+    },
+  };
+}
+
+/**
  * 某位老师能看到哪些任务。
  *
  * 跟 previewTarget 共用 buildMatchSql —— 但方向是反的：

@@ -11,7 +11,7 @@
  * 库里没有手机号 —— 016 迁移把那一列删了。名单是一份**岗位清单**。
  * 自造隔离数据，可反复跑。
  */
-const B = 'http://localhost:3000';
+const B = process.env.API_BASE || 'http://localhost:3000';
 let A = null;
 const call = async (base, m, p, tok, b) => {
   const r = await fetch(base + p, {
@@ -32,8 +32,11 @@ const RND = String(Date.now()).slice(-8);
 const newWx = async (tag) => (await usr('POST', '/auth/login', null, { code: `dev:act_${RND}_${tag}` })).data.token;
 const mkCodes = async (n = 1) =>
   (await adm('POST', '/codes/batch', { count: n, init_text: 20, init_image: 10, grant_reason: `激活回归 ${RND}` })).data.created;
+// 走 `/codes/items`（按单个码查）而不是 `/codes` ——
+// 后者 2026-08-21 改成了「一行一次建码操作」（019 迁移），里面没有单个码了
 const codeStatus = async (code) =>
-  (await adm('GET', '/codes?status=all')).data.items.find((c) => c.code === code)?.status;
+  (await adm('GET', `/codes/items?code=${encodeURIComponent(code)}`))
+    .data.items.find((c) => c.code === code)?.status;
 
 A = (await adm('POST', '/login', { username: 'admin', password: '123456' })).data.token;
 

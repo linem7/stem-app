@@ -48,3 +48,6 @@ backend/.local-images/
 # 图片提示词实验产物，不入库
 .imgtest/
 .tmpimg.jpg
+
+# 清库之前的 pg_dump。**仓库是公开的，这里面有对话正文和老师姓名，绝不能提交**
+.local-backup/

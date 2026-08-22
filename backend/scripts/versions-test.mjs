@@ -253,12 +253,25 @@ chk(
 const models = await listModels();
 chk(models.length > 0, `有 ${models.length} 个可用模型：${models.map((m) => m.key).join('/')}`);
 chk(models.every((m) => FORMATS[m.format]), '每个模型的格式都认识');
-chk(models.every((m) => m.account?.apiKey && m.account?.baseURL), '每个模型都有地址和密钥');
+/* 🔴 这一条 2026-08-22 **真红过一次，而且是线上数据被改坏了**，不是断言写歪。
+   经过：`GET /image-models` 那时对内置模型一律回 `base_url: ''`，于是编辑表单里
+   那一格是空的；用户打开 gpt 和 minimax 各按了一次「保存」，空串就写进了库 ——
+   两个模型从此画不出图，**全程没有任何报错**。
+   两处都修了：GET 照实回地址，`update` 也加了「不许改成空」的校验
+   （`POST /image-models` 一直有这道校验，而 update 一直没有 —— 两条路只守了一条）。
+   所以这条断言是**看门的**，别因为它偶尔红就放宽它。 */
+chk(models.every((m) => m.account?.apiKey && m.account?.baseURL),
+  `每个模型都有地址和密钥${models.filter((m) => !m.account?.baseURL).map((m) => `（${m.key} 没地址）`).join('')}`);
 
 // 老师那边不该出现「模型选错了」这种事：认不出来的值要静悄悄退回去，不是报错
 chk(Boolean(await resolveImageProvider('乱填的')), '不认识的模型退回到能用的一个');
 chk(Boolean(await resolveImageProvider(undefined)), '没传模型也退回到能用的一个');
-chk((await pickModel()).key === cfg.imageProvider, `没指定时用 .env 的默认值（现在是 ${cfg.imageProvider}）`);
+// 「没指定时用哪个」的断言挪到下面那个受控的块里去了 ——
+// 原来这里直接拿 pickModel() 跟 cfg.imageProvider（.env 那个值）比，
+// 🔴 **而这条断言在任何人点过一次「设为默认」之后就必然红**：
+// 取值顺序是「后台设的 > .env」，后台设过就不该等于 .env 了 ——
+// 也就是说它测的东西跟它守护的规则**方向相反**。
+// 08-22 撞到的：库里 app_settings 是 minimax、.env 是 nanobanana，两边都没错，红的是断言。
 
 // 这条是安全红线：给小程序的形状里**绝不能**出现密钥或地址。
 // 破了它等于把钥匙串挂在门上 —— 加模型之所以放在后台而不是设置页，就是为了这条
@@ -280,15 +293,36 @@ chk(
   '配图路由不读请求里的 provider（传了也不算数）'
 );
 
-// 后台设完要**立刻生效**，不用重启 —— 否则还是得进服务器改 .env，白做
+/* 取值顺序 **后台设的 > .env > 列表第一个**（appSettings.js 文件头写着）。
+   三档都要验，而且**得在一个受控的状态里验** —— 直接读库里当前那个值来断言，
+   测的就变成了「库里现在恰好是什么」，那不是规则。
+
+   🔴 跑完必须还原：数据库是跟用户那个 3000 共用的，
+   留一个被测试改过的默认下去，他下次配图用的就是我们的测试值。 */
 const savedDefault = await getSetting(SETTING_KEYS.imageProvider, '');
-const other = (await listModels()).map((m) => m.key).find((k) => k !== savedDefault);
-if (other) {
-  await setSetting(SETTING_KEYS.imageProvider, other);
-  chk((await pickModel()).key === other, `后台改默认后立刻生效（临时切到 ${other}）`);
+const keys = (await listModels()).map((m) => m.key);
+try {
+  // ① 后台没设过（值为空）时退回 .env 那一档
+  await setSetting(SETTING_KEYS.imageProvider, '');
+  chk((await pickModel()).key === cfg.imageProvider,
+    `后台没设过时退回 .env 的默认（${cfg.imageProvider}）`);
+  // ② 后台设过就以它为准，而且**立刻生效**，不用重启 —— 否则还是得进服务器改 .env，白做
+  const other = keys.find((k) => k !== cfg.imageProvider);
+  if (other) {
+    await setSetting(SETTING_KEYS.imageProvider, other);
+    chk((await pickModel()).key === other, `后台设过就以它为准，且立刻生效（临时切到 ${other}）`);
+  }
+} finally {
   await setSetting(SETTING_KEYS.imageProvider, savedDefault);
-  chk((await pickModel()).key === savedDefault, `改回来也立刻生效（还原成 ${savedDefault}）`);
 }
+/* 🔴 **还原之后要读回来核一遍。**
+   这个设置是跟用户那个 3000 共用的**生产值** —— 它决定所有老师配图用哪家。
+   只写不核的话，哪天还原写歪了（或者中间抛异常绕过了 finally），
+   结果是「他精心选的默认被一次回归悄悄换掉了」，而脚本报全绿。
+   2026-08-22 就疑似发生过一次：跑完之后库里的值从 minimax 变成了 nanobanana。 */
+const restored = await getSetting(SETTING_KEYS.imageProvider, '');
+chk(restored === savedDefault,
+  `跑完还原成原来那个（'${savedDefault}'），读回来是 '${restored}'`);
 
 // Gemini 那套没有宽高，只有比例。我们按打印定的宽高要能落到最近的一档
 chk(nearestRatio(1536, 2048) === '3:4', '记录表 1536×2048 → 3:4');

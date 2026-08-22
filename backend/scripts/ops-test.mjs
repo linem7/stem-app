@@ -1,5 +1,5 @@
 /** 运营链路验证：未激活拦截 → 兑换码激活 → 协议 → 额度闸门 → 反馈 */
-const BASE='http://localhost:3000'; let token=null;
+const BASE=process.env.API_BASE||'http://localhost:3000'; let token=null;
 async function call(m,p,b){
   const r=await fetch(`${BASE}/v1${p}`,{method:m,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},...(b?{body:JSON.stringify(b)}:{})});
   const j=await r.json().catch(()=>({ok:false,error:{message:'非JSON'}}));

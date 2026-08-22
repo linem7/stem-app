@@ -7,7 +7,7 @@
  *
  * 自造隔离数据，可反复跑。
  */
-const B = 'http://localhost:3000';
+const B = process.env.API_BASE || 'http://localhost:3000';
 let A = null;
 const call = async (base, m, p, tok, b) => {
   const r = await fetch(base + p, {
