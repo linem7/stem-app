@@ -7,9 +7,11 @@
   "transformPx": false,
   "vueVersion": "3",
   "mp-weixin": {
-    // 真 AppID 还没申请。空着的话微信开发者工具会用「测试号」打开，
-    // 够本地开发，但 wx.login 拿不到真 code、msgSecCheck 也调不通 —— 上线前必须填。
-    "appid": "",
+    // 2026-08-25 填上真 AppID。在这之前是空的，微信开发者工具会用「测试号」打开 ——
+    // 够本地开发，但 wx.login 拿不到真 code、msgSecCheck 也调不通。
+    // ⚠️ 改这里之后必须重跑 dev:mp-weixin：appid 是编译时写进 dist 的 project.config.json 的，
+    //    watch 模式不一定会重读 manifest.json。
+    "appid": "wxd7ae717c264d181e",
     "setting": {
       // 本地后端是 http://localhost:3000，没有 https 域名，必须关掉域名校验。
       // 开发者工具里「不校验合法域名」那个勾也要同时打上。

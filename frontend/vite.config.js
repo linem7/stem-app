@@ -14,9 +14,13 @@ export default defineConfig({
    * （它只服务小程序，本来不需要）。所以浏览器会把请求拦下来。
    * 以前每次预览都现搭一个临时代理脚本，用完即弃 —— 那件事重复三遍就该写进配置。
    *
-   * 用法：`.env.development.local` 里覆盖成相对路径，让请求走同源：
-   *     VITE_API_BASE=/v1
-   * 不覆盖也不影响小程序 —— 那边读的是 .env.development 里的绝对地址。
+   * 地址从哪来：`.env.development` 里的 `VITE_H5_API_BASE=/v1`，
+   * 由 `utils/env.js` 用 `#ifdef H5` 只发给 H5。
+   *
+   * 🔴 别改回「在 `.env.development.local` 里覆盖 VITE_API_BASE」那种做法（2026-08-25 撤掉）。
+   * 这里原来的注释写着「不覆盖也不影响小程序」—— **那句是错的**：
+   * Vite 对 mode=development 一律加载 `.local` 且优先级最高，小程序那一侧会被一起改成
+   * 相对路径，而 `wx.request` 不接受相对路径，编出来的包在微信里连不上后端。
    */
   server: {
     proxy: {

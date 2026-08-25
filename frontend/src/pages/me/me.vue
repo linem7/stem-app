@@ -54,7 +54,7 @@
         把任务正文和问卷链接铺在这里会把记忆和提建议挤到看不见。
         没有任务时整行不出现（v-show 而不是 v-if：handler key 那个坑）。
       -->
-      <view v-show="taskCount > 0" class="row row--task" @tap="goTasks">
+      <view v-show="taskCount > 0" class="row row--task" @tap="onTaskRowTap">
         <view class="row__b">
           <text class="row__t">可以换额度的事</text>
           <text v-if="taskUnread" class="row__s">{{ taskUnread }} 件还没看</text>
@@ -209,7 +209,7 @@
         <textarea
           :value="newFact"
           class="add__ta"
-          placeholder="例：我们班有个孩子对面粉过敏"
+          placeholder="例：园里没有投影仪"
           placeholder-class="add__ph"
           :maxlength="100"
           :auto-height="true"
@@ -273,7 +273,7 @@
           placeholder-class="sug__ph"
           :maxlength="500"
           :auto-height="true"
-          @input="onSuggestionInput"
+          @input="onSuggestionTyping"
         />
         <s-button
           label="提交"
@@ -344,12 +344,14 @@ const chevron = iconChevron(COLORS.ink3)
 const checkInk = iconCheck(COLORS.ink, 2.6)
 
 /**
- * 关于。只留文字模型和版本 ——
+ * 关于。只留版本 ——
  * 「教学框架来自台湾 STEAM 教材」那条删了：那是我们的实现来源，
- * 对老师不构成任何可操作的信息。也不写图片模型：用哪家由后台定、会换。
+ * 对老师不构成任何可操作的信息。
+ * 「文字模型: DeepSeek」也删了（2026-08-23）：用哪家由后台定、会换 ——
+ * 图片模型一直没写就是这个理由，后台能换默认文本模型之后它对文字也成立，
+ * 留着这行等于留一句迟早变假的话。
  */
 const ABOUT = [
-  { k: '文字模型', v: 'DeepSeek' },
   { k: '版本', v: '内测 · 2026-08' },
 ]
 
@@ -549,7 +551,11 @@ function onRedeemTap() {
   navTo('redeem', { topup: 1 })
 }
 
-function goTasks() {
+/* 🔴 名字不能叫 goTasks：uni 给事件处理器的缓存 key 是按 handler 名算的 8 位哈希、
+   只有 256 个桶，`goTasks` 跟错误态那个 `load` 撞在同一个 "4c" 上，
+   微信会把点击派发错人（`npm run test:mp` 第 2 条专查这个）。
+   改名就换了哈希 —— 实测 4c → 8e。别为了「更短」改回去。 */
+function onTaskRowTap() {
   navTo('tasks')
 }
 
@@ -661,7 +667,7 @@ function pickCategory(k) {
   category.value = k
 }
 
-function onSuggestionInput(e) {
+function onSuggestionTyping(e) {
   suggestion.value = e.detail.value
 }
 

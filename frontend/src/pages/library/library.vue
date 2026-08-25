@@ -58,34 +58,44 @@
 
     <template v-else>
       <!--
-        长按删除，不做左滑：左滑在小程序里要自己实现手势，而这一屏最要紧的是别误删 ——
-        教案是老师花了时间的东西。长按 + 一句确认，比滑出一个红按钮稳。
+        左滑露出红色删除键，点它就删（2026-08-23 用户定）。
+        ⚠️ 这是**减了一次确认**的取舍：原来是长按 + 确认框，理由写着「教案是老师
+        花了时间的东西，别误删」。现在的两步是「主动左滑」+「点红键」——
+        滑动是个明确的意图动作，误触到它的概率比长按低。
+        小程序没有现成的左滑组件，手势自己算（见 onSwipeStart/Move/End）。
       -->
-      <view
-        v-for="it in items"
-        :key="it.id"
-        class="card"
-        :class="{ 'card--draft': isDraft(it) }"
-        @tap="open(it)"
-        @longpress="askDelete(it)"
-      >
-        <view class="card__b">
-          <view v-if="isDraft(it)" class="badge badge--draft"><text class="badge__t">草稿</text></view>
-          <view v-else class="badge badge--done">
-            <view class="badge__dot" />
-            <text class="badge__t badge__t--done">已完成</text>
-          </view>
-          <text v-if="it.age_group" class="card__age">{{ it.age_group }}</text>
-          <text v-if="it.has_image" class="card__img">有配图</text>
-          <text class="card__date">{{ fmtDate(it.updated_at) }}</text>
+      <view v-for="it in items" :key="it.id" class="swipe">
+        <!-- 删除键垫在底下，卡片滑开才露出来。放在前面是为了让卡片盖住它 -->
+        <view class="swipe__del" @tap.stop="onDelTap(it)">
+          <text class="swipe__del-t">删除</text>
         </view>
-        <text class="card__t">{{ it.title || '未命名教案' }}</text>
-        <text v-if="isDraft(it) && it.progress_text" class="card__p">{{ it.progress_text }}</text>
-        <view class="card__go">
-          <text class="card__go-t" :class="{ 'card__go-t--done': !isDraft(it) }">
-            {{ isDraft(it) ? '接着写' : '打开看看' }}
-          </text>
-          <image class="card__go-i" :src="chevron" mode="widthFix" />
+        <view
+          class="card"
+          :class="{ 'card--draft': isDraft(it) }"
+          :style="{ transform: `translateX(${it.id === openId ? -DEL_W : 0}px)` }"
+          @touchstart="onSwipeStart"
+          @touchmove="onSwipeMove($event, it)"
+          @touchend="onSwipeEnd(it)"
+          @tap="open(it)"
+        >
+          <view class="card__b">
+            <view v-if="isDraft(it)" class="badge badge--draft"><text class="badge__t">草稿</text></view>
+            <view v-else class="badge badge--done">
+              <view class="badge__dot" />
+              <text class="badge__t badge__t--done">已完成</text>
+            </view>
+            <text v-if="it.age_group" class="card__age">{{ it.age_group }}</text>
+            <text v-if="it.has_image" class="card__img">有配图</text>
+            <text class="card__date">{{ fmtDate(it.updated_at) }}</text>
+          </view>
+          <text class="card__t">{{ it.title || '未命名教案' }}</text>
+          <text v-if="isDraft(it) && it.progress_text" class="card__p">{{ it.progress_text }}</text>
+          <view class="card__go">
+            <text class="card__go-t" :class="{ 'card__go-t--done': !isDraft(it) }">
+              {{ isDraft(it) ? '接着写' : '打开看看' }}
+            </text>
+            <image class="card__go-i" :src="chevron" mode="widthFix" />
+          </view>
         </view>
       </view>
 
@@ -95,6 +105,23 @@
         <text class="more__t">{{ loadingMore ? '正在拿…' : '再看 20 份' }}</text>
       </view>
     </template>
+
+    <!--
+      第一次进这一页时教一次左滑（2026-08-23 用户定）。
+      🔴 **只教手势，不介绍这一页能干什么**：其余东西（草稿标记、筛选、接着写）
+      在界面上看得见，而左滑是**隐蔽手势** —— 不说她永远找不到。
+      看过一次就不再出现（存 storage），不占她第二次的时间。
+    -->
+    <view v-if="showSwipeHint" class="hint" @tap="dismissHint">
+      <view class="hint__box">
+        <view class="hint__demo">
+          <view class="hint__card" />
+          <view class="hint__del"><text class="hint__del-t">删除</text></view>
+        </view>
+        <text class="hint__t">向左滑动卡片可以删除教案</text>
+        <view class="hint__ok"><text class="hint__ok-t">知道了</text></view>
+      </view>
+    </view>
   </s-page>
 </template>
 
@@ -154,6 +181,8 @@ async function reload() {
     items.value = data.items || []
     Object.assign(counts, data.counts || {})
     cursor.value = data.next_cursor || null
+    // 拿到教案之后才可能弹引导 —— 一份都没有的时候教她左滑删除是没有意义的
+    maybeShowHint()
   } catch (err) {
     loadError.value = err
   } finally {
@@ -214,6 +243,10 @@ function onEmptyAction() {
  * 草稿回引导页接着答；写完的进成稿页 —— 列表里已经带着 lesson_plan_id，不用再问一次后端。
  */
 function open(it) {
+  // 刚刚是在滑动（或者有卡片正滑开着）→ 这一下不算「打开」。
+  // 不拦的话左滑松手会顺带把教案打开，而她的意图是想删它
+  if (swipeMoved) { swipeMoved = false; return }
+  if (openId.value) { openId.value = null; return }
   if (isDraft(it)) {
     navTo('guide', { id: it.id })
   } else if (it.lesson_plan_id) {
@@ -225,17 +258,72 @@ function open(it) {
   }
 }
 
-function askDelete(it) {
-  uni.showModal({
-    title: '',
-    content: `删掉「${it.title || '未命名教案'}」？删了就找不回来了。`,
-    confirmText: '删掉',
-    confirmColor: COLORS.coralDeep,
-    cancelText: '取消',
-    success: (r) => {
-      if (r.confirm) doDelete(it)
-    },
-  })
+/* ── 左滑露出删除键（2026-08-23 用户定，小程序没有现成组件，手势自己算）──
+   只允许**一张**卡片处于滑开状态：两张同时开着，那个红键点下去删的是哪一份
+   要靠她自己记，而这是不可逆动作。 */
+const DEL_W = 84            // 删除键宽度（px），跟 .swipe__del 的 168rpx 对应
+const openId = ref(null)    // 当前滑开的那张卡片 id
+let startX = 0
+let startY = 0
+let swipeMoved = false      // 这一次触摸算不算滑动（用来压掉尾随的 tap）
+let horizontal = null       // 本次手势是横向还是纵向，判定一次就锁定
+
+function onSwipeStart(e) {
+  const t = e.touches?.[0] || e.changedTouches?.[0]
+  startX = t?.clientX ?? 0
+  startY = t?.clientY ?? 0
+  swipeMoved = false
+  horizontal = null
+}
+
+function onSwipeMove(e, it) {
+  const t = e.touches?.[0]
+  if (!t) return
+  const dx = t.clientX - startX
+  const dy = t.clientY - startY
+  /* 先判方向再决定要不要接管这一次手势。
+     不判的话竖着滚列表会被误认成左滑，整页滚动变得很黏 ——
+     纵向位移更大就直接放手，让页面自己滚。 */
+  if (horizontal === null) {
+    if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return
+    horizontal = Math.abs(dx) > Math.abs(dy)
+  }
+  if (!horizontal) return
+  swipeMoved = true
+  // 只认左滑；右滑用来关掉已经开着的那张
+  if (dx < -DEL_W / 2) openId.value = it.id
+  else if (dx > DEL_W / 2) openId.value = null
+}
+
+function onSwipeEnd() {
+  horizontal = null
+}
+
+/**
+ * 点红色删除键 —— **点了就删，没有第三次确认**（用户原话：「再次点击删除教案」）。
+ * 「主动左滑」+「点红键」本身就是两步，比原来的长按 + 确认框少一次，
+ * 但滑动是明确的意图动作，误触概率比长按低。
+ */
+function onDelTap(it) {
+  openId.value = null
+  doDelete(it)
+}
+
+/* 首次引导：她有教案、且没看过 → 弹一次，教左滑。看过就记住 */
+const HINT_KEY = 'lib_swipe_hint_seen'
+const showSwipeHint = ref(false)
+
+function maybeShowHint() {
+  if (showSwipeHint.value || !items.value.length) return
+  try {
+    if (uni.getStorageSync(HINT_KEY)) return
+  } catch { /* storage 读不出来就当没看过，多弹一次不是问题 */ }
+  showSwipeHint.value = true
+}
+
+function dismissHint() {
+  showSwipeHint.value = false
+  try { uni.setStorageSync(HINT_KEY, 1) } catch { /* 存不上就下次再弹一次，不影响用 */ }
 }
 
 async function doDelete(it) {
@@ -345,14 +433,43 @@ function fmtDate(iso) {
   }
 }
 
+/* ============ 左滑删除（2026-08-23）============ */
+/* 删除键垫在卡片底下，卡片靠 transform 滑开露出它。
+   .swipe 要 overflow:hidden —— 不然没滑开的时候红键从右边探出来一截 */
+.swipe {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 20rpx;
+  border-radius: 28rpx;
+}
+
+.swipe__del {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 168rpx;   /* 跟 JS 里的 DEL_W = 84px 对应，改一个要改两个 */
+  background: $coral-deep;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.swipe__del-t {
+  color: $white;
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+
 /* ============ 卡片 ============ */
 .card {
+  position: relative;   /* 盖住底下的删除键 */
   background: $white;
   border: 2rpx solid $rule-2;
   border-radius: 28rpx;
   padding: 24rpx 26rpx;
-  margin-bottom: 20rpx;
   box-shadow: $shadow-card;
+  transition: transform .18s ease;
 
   /* 草稿降一档存在感：视线该落在能用的那几份上 */
   &--draft {
@@ -480,6 +597,89 @@ function fmtDate(iso) {
 .more__t {
   font-size: var(--fs-sub);
   color: $ink-3;
+}
+
+/* ============ 首次引导（只教左滑这一件事）============ */
+.hint {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(58, 54, 48, .55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99;
+}
+
+.hint__box {
+  background: $white;
+  border-radius: 32rpx;
+  padding: 40rpx 36rpx 32rpx;
+  margin: 0 60rpx;
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 一个静态的示意：左边一块卡片形状，右边露出红键。
+   不做动画 —— 一次性引导上加动画，她还没看懂就播完了 */
+.hint__demo {
+  position: relative;
+  width: 420rpx;
+  height: 96rpx;
+  border-radius: 20rpx;
+  overflow: hidden;
+  background: $coral-deep;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 24rpx;
+}
+
+.hint__card {
+  position: absolute;
+  left: -84rpx;
+  top: 0;
+  bottom: 0;
+  width: 420rpx;
+  background: $paper-2;
+  border: 2rpx solid $rule-2;
+  border-radius: 20rpx;
+}
+
+.hint__del {
+  width: 168rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hint__del-t {
+  color: $white;
+  font-size: var(--fs-sub);
+  font-weight: 600;
+}
+
+.hint__t {
+  font-size: var(--fs-body);
+  color: $ink;
+  text-align: center;
+}
+
+.hint__ok {
+  margin-top: 28rpx;
+  background: $amber;
+  border: 2rpx solid $amber-line;
+  border-radius: 20rpx;
+  padding: 18rpx 56rpx;
+}
+
+.hint__ok-t {
+  font-size: var(--fs-body);
+  color: $ink;
+  font-weight: 600;
 }
 
 </style>
