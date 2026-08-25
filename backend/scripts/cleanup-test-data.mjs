@@ -17,7 +17,7 @@
  *
  * 一并清掉：没人认领的兑换码（是给这些假账号建的）、假账号名下的教案配图文件、
  * 回归脚本自建的管理员和园所（都按**脚本的命名规律**认，不猜）。
- * 不动：真实园所、admin 账号、app_settings、image_models。
+ * 不动：真实园所、admin 账号、app_settings、ai_models（021 之前叫 image_models）。
  *
  * 🔴 **`model_calls` 一行都不删**（2026-08-21 定）。它是平台自己那本账的支出侧，
  * 而回归脚本真的调过 DeepSeek、真的花了钱 —— 那笔钱花掉了，删掉它等于把账做平。
@@ -345,11 +345,26 @@ const done = await withTransaction(async (c) => {
              SELECT 1 FROM junk_logs j
               WHERE abs(extract(epoch FROM (j.created_at - l.created_at))) <= 10)`);
 
-  // image_model 那几条（建模型、改模型、设为默认、试跑）不在上面任何一条规则里，
+  // image_model / model 那几条（建模型、改模型、设为默认、试跑）不在上面任何规则里，
   // 所以自动留下 —— 它们是**真的配置历史**。`image_model:minimax` 现在查不到那一行，
   // 但那是「后来把它撤了」，不是测试数据，按引用规则删掉就把真历史删了。
+  // 🔴 唯一例外：admin-test 建的回归模型统一 `regr_` 前缀，它们的日志是垃圾 ——
+  //    不清的话每跑一轮回归，「模型管理」的操作记录里就多一批 model:regr_xxx
+  await q(`
+    INSERT INTO junk_logs (id, created_at)
+    SELECT l.id, l.created_at FROM admin_logs l
+     WHERE l.id NOT IN (SELECT id FROM junk_logs)
+       AND l.action IN ('create_model', 'update_model', 'delete_model', 'test_model', 'set_default_model')
+       AND l.target LIKE 'model:regr\\_%'`);
   const g1 = await q(`DELETE FROM admin_logs WHERE id IN (SELECT id FROM junk_logs) RETURNING id`);
   note('回归脚本跑出来的操作记录', g1.rowCount);
+
+  // ── 7.5 回归模型 ─────────────────────────────────────────────────
+  // admin-test 建的模型（regr_ 前缀）自己会删，这一条是它跑到一半挂掉时的兜底 ——
+  // 一行残留的 regr_ 文本模型会一直躺在「模型管理」的文本列表里，看起来像真的。
+  // 「不动 ai_models」指的是真实配置；regr_ 前缀是脚本专用命名，判据是硬的。
+  const g2 = await q(`DELETE FROM ai_models WHERE key LIKE 'regr\\_%' RETURNING key`);
+  note('回归脚本残留的模型', g2.rowCount);
 
   // ── 收尾统计 ────────────────────────────────────────────────────
   const after = {};

@@ -1,8 +1,9 @@
 /**
  * 运行期设置 —— 后台改完立刻生效，不用重启（app_settings 表）。
  *
- * 只放**运营参数**，不放密钥。目前就一个键：
+ * 只放**运营参数**，不放密钥。目前两个运营键：
  *   image_provider —— 配图默认用哪个模型
+ *   text_provider  —— 文本默认用哪个模型（出题/生成/改稿/解读全走它）
  *
  * 优先级：数据库 > .env > 代码默认。这个顺序是有意的 ——
  * 全新部署时数据库里什么都没有，靠 .env 兜底照样能跑；
@@ -49,9 +50,12 @@ export async function setSetting(key, value, adminId = null) {
 
 export const SETTING_KEYS = {
   imageProvider: 'image_provider',
-  /* .env 里那两家配图模型有没有播种进 image_models 表（2026-08-22）。
-     这个键**只是一个一次性的标记**，不是运营参数 ——
-     它存在的全部理由是：播种之后就不再读 .env 了，
-     否则在后台删掉的模型下次重启会自己回来（见 imageModels.js 文件头）。 */
+  textProvider: 'text_provider',
+  /* .env 里的模型有没有播种进 ai_models 表。配图 2026-08-22、文本 2026-08-23。
+     这两个键**只是一次性的标记**，不是运营参数 ——
+     它们存在的全部理由是：播种之后就不再读 .env 了，
+     否则在后台删掉的模型下次重启会自己回来（见 modelRegistry.js 文件头）。
+     分开记是因为老库配图早播完了，升级后文本要能照常首播。 */
   envModelsSeeded: 'env_models_seeded',
+  envTextModelsSeeded: 'env_text_models_seeded',
 };

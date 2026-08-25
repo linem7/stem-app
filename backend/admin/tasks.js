@@ -1,5 +1,5 @@
 /* 任务页。拆成单独一个文件 —— app.js 已经 1100 行了。
-   跟 roster.js / image-models.js 一样是普通脚本、共用全局作用域。
+   跟 roster.js / models.js 一样是普通脚本、共用全局作用域。
 
    任务**不自动发额度**：它只承诺「填完给 20 次教案」，
    到账靠我事后核对答卷、建码发给她，她自己兑。
@@ -24,11 +24,34 @@ const targetCol = (vals, label = (x) => x) => (vals?.length
   ? esc(vals.map(label).join('、'))
   : '<span style="color:var(--ink-3)">不限</span>');
 
+/** 「这个任务没有定向这一维」＝ 发给所有人。它跟「定向了广州」是两个问题，得能分开筛 */
+const TARGET_NONE = '__none__';
+
+/**
+ * 一个任务在某一维上是否命中筛选值。
+ *
+ * 🔴 **定向维度是多选的**（一个任务可以发给「广州、宁波」），所以这里是
+ * `includes` 而不是 `===` —— 其他几页的前端筛都是等值比较（一行一值），
+ * 照抄过来对数组恒为 false，表现是「筛完一条都不剩」。
+ */
+const targetHit = (vals, want) => (want === TARGET_NONE
+  ? !(vals || []).length
+  : (vals || []).includes(want));
+
 function tasksView() {
   const all = S.data.tasks?.items || [];
+  const f = S.filter;
+  // 城市选项**从当前这批任务里现取**：城市是人填的自由文本，写死一份清单必然对不上。
+  // ⚠️ 用 flatMap 而不是 map —— 一个任务的城市是一个数组，
+  // 照教师页那样 map 出来的是数组本身，去重之后每一项都是 "广州,宁波" 这种鬼东西
+  const cityOpts = [...new Set(all.flatMap((t) => t.target?.cities || []))].sort();
+  const items0 = all.filter((t) => (!f.taskCity || targetHit(t.target?.cities, f.taskCity))
+    && (!f.taskOwner || targetHit(t.target?.ownerships, f.taskOwner)));
+  const filtered = Boolean(f.taskCity || f.taskOwner);
   // 🔴 **在前端分页，不请求后端。** 任务是几十条量级、`GET /tasks` 一次全给，
-  // 为翻页多加一组查询参数不值得。判据跟反馈页那条一样：这一页开始变慢就挪到后端
-  const { items, page, pages } = paginate('tasks', all);
+  // 为翻页多加一组查询参数不值得。判据跟反馈页那条一样：这一页开始变慢就挪到后端。
+  // 先筛后分页（跟教师页同一个顺序）—— 反过来的话第 2 页筛出来是空的
+  const { items, page, pages } = paginate('tasks', items0);
 
   // 「共 N 个，进行中 M 个。奖励需人工核对答卷后建码发放」删了（2026-08-22 用户提）。
   // 前半截是汇总（状态那一列看得出来），后半截是**给我自己的备忘**——
@@ -38,6 +61,7 @@ function tasksView() {
     <div class="row row--tools">
       <button class="btn" onclick="openTaskForm()">＋ 新建任务</button>
       ${perSelect('tasks')}
+      ${clearBtn('clearTaskFilter', filtered)}
     </div>
     <!-- 列 2026-08-22 用户定：标题 / 问卷链接 / 奖励 / 城市 / 办园性质 / 截止 / 状态 / 操作。
            · **「覆盖」那一列删了** —— 它要为每个任务跑一次定向试算
@@ -56,7 +80,14 @@ function tasksView() {
            而「操作」那一列两个按钮被挤在 110px 里换行。
            现在每列都写死，余量按比例分，城市那一列稍宽（它可能是「广州、宁波」）。 -->
       <tr><th style="width:250px">标题</th><th style="width:100px">问卷链接</th><th style="width:150px">奖励</th>
-          <th style="width:130px">城市</th><th style="width:100px">办园性质</th>
+          <!-- 城市和办园性质这两列可以筛（2026-08-23 用户提）。
+               ⚠️ 这两维是**多选**的，所以筛的语义是「这个任务的定向里包含它」，
+               外加一个「不限定向」项 —— 那批任务发给所有人，
+               把它们混进「广州」的结果里会让人以为定向写错了 -->
+          ${thFilter('城市', 'taskCity',
+            [...cityOpts.map((c) => [c, c]), [TARGET_NONE, '不限定向']], f.taskCity, '', 130)}
+          ${thFilter('办园性质', 'taskOwner',
+            [...OWNER_OPTS, [TARGET_NONE, '不限定向']], f.taskOwner, '', 108)}
           <th style="width:76px">截止</th><th style="width:80px">状态</th><th style="width:140px"></th></tr>
       ${items.map((t) => `<tr style="${t.status === 'closed' ? 'opacity:.55' : ''}">
         <td><b>${esc(t.title)}</b></td>
@@ -74,8 +105,16 @@ function tasksView() {
             ? `<button class="btn-sm btn-danger" onclick="closeTask(${t.id})">停止</button>` : ''}</td>
       </tr>`).join('')}
     </table>
-    ${pagerBar('tasks', page, pages)}` : `<div class="empty">暂无任务</div>`}`;
+    ${pagerBar('tasks', page, pages)}`
+      : `<div class="empty">${filtered ? '当前条件下无记录' : '暂无任务'}</div>`}`;
 }
+
+window.clearTaskFilter = () => {
+  S.filter.taskCity = '';
+  S.filter.taskOwner = '';
+  pg('tasks').page = 1;
+  render();
+};
 
 /* 任务详情 openTaskDetail **2026-08-22 整块删了**（用户定：
    「删除详情功能，编辑跟详情是一样的东西」）。

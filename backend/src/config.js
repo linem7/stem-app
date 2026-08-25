@@ -53,6 +53,11 @@ export const config = {
     contentCheckEnabled: bool('CONTENT_CHECK_ENABLED', false),
   },
 
+  /**
+   * ⚠️ 2026-08-23 起，deepseek 这一段只是**播种源 + 播种前的兜底**：
+   * 启动时被 seedEnvModels() 抄进 ai_models 表（含单价/超时/重试），
+   * 之后改这里不再生效 —— 改模型一律走管理后台的「模型管理」。
+   */
   deepseek: {
     apiKey: str('DEEPSEEK_API_KEY'),
     baseURL: str('DEEPSEEK_BASE_URL', 'https://api.deepseek.com'),
@@ -76,10 +81,11 @@ export const config = {
   },
 
   /**
-   * 默认用哪家出图。老师能在设置页里改，这里是她没选过时的默认值。
-   * 默认 gpt 的理由：记录表（表格线条）MiniMax 稳定画不对，而那张图的用途就是印出来填。
+   * 默认用哪家出图 / 哪家写文本。都只是**兜底**：后台「设为默认」（app_settings）
+   * 设过之后以库里的为准，这两个值只在全新部署、库里还没设过时起作用。
    */
   imageProvider: str('IMAGE_PROVIDER', 'gpt'),
+  textProvider: str('TEXT_PROVIDER', 'deepseek'),
 
   /** gpt-image-2，经 12ai 中转，OpenAI images 接口形状 */
   gptImage: {
@@ -173,11 +179,9 @@ const REQUIRED = [
     ok: () => Boolean(config.wechat.secret),
     why: '微信小程序 AppSecret，与 AppID 同一个页面，点「生成」后只显示一次。（同上，本地可临时填占位值）',
   },
-  {
-    name: 'DEEPSEEK_API_KEY',
-    ok: () => Boolean(config.deepseek.apiKey),
-    why: 'DeepSeek 文本模型密钥。platform.deepseek.com → 注册 → API keys → 创建，并先充值一点余额。',
-  },
+  /* DEEPSEEK_API_KEY 从必填清单撤下了（2026-08-23）：文本模型播种进库之后，
+     「有没有一个能用的文本模型」在 server.js 启动时查库判断 ——
+     老库里模型早就在库里了，.env 空着也该能启动。全新部署缺 key 的中文提示在那边。 */
 ];
 
 /**

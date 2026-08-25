@@ -57,7 +57,7 @@ function apiError(code, extra = {}) {
  * @returns {Promise<{buffer:Buffer, width:number, height:number, bytes:number, costCents:number}>}
  */
 export async function generateImage({ account, prompt, aspectRatio = DEFAULT_RATIO, width, height, optimize }) {
-  // account 由调度层给（内置那家来自 .env，后台加的来自 image_models 表）——
+  // account 由调度层给（内置那家来自 .env，后台加的来自 ai_models 表）——
   // 这个文件不再自己读 config，否则"同一种格式、不同账号"就没法支持
   const acc = account || config.minimax;
   if (!acc?.apiKey) {

@@ -169,14 +169,19 @@ L('=== 对话记录卷成问答对（2026-08-22）===');
     // 原来是把 messages 原样铺开：每条 assistant 都带着那道题的**全部推荐选项**，
     // 一份四题的教案滚出两百多行，而「她答了什么」埋在里面。
     // 用户原话：「呈现了问题但不呈现用户的答案，当前结构太长了」。
+    // 2026-08-23 键名带上角色（AI问/教师答/教师说），并补了初稿/重写的思考链路
     const tr=plan.transcript||{};
     chk(Array.isArray(tr.引导) && tr.引导.length>0, `引导阶段卷出 ${tr.引导?.length} 个问答对`);
-    // 🔴 **配对必须真的发生**：光有「问」没有「答」正是这次要修掉的毛病，
+    // 🔴 **配对必须真的发生**：光有问没有答正是这次要修掉的毛病，
     // 而一个只有问题的 transcript 看起来完全正常 —— 它就是原来那个样子
-    chk((tr.引导||[]).some(x=>x.问 && x.答), '题和答配上了（有「问」没「答」就等于没改）');
+    chk((tr.引导||[]).some(x=>x.AI问 && x.教师答), '题和答配上了（键名带角色：AI问 / 教师答）');
     // 改稿轮次要带上「她当时说了什么」，那是认这一版靠的东西
-    chk(!tr.改稿 || tr.改稿.every(r=>typeof r.轮次==='number' && Array.isArray(r.追问)),
-      `改稿 ${tr.改稿?.length||0} 轮，每轮带「她说」和追问`);
+    chk(!tr.改稿 || tr.改稿.every(r=>typeof r.轮次==='number' && Array.isArray(r.AI追问)),
+      `改稿 ${tr.改稿?.length||0} 轮，每轮带「教师说」和 AI 追问`);
+    // 新生成的教案带初稿记录（版本 + AI思考）；老教案没有 generation 消息，键缺席也合法。
+    // 有的话形状必须对 —— AI思考是 null 表示「那次没开思考」，键本身要在
+    chk(!tr.初稿 || (typeof tr.初稿.版本==='number' && 'AI思考' in tr.初稿),
+      tr.初稿 ? `初稿记录在（v${tr.初稿.版本}，AI思考${tr.初稿.AI思考?'有':'为 null'}）` : '老教案没有初稿记录（键缺席，合法）');
     // 短下来是这次改动的**全部目的**。不设固定阈值只比大小：
     // 压缩比随教案长短变，而「比原始记录还长」一定是卷错了
     const rawLen=JSON.stringify(plan.messages).length;
@@ -328,6 +333,80 @@ for (const m of ['GET','POST']) {
   const r=await adm(m,'/topups',m==='POST'?{amount_yuan:12.34,channel:'other'}:undefined);
   chk(r.status===404, `${m} /topups 回 404（路由跟界面一起撤了，不是只藏起来）`);
 }
+
+L('=== 模型管理 /models（HTTP 层，2026-08-23 前一直零覆盖）===');
+/**
+ * service 层的注册表有 versions-test 第 10 节盯着；这一节盯的是**路由那一层**：
+ * 校验、遮码、动作名。建的模型统一 `regr_` 前缀 —— cleanup-test-data 按它认垃圾。
+ *
+ * ⚠️ 「最后一个启用的文本模型不许删/停」那条红线**故意没在这里测**：
+ * 要把它逼到边界，得先停用库里所有真实文本模型 —— 数据库跟用户那个 3000 共用，
+ * 脚本半路挂掉就是「他的 DeepSeek 被回归停掉了」。
+ * 同理**不碰「设为默认」**：服务层已在受控状态里覆盖，别多一次改生产默认的机会。
+ */
+/* 表单 2026-08-23 简化成三个字段（地址 / key / 模型 id）：
+   `format` 后端按地址推断、`key` 从模型 id 派生 —— 所以这一节也不再传它们。 */
+const MSECRET=`sk-regr-${RND}-abcdef123456`;
+const mc=await adm('POST','/models',{kind:'text',
+  base_url:'https://example.invalid/v1',api_key:MSECRET,model:`regr_txt_${RND}`,
+  options:{price_in_cents_per_mtok:100,price_out_cents_per_mtok:400}});
+chk(mc.ok, `建一个文本模型，代号自动派生：${mc.data?.key}`);
+const MKEY=mc.data?.key;
+chk(MKEY===`regr_txt_${RND}`, `代号 = 洗干净的模型 id（${MKEY}）`);
+chk(mc.data?.format==='openai_chat',
+  `没填接口格式，按地址认成通用 OpenAI 兼容（${mc.data?.format}）—— 认不出来退到通用档，不猜`);
+// 同一个模型 id 再建一次：**不能因为内部字段撞了就拒**（两个中转商、两把 key 是真实场景）
+const dup=await adm('POST','/models',{kind:'text',
+  base_url:'https://example2.invalid/v1',api_key:'sk-x-2',model:`regr_txt_${RND}`});
+chk(dup.ok && dup.data.key!==MKEY, `同一个模型 id 配第二次，代号自动加后缀（${dup.data?.key}）`);
+await adm('POST',`/models/${dup.data.key}/delete`);
+// 地址认得出的那几家：deepseek 的地址要认成 deepseek 格式（否则思考开关会是灰的）
+const dsGuess=await adm('POST','/models',{kind:'text',
+  base_url:'https://api.deepseek.com',api_key:'sk-x',model:`regr_ds_${RND}`});
+chk(dsGuess.data?.format==='deepseek', `api.deepseek.com 认成 deepseek 格式（${dsGuess.data?.format}）`);
+await adm('POST',`/models/${dsGuess.data.key}/delete`);
+const badKind=await adm('POST','/models',{kind:'video',
+  base_url:'https://x.invalid',api_key:'sk-x',model:'m'});
+chk(!badKind.ok, `kind 乱填被拒：${badKind.error?.message}`);
+// 通用档不支持思考 —— 界面上那个开关是灰的，请求手发过来服务端也得拒
+const badCaps=await adm('POST','/models',{kind:'text',
+  base_url:'https://x.invalid',api_key:'sk-x',model:`regr_c_${RND}`,options:{thinking:true}});
+chk(!badCaps.ok, `caps 不支持的开关设 true 被拒（置灰不算校验）：${badCaps.error?.message}`);
+const mlist=await adm('GET','/models');
+const mrow=mlist.data.items.find((m)=>m.key===MKEY);
+chk(Boolean(mrow) && mrow.kind==='text' && mrow.base_url==='https://example.invalid/v1',
+  '列表带 kind，🔴 base_url 照实回（回空串→保存清空地址，那次事故的复测）');
+chk(Boolean(mrow?.format_cn) && Boolean(mrow?.caps),
+  '每行带「识别为哪一家」和 caps —— 推断错了只有这一列看得出来');
+chk(typeof mlist.data.defaults?.text==='string' && typeof mlist.data.defaults?.image==='string',
+  '两类各有各的默认');
+chk(!JSON.stringify(mlist.data).includes(MSECRET),
+  '🔴 GET /models 的整个响应里没有明文密钥');
+const emptyBase=await adm('POST',`/models/${MKEY}/update`,{base_url:''});
+chk(!emptyBase.ok, `update 把地址改成空被拒（create 和 update 同一套校验）：${emptyBase.error?.message}`);
+const mu=await adm('POST',`/models/${MKEY}/update`,
+  {options:{price_in_cents_per_mtok:120,timeout_ms:70000},api_key:''});
+chk(mu.ok, 'api_key 留空 = 不改，其余字段照常保存');
+const mafter=(await adm('GET','/models')).data.items.find((m)=>m.key===MKEY);
+chk(mafter?.base_url==='https://example.invalid/v1' && mafter?.model===`regr_txt_${RND}`,
+  '只改单价不动地址和模型 id（08-22 那次事故：改个名字把地址清空了）');
+chk(mafter?.options?.timeout_ms===70000 && mafter?.options?.price_in_cents_per_mtok===120,
+  'options 里没有输入框的旋钮（timeout_ms）跟着传回来就保住了');
+// 改地址 → 格式跟着重认。锁着旧格式会出现「地址是 deepseek、格式还是通用档」，
+// 那时思考开关是灰的，而它本该能开
+const rebase=await adm('POST',`/models/${MKEY}/update`,{base_url:'https://api.deepseek.com'});
+chk(rebase.ok && rebase.data.format==='deepseek',
+  `改了地址，格式跟着重认（openai_chat → ${rebase.data?.format}）`);
+/* 🔴 反方向：**认不出来时不许覆盖已有格式**。
+   nanobanana 就是这个情况（gemini 原生格式 + 12ai 中转地址）——
+   降级成通用档会让它立刻画不出图，而且不报错。 */
+const keepFmt=await adm('POST',`/models/${MKEY}/update`,{base_url:'https://unknown-relay.invalid/v1'});
+chk(keepFmt.ok && keepFmt.data.format==='deepseek',
+  `改成认不出的中转地址，格式保持原样不降级（仍是 ${keepFmt.data?.format}）`);
+const oldRoute=await adm('GET','/image-models');
+chk(oldRoute.status===404, '旧 /image-models 路由回 404（换掉了，不是两条都通）');
+const mdel=await adm('POST',`/models/${MKEY}/delete`);
+chk(mdel.ok, '删得掉（停用的文本模型不受「最后一个」红线保护）');
 
 L('=== 停用 ===');
 const off=await adm('POST',`/teachers/${wang.id}/status`,{status:'disabled'});

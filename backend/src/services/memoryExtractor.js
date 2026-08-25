@@ -11,7 +11,7 @@
  * 隐私底线（api-spec 第 8 节）：写入是自动的，但删改权完全在老师手里。
  * 所以这里只做「新增/加频次」，永远不自动删老师置顶的记忆。
  */
-import { chatJSON } from './deepseek.js';
+import { chatJSON } from './textChat.js';
 import { buildMemoryExtractionSystemPrompt } from './promptBuilder.js';
 import { query } from '../db/pool.js';
 import { logger } from '../utils/logger.js';

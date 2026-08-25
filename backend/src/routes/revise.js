@@ -15,7 +15,7 @@
 import { Router } from 'express';
 import { query, queryOne, withTransaction } from '../db/pool.js';
 import { ok, asyncRoute, badRequest, notFound } from '../utils/errors.js';
-import { chatJSON } from '../services/deepseek.js';
+import { chatJSON } from '../services/textChat.js';
 import { buildReviseSystemPrompt } from '../services/promptBuilder.js';
 import { listMemories } from '../services/memoryExtractor.js';
 import { msgSecCheck, contentBlockedError } from '../services/wechat.js';

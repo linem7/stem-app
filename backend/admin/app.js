@@ -25,6 +25,10 @@ const S = {
     age: '', cls: '', pos: '',
     // 园所页那三列，同样前端筛。它们正好是任务定向筛的三个字段
     kgCity: '', kgArea: '', kgOwn: '',
+    // 任务页两列（2026-08-23 加），同样前端筛。⚠️ 跟上面那些不同：
+    // 任务的每个定向维度是**多选**（一个任务可以发给「广州、宁波」），
+    // 所以筛的时候是「包含」而不是相等，见 tasks.js 里那个 hit()
+    taskCity: '', taskOwner: '',
     // 操作记录：`group`（5 组之一）和 `range`（24h / 7d / 30d）。
     // 原来是 action（单个动作）+ from/to（两个日期框），两者 2026-08-22 都换掉了。
     // ⚠️ 后端那四个参数**还收**（回归脚本按它们断言），只是界面不再发
@@ -76,15 +80,17 @@ const fmtDate = (d) => (d ? new Date(d).toLocaleString('zh-CN', { month: 'numeri
 const fmtDay = (d) => (d ? new Date(d).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : '—');
 /**
  * `2026-08-22 14:05`（2026-08-22 用户指定教案记录用这个格式）。
+ * 带 `sec` 时到秒：`2026-08-22 14:05:09`（2026-08-23 用户指定兑换码那一列用它）。
  *
  * 不用 toLocaleString：`zh-CN` 那套给的是「2026/8/22 14:05」——
  * 月和日不补零，一列日期长短不一，扫不齐；而这一列正是按时间排序的。
  */
-const fmtStamp = (d) => {
+const fmtStamp = (d, sec = false) => {
   if (!d) return '—';
   const t = new Date(d);
   const p = (n) => String(n).padStart(2, '0');
-  return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}`;
+  return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}${
+    sec ? `:${p(t.getSeconds())}` : ''}`;
 };
 
 function toast(msg) {
@@ -161,7 +167,7 @@ const PAGES = {
  *
  * 顺序也换了：账号排最前 —— 三页里只有它是会经常动的。
  */
-const SUPER_PAGES = { admins: '管理员账号', imagemodels: '配图模型', logs: '操作记录' };
+const SUPER_PAGES = { admins: '管理员账号', models: '模型管理', logs: '操作记录' };
 
 function shell(inner) {
   const n = S.data.overview?.todo?.feedback_new || 0;
@@ -421,7 +427,8 @@ window.setColFilter = async (key, v) => {
   // 园所（教师页那一列）和状态是后端筛的，得重新拉。
   // ⚠️ 加新的前端筛选列时要记得加进这个名单 —— 漏了的表现是「筛一下整页重新请求
   // 一遍，结果一样」，慢但不报错，很难注意到
-  if (['age', 'cls', 'pos', 'kgCity', 'kgArea', 'kgOwn', 'fbHandled'].includes(key)) render();
+  if (['age', 'cls', 'pos', 'kgCity', 'kgArea', 'kgOwn', 'fbHandled',
+    'taskCity', 'taskOwner'].includes(key)) render();
   else await load();
 };
 
@@ -496,16 +503,16 @@ function teachersView() {
              原来这一列混了四种值：已激活 / 未激活 / 已调岗 / 已作废 ——
              后两个说的是**名单那一行的状态**，不是激活状态，混在一列里
              读的时候得先分辨「这个词是在回答哪个问题」。
-             调岗和作废降为后面的小字。颜色不是唯一载体：胶囊里有字。 -->
-        <td style="white-space:nowrap">${t.activated
-            ? '<span class="pill p-ok">已激活</span>'
-            : '<span class="pill p-off">未激活</span>'}${
-            t.activated && t.claimed_at
-              ? `<br><span style="font-size:11.5px;color:var(--ink-3)">${fmtDay(t.claimed_at)}</span>`
-              : t.roster_status === 'void'
-                ? '<br><span style="font-size:11.5px;color:var(--ink-3)">已作废</span>'
-                : t.roster_status === 'moved'
-                  ? '<br><span style="font-size:11.5px;color:var(--ink-3)">已调岗</span>' : ''}</td>
+             调岗和作废降为后面的小字。
+             2026-08-23 再简化：**纯文本，不要胶囊**（这一列只有两个值，
+             它们本身就是一眼能读的词，加个底色不多说明任何事）；
+             **激活日期也撤了** —— 找「她哪天激活的」是详情里的事，
+             而这一列在一张要横向扫的表上，多一行小字只是把行拉高。 -->
+        <td style="white-space:nowrap">${t.activated ? '已激活' : '未激活'}${
+            t.roster_status === 'void'
+              ? '<br><span style="font-size:11.5px;color:var(--ink-3)">已作废</span>'
+              : t.roster_status === 'moved'
+                ? '<br><span style="font-size:11.5px;color:var(--ink-3)">已调岗</span>' : ''}</td>
         <!-- 没激活时是「—」而不是 0：她还没有账号，「0 次额度」是另一回事 -->
         <td class="num ${t.activated && t.quota.text.left <= 2 ? 'low' : ''}">${
           t.activated ? `${t.quota.text.left} / ${t.quota.text.granted}` : '—'}</td>
@@ -689,8 +696,10 @@ window.openTeacher = async (id, rosterId) => {
         教案标题与内容仅超级管理员可见。
       </div>` : ''}
       ${plans.length ? `<table style="margin:8px 0 4px">
-        <tr><th>标题</th><th style="width:64px">年龄班</th><th style="width:72px">修订次数</th>
-            <th style="width:120px">时间</th><th style="width:80px"></th></tr>
+        <!-- 最后一列 104px 是算出来的：按钮「查看正文」约 74px + 单元格左右 padding 24px。
+             原来给 80px，按钮文字折成两行（2026-08-23 用户报的） -->
+        <tr><th>标题</th><th style="width:60px">年龄班</th><th style="width:64px">修订次数</th>
+            <th style="width:112px">时间</th><th style="width:104px"></th></tr>
         ${planPage.map((p) => `<tr>
           <td>${p.title === undefined ? '<span style="color:var(--ink-3)">超级管理员可见</span>' : esc(p.title || '—')}</td>
           <td>${esc(p.age_group || '—')}</td>
@@ -704,7 +713,7 @@ window.openTeacher = async (id, rosterId) => {
           <td style="white-space:nowrap">${fmtStamp(p.created_at)}</td>
           <!-- 「查看正文」那一屏里有**对话记录**（问答对，含改稿轮次）——
                2026-08-22 用户问的「对话记录在哪」就在那里 -->
-          <td>${p.plan_id ? `<button class="btn-sm" onclick="openPlan(${p.plan_id},${id})">查看正文</button>` : ''}</td>
+          <td style="white-space:nowrap">${p.plan_id ? `<button class="btn-sm" onclick="openPlan(${p.plan_id},${id})">查看正文</button>` : ''}</td>
         </tr>`).join('')}
       </table>
       ${planPages > 1 ? `<div class="row" style="margin:0 0 12px;justify-content:center">
@@ -800,9 +809,12 @@ window.openPlan = async (id, backTo, version) => {
     // 原来是把 messages 原样铺开：每条 assistant 带着那道题的全部推荐选项，
     // 一份四题的教案能滚出两百多行，而「她答了什么」埋在里面。
     // 用户原话：「呈现了问题但不呈现用户的答案，当前结构太长了」。
+    // 键名带角色（AI问/教师答/教师说/AI思考，2026-08-23），条数把想法、初稿、重写都算上
     const transcript = d.transcript || {};
-    const turns = (transcript.引导?.length || 0)
-      + (transcript.改稿 || []).reduce((n, r) => n + 1 + r.追问.length, 0);
+    const turns = (transcript.教师的想法 ? 1 : 0)
+      + (transcript.引导?.length || 0)
+      + (transcript.初稿 ? 1 : 0)
+      + (transcript.改稿 || []).reduce((n, r) => n + 1 + (r.AI追问?.length || 0) + (r.重写 ? 1 : 0), 0);
 
     S.modal = `<div class="modal" onclick="if(event.target===this)closeModal()">
       <div class="box" style="width:780px">
@@ -899,22 +911,30 @@ function codesView() {
       <button class="btn-sm btn-danger" style="margin-left:8px" onclick="deleteCodeBatches()">删除选中</button>
       <button class="btn-sm" onclick="clearCodeSel()">取消选择</button>
     </div>` : ''}
-    ${items.length ? `<table>
+    ${items.length ? `<table class="tbl-fixed">
       <!-- 一行 = 一次建码操作（019 迁移）。原来是一个码一行 ——
            而实际动作是「批量建 20 个」，那一次操作会摊成 20 行，
-           几批混在一起按时间倒序，分不出哪 20 个是刚才那一批的。 -->
+           几批混在一起按时间倒序，分不出哪 20 个是刚才那一批的。
+           列宽写死 + .tbl-fixed：这张表有状态筛选，不固定的话筛掉几行就整表重排。
+           只有「说明」不写 width —— 唯一不写的那一列会拿到全部余量。 -->
       <tr>
         <th style="width:34px"><input type="checkbox" ${allOn ? 'checked' : ''} onchange="toggleAllCodes(this.checked)"></th>
-        <th>操作</th><th>额度说明</th><th>说明</th>
+        <th style="width:118px">操作</th>
+        <!-- 日期单独一列（2026-08-23 用户定，到秒）。原来它是「操作」那一格里的小字，
+             跟操作名挤在一起；而这一列正是这张表的排序依据 -->
+        <th style="width:168px">日期</th>
+        <th style="width:150px">额度说明</th><th>说明</th>
         ${thFilter('状态', 'codeStatus', [
           ['unused', '未使用'], ['used', '已使用'], ['void', '已作废'],
-        ], S.filter.codeStatus, 'all')}
-        <th></th></tr>
+        ], S.filter.codeStatus, 'all', 116)}
+        <th style="width:118px"></th></tr>
       ${items.map((c) => `<tr>
         <td><input type="checkbox" ${sel.has(c.id) ? 'checked' : ''} onchange="toggleCode(${c.id},this.checked)"></td>
-        <td><b>${c.kind === 'single' ? '建 1 个码' : `批量建 ${c.requested} 个`}</b>
-          <br><span style="font-size:11.5px;color:var(--ink-3)">${fmtDate(c.created_at)}${
-            c.kindergarten ? ` · ${esc(c.kindergarten)}` : ''}</span></td>
+        <!-- 只留操作标题（2026-08-23 用户定：「只要记录操作标题，不需要其他」）。
+             园所名那一截跟着日期一起撤了 —— 批量建码 08-22 起就不绑园所，
+             要标记「这批给谁」写在「说明」里（grant_reason） -->
+        <td>${c.kind === 'single' ? '建 1 个码' : `批量建 ${c.requested} 个`}</td>
+        <td class="mono" style="white-space:nowrap;font-size:12.5px">${fmtStamp(c.created_at, true)}</td>
         <td class="num">${c.init_text} 教案 / ${c.init_image} 配图</td>
         <td>${esc(c.grant_reason || '—')}</td>
         <!-- 批量显示「已用几张 / 共几张」，单张就是 1/1（用户定的两种写法）。
@@ -1533,7 +1553,7 @@ async function load() {
       // ⚠️ 数据一多就要挪到后端，判据是这一页开始变慢
       jobs.feedback = api('GET', `/feedback?kind=${S.filter.fbKind}`);
     }
-    if (S.page === 'imagemodels' && isSuper()) jobs.imagemodels = api('GET', '/image-models');
+    if (S.page === 'models' && isSuper()) jobs.models = api('GET', '/models');
     if (S.page === 'admins' && isSuper()) jobs.admins = api('GET', '/admins');
     if (S.page === 'logs' && isSuper()) {
       const q = new URLSearchParams();
@@ -1553,7 +1573,7 @@ function render() {
   const view = ({
     overview: overviewView, teachers: teachersView, codes: codesView,
     kindergartens: kgView, feedback: feedbackView, tasks: tasksView,
-    imagemodels: imageModelsView, admins: adminsView, logs: logsView,
+    models: modelsView, admins: adminsView, logs: logsView,
   })[S.page];
   // 一般管理员手动改 URL 也进不去超管页 —— 后端还有一道守卫，这里只是不让界面出错
   const body = (SUPER_PAGES[S.page] && !isSuper()) ? (S.page = 'overview', overviewView()) : view();
@@ -1700,9 +1720,14 @@ const ACTIONS = {
   create_admin: '新建管理员',
   admin_status: '停用/恢复管理员', reset_password: '重置密码',
   change_own_password: '修改本人密码',
+  // 旧的五个 *_image_model 动作名**留着**：历史记录里还有它们，删了那几行会印英文
   create_image_model: '新增配图模型', update_image_model: '修改配图模型',
   delete_image_model: '删除配图模型', test_image_model: '模型测试',
   set_default_image_model: '设为默认配图模型',
+  // 2026-08-23 起模型管理统一成 *_model（文本 + 配图一张表，detail 里带 kind）
+  create_model: '新增模型', update_model: '修改模型',
+  delete_model: '删除模型', test_model: '模型测试',
+  set_default_model: '设为默认模型',
 };
 //
 // 2026-08-18 加了筛选和翻页。原来是一张倒序裸表 LIMIT 200 ——

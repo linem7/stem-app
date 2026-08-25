@@ -15,7 +15,7 @@ import { pingDatabase, query, closePool } from './db/pool.js';
 import { requireAuth, requireActivated } from './middleware/auth.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { recoverStuckTasks, taskQueue } from './services/taskQueue.js';
-import { seedEnvModels } from './services/imageModels.js';
+import { seedEnvModels, anyModelReady, pickModel } from './services/modelRegistry.js';
 import { logger, startTimer } from './utils/logger.js';
 
 import { authRouter } from './routes/auth.js';
@@ -85,13 +85,53 @@ try {
   process.exit(1);
 }
 
-/* .env 里那两家配图模型 → image_models 表，**一次性播种**（2026-08-22）。
+/* .env 里的模型 → ai_models 表，**一次性播种**（配图 2026-08-22，文本 2026-08-23）。
    播完之后就再也不读 .env 了，所以后台能真正编辑和删除它们
    （只要还会读 .env，删掉的下次重启就会自己回来）。
-   已经播过就是个空操作，重启多少次都只发生一次。见 imageModels.js 文件头。 */
+   已经播过就是个空操作，重启多少次都只发生一次。见 modelRegistry.js 文件头。 */
 const seed = await seedEnvModels();
-if (seed.seeded) {
-  console.log(`  已把 .env 里的配图模型搬进数据库：${seed.keys.join(', ')}（以后在后台改）`);
+if (seed.image.seeded) {
+  console.log(`  已把 .env 里的配图模型搬进数据库：${seed.image.keys.join(', ')}（以后在后台改）`);
+}
+if (seed.text.seeded) {
+  console.log(`  已把 .env 里的文本模型搬进数据库：${seed.text.keys.join(', ')}（以后在后台改）`);
+}
+
+/* 没有可用的文本模型就不启动 —— 教案生成是核心功能，没它起来也没意义。
+   这条检查以前是 config.js 里「DEEPSEEK_API_KEY 必填」，模型进库之后语义变了：
+   老库里模型早就在库里，.env 空着也该能启动；全新部署缺 key 才该拦。
+   后台有对应的红线（最后一个启用的文本模型不许删、不许停用），
+   所以正常操作走不到这里 —— 走到了多半是下面第 2 条。 */
+/* 配图没有同款硬闸（没配图模型只是画不了图），但要说出来 ——
+   老库 021 没跑时会走到这里：配图的播种标记早是 1（只读库），而库里表名还是旧的，
+   于是列表静默变空，老师看到的是「配图功能还没开通」。不提示就查不到根因。 */
+if (!(await anyModelReady('image'))) {
+  console.warn(
+    '\n[提醒] 一个可用的配图模型都没有，配图功能会显示「还没开通」。' +
+      '\n       刚升级的话先跑一次 npm run migrate；否则去后台「模型管理」检查配图那一栏。\n'
+  );
+}
+
+if (!(await anyModelReady('text'))) {
+  console.error(
+    [
+      '',
+      '════════════════════════════════════════════════════════',
+      ' 启动失败：一个可用的文本模型都没有',
+      '════════════════════════════════════════════════════════',
+      '',
+      '  教案的生成、改稿、出题全靠文本模型，没有它服务起来也没意义。逐条排查：',
+      '',
+      '  1. 全新部署：在 backend/.env 里配 DEEPSEEK_API_KEY',
+      '     （platform.deepseek.com → API keys → 创建，并先充值一点余额）',
+      '  2. 刚升级：先跑一次 npm run migrate（021 会把模型表升级成 ai_models）',
+      '  3. 都不是：查 ai_models 表里 kind=\'text\' 的行是不是全被停用或删掉了',
+      '════════════════════════════════════════════════════════',
+      '',
+    ].join('\n')
+  );
+  await closePool();
+  process.exit(1);
 }
 
 // ---------------------------------------------------------------
@@ -206,6 +246,10 @@ app.use('/admin', express.static(path.join(here, '..', 'admin')));
 app.use(notFoundHandler);
 app.use(errorHandler);
 
+// 横幅要显示的两行在这里先算好 —— listen 的回调不是 async，里面不能 await
+const bannerTextModel = (await pickModel('text'))?.account?.model ?? '（未配置）';
+const bannerImageReady = await anyModelReady('image');
+
 const server = app.listen(config.port, () => {
   console.log(
     [
@@ -215,8 +259,8 @@ const server = app.listen(config.port, () => {
       '════════════════════════════════════════════════════════',
       `  地址：      http://localhost:${config.port}`,
       `  环境：      ${config.nodeEnv}`,
-      `  文本模型：  ${config.deepseek.model}`,
-      `  配图：      ${config.minimax.configured ? '已配置' : '未配置（不影响其他功能）'}`,
+      `  文本模型：  ${bannerTextModel}`,
+      `  配图：      ${bannerImageReady ? '已配置' : '未配置（不影响其他功能）'}`,
       `  内容安全：  ${config.wechat.contentCheckEnabled ? '开' : '关（上线前必须开）'}`,
       `  管理后台：  ${config.admin.configured ? `http://localhost:${config.port}/admin` : '未配置（设 ADMIN_PASSWORD 后可用）'}`,
       '',

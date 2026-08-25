@@ -62,7 +62,7 @@ function apiError(status, extra = {}) {
  * @returns {Promise<{buffer:Buffer, width:number, height:number, bytes:number, ext:string, costCents:number}>}
  */
 export async function generateImage({ account, prompt, width, height, quality }) {
-  // account 由调度层给：内置那家来自 .env，后台加的来自 image_models 表
+  // account 由调度层给：内置那家来自 .env，后台加的来自 ai_models 表
   const acc = account || config.gptImage;
   if (!acc?.apiKey) {
     throw new AppError(ErrorCode.NOT_IMPLEMENTED, {
@@ -149,6 +149,8 @@ export async function generateImage({ account, prompt, width, height, quality })
     height: outHeight,
     ext: meta.ext,
     bytes: buffer.length,
+    // 后台填了单价时 generateWith 会用单价重算，这里的估值只是兜底（见 modelRegistry）
+    tokenOut: Number(body?.usage?.output_tokens) || null,
     costCents: estimateCostCents(body?.usage),
   };
 }

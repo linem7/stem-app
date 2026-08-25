@@ -12,7 +12,7 @@
  *
  * 本文件只做「逻辑与模型调用」，不碰数据库；落库在 routes/conversations.js。
  */
-import { chatJSON } from './deepseek.js';
+import { chatJSON } from './textChat.js';
 import {
   buildGuideSystemPrompt,
   getAgeBand,
@@ -249,7 +249,12 @@ export async function buildAck({ teacher, memories, collected, seedInput, spec, 
 
 只输出 JSON：{"ack":"一句话回应，不超过 25 字，要具体承接她说的内容，不要复述、不要客套"}` }],
       temperature: 0.8,
-      maxTokens: 120,
+      /* 240 不是 120（2026-08-23 上调）。这句回应只要 25 字，120 token 本该够用 ——
+         但换成 deepseek-v4-flash 之后实测**每次都顶满 120 被截断**，
+         于是老师每答一题看到的都是兜底句「好的，记下了。」，
+         而这个调用存在的全部理由就是让她觉得「它真的在听」。
+         这里不重试（有兜底句），所以预算必须一次给够。 */
+      maxTokens: 240,
       purpose: `ack_${spec.id}`,
       teacherId: teacher?.id ?? null,
     });

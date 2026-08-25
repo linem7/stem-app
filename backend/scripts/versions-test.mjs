@@ -239,46 +239,117 @@ chk(
 );
 
 // ---------------------------------------------------------------
-L('\n=== 10. 配图模型注册表（不花钱，直接查配置）===');
-const { FORMATS, listModels, publicShape, pickModel } = await import('../src/services/imageModels.js');
+L('\n=== 10. 模型注册表：文本 + 配图（不花钱，直接查配置）===');
+const { IMAGE_FORMATS, TEXT_FORMATS, listModels, publicShape, pickModel,
+  guessFormat, deriveKey } = await import('../src/services/modelRegistry.js');
 const { resolveImageProvider } = await import('../src/services/imageGen.js');
 const { nearestRatio } = await import('../src/services/geminiImage.js');
 const { config: cfg } = await import('../src/config.js');
 
 chk(
-  Object.values(FORMATS).every((f) => typeof f.generate === 'function'),
-  `${Object.keys(FORMATS).length} 种接口格式都实现了 generate：${Object.keys(FORMATS).join('/')}`
+  Object.values(IMAGE_FORMATS).every((f) => typeof f.generate === 'function'),
+  `${Object.keys(IMAGE_FORMATS).length} 种配图格式都实现了 generate：${Object.keys(IMAGE_FORMATS).join('/')}`
+);
+chk(
+  Object.values(TEXT_FORMATS).every(
+    (f) => typeof f.buildToggleParams === 'function'
+      && typeof f.caps?.thinking === 'boolean' && typeof f.caps?.search === 'boolean'
+  ),
+  `${Object.keys(TEXT_FORMATS).length} 种文本格式都声明了 caps 和开关翻译：${Object.keys(TEXT_FORMATS).join('/')}`
 );
 
-const models = await listModels();
-chk(models.length > 0, `有 ${models.length} 个可用模型：${models.map((m) => m.key).join('/')}`);
-chk(models.every((m) => FORMATS[m.format]), '每个模型的格式都认识');
-/* 🔴 这一条 2026-08-22 **真红过一次，而且是线上数据被改坏了**，不是断言写歪。
-   经过：`GET /image-models` 那时对内置模型一律回 `base_url: ''`，于是编辑表单里
-   那一格是空的；用户打开 gpt 和 minimax 各按了一次「保存」，空串就写进了库 ——
-   两个模型从此画不出图，**全程没有任何报错**。
-   两处都修了：GET 照实回地址，`update` 也加了「不许改成空」的校验
-   （`POST /image-models` 一直有这道校验，而 update 一直没有 —— 两条路只守了一条）。
-   所以这条断言是**看门的**，别因为它偶尔红就放宽它。 */
-chk(models.every((m) => m.account?.apiKey && m.account?.baseURL),
-  `每个模型都有地址和密钥${models.filter((m) => !m.account?.baseURL).map((m) => `（${m.key} 没地址）`).join('')}`);
+/* 「联网」「思考模式」是**真实生效的调用参数**，不是标签（2026-08-23 用户定）。
+   这几条纯函数断言把「开关 → 请求参数」的翻译钉死 ——
+   开关生效和不生效，界面上看起来一模一样，只有请求体里那几个键说了算。 */
+const deepEq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+chk(deepEq(TEXT_FORMATS.deepseek.buildToggleParams({ thinking: true, search: false }),
+  { thinking: { type: 'enabled' } }), 'deepseek 开思考 → thinking:{type:"enabled"}');
+/* 🔴🔴 **关掉也必须显式发出去。** 这是 2026-08-23 那次事故的看门断言：
+   DeepSeek V4 思考模式**默认打开**（effort 默认 high），
+   而第一版实现是「关了就不发参数」= 走默认值 = 一直在最高档思考。
+   实测代价：库里 thinking=false 的调用思考链 7185 字符、一次生成 59 秒。
+   ⚠️ 这条红了就说明有人把「关」又写回了「不发」。别放宽它。 */
+chk(deepEq(TEXT_FORMATS.deepseek.buildToggleParams({ thinking: false, search: false }),
+  { thinking: { type: 'disabled' } }),
+  '🔴 deepseek 关思考 → 必须显式发 thinking:{type:"disabled"}（不发 = 默认开着）');
+chk(TEXT_FORMATS.deepseek.caps.search === false,
+  'deepseek 不支持联网（chat 接口没这参数）—— 别把 caps 改成 true 做假开关');
+chk(deepEq(TEXT_FORMATS.qwen.buildToggleParams({ thinking: true, search: true }),
+  { enable_thinking: true, enable_search: true }), 'qwen 的两个开关翻成 enable_thinking / enable_search');
+chk(TEXT_FORMATS.qwen.buildToggleParams({ thinking: false, search: false }).enable_thinking === false,
+  '🔴 qwen 关思考也显式发 enable_thinking:false');
+const glmParams = TEXT_FORMATS.glm.buildToggleParams({ thinking: false, search: true });
+chk(glmParams.tools?.[0]?.type === 'web_search' && glmParams.enable_thinking === false,
+  'glm 的联网走 tools:[{type:"web_search"}]，关思考显式发 enable_thinking:false');
+/* openai_chat 是唯一「什么都不发」的那一档，而且必须保持这样：
+   通用兼容端点（中转、自建 vLLM）不认识 thinking 这类非标准参数，发过去可能 400。
+   它的 caps 全 false，所以界面上两个开关是灰的 —— 这是一致的，不是漏了 */
+chk(deepEq(TEXT_FORMATS.openai_chat.buildToggleParams({ thinking: true, search: true }), {}),
+  '通用 OpenAI 兼容格式对两个开关都不落参（发非标准参数可能被 400）');
+
+/* 「接口格式」那个下拉 2026-08-23 撤了，格式从地址推断（用户：「接口模式应该也是不需要的」）。
+   这几条钉住推断规则 —— 认错的表现是「开关莫名是灰的」或者「参数发出去对方不认」，
+   两种都不报错。认不出来必须退到通用档，**绝不能猜一个**。 */
+/* 🔴 **模型 id 比地址优先**，这一条不是洁癖：`nanobanana` 是 gemini 原生格式
+   但走 12ai 中转，而同一个中转下的 gpt-image-2 是 openai_images ——
+   靠地址分不开这两个。反过来（地址优先）会把现成的 nanobanana 认成通用档，
+   配图立刻画不出来且不报错。 */
+chk(guessFormat('image', 'https://cdn.12ai.org', 'gemini-3.1-flash-image-preview') === 'gemini',
+  '走中转的 gemini 模型按模型 id 认对（地址是 12ai，格式仍是 gemini 原生）');
+chk(guessFormat('image', 'https://cdn.12ai.org/v1', 'gpt-image-2') === 'openai_images',
+  '同一个中转下的 gpt-image-2 认成 openai_images —— 两者靠模型 id 分开');
+chk(guessFormat('image', 'https://cdn.12ai.org', 'image-01') === 'minimax', '中转的 image-01 → minimax');
+chk(guessFormat('text', 'https://cdn.12ai.org/v1', 'deepseek-v4-pro') === 'deepseek',
+  '中转的 deepseek 模型也按模型 id 认（思考开关才不会莫名变灰）');
+
+chk(guessFormat('text', 'https://api.deepseek.com') === 'deepseek', 'api.deepseek.com → deepseek');
+chk(guessFormat('text', 'https://open.bigmodel.cn/api/paas/v4') === 'glm', 'open.bigmodel.cn → glm');
+chk(guessFormat('text', 'https://dashscope.aliyuncs.com/compatible-mode/v1') === 'qwen', 'dashscope → qwen');
+chk(guessFormat('text', 'https://cdn.12ai.org/v1') === 'openai_chat', '认不出的中转 → 通用 openai_chat');
+chk(guessFormat('text', '不是个地址') === 'openai_chat', '地址是垃圾也退通用档，不抛错');
+chk(guessFormat('image', 'https://generativelanguage.googleapis.com/v1beta') === 'gemini',
+  'googleapis → gemini');
+chk(guessFormat('image', 'https://api.minimaxi.com') === 'minimax', 'minimaxi → minimax');
+chk(guessFormat('image', 'https://cdn.12ai.org/v1') === 'openai_images', '配图认不出 → 通用 openai_images');
+// 🔴 kind 隔离：文本地址不许认出配图格式（反之同理）—— 混了的话 generateWith 会拿不到 generate
+chk(guessFormat('text', 'https://api.minimaxi.com') === 'openai_chat',
+  '同一个域名在两类里认出的格式不串（minimax 地址填在文本里 → 通用档）');
+
+// key 从模型 id 派生（表单里不再有「代号」）。撞了要能加后缀 ——
+// 同一个模型 id 配两次是真实场景（两个中转商、两把额度不同的 key）
+chk(deriveKey('deepseek-v4-pro') === 'deepseek-v4-pro', '模型 id 本来就合法时原样当代号');
+chk(deriveKey('GPT-Image-2') === 'gpt-image-2', '大写和点号洗干净');
+chk(deriveKey('gemini/3.1-flash:preview') === 'gemini-3-1-flash-preview', '斜杠冒号点都换成 -');
+chk(deriveKey('deepseek-chat', ['deepseek-chat']) === 'deepseek-chat-2', '撞了加后缀，不是拒绝');
+chk(deriveKey('a'.repeat(40)).length <= 32, '超长截到 32 位（key 那一列的上限）');
+chk(/^[a-z0-9_-]{2,32}$/.test(deriveKey('中文模型名')), '整个洗没了也要给一个合法代号');
+
+/* 看门断言两类各跑一遍。
+   🔴 「每个模型都有地址和密钥」2026-08-22 **真红过一次，而且是线上数据被改坏了**，
+   不是断言写歪。经过：列表接口那时对内置模型一律回 `base_url: ''`，于是编辑表单里
+   那一格是空的；用户各按了一次「保存」，空串就写进了库 ——
+   两个模型从此画不出图，**全程没有任何报错**。别因为它偶尔红就放宽它。 */
+for (const kind of ['image', 'text']) {
+  const ms = await listModels({ kind });
+  const fmts = kind === 'image' ? IMAGE_FORMATS : TEXT_FORMATS;
+  chk(ms.length > 0, `${kind}：有 ${ms.length} 个可用模型：${ms.map((m) => m.key).join('/')}`);
+  chk(ms.every((m) => fmts[m.format]), `${kind}：每个模型的格式都认识`);
+  chk(ms.every((m) => m.account?.apiKey && m.account?.baseURL),
+    `${kind}：每个模型都有地址和密钥${ms.filter((m) => !m.account?.baseURL).map((m) => `（${m.key} 没地址）`).join('')}`);
+  // 安全红线：给小程序的形状里**绝不能**出现密钥或地址。
+  // 破了它等于把钥匙串挂在门上 —— 加模型之所以放在后台而不是设置页，就是为了这条
+  const leaked = ms
+    .map((m) => JSON.stringify(publicShape(m)))
+    .filter((s) => /apiKey|api_key|sk-|http/i.test(s));
+  chk(leaked.length === 0, `${kind}：下发的模型信息里没有密钥、没有地址`);
+}
 
 // 老师那边不该出现「模型选错了」这种事：认不出来的值要静悄悄退回去，不是报错
 chk(Boolean(await resolveImageProvider('乱填的')), '不认识的模型退回到能用的一个');
 chk(Boolean(await resolveImageProvider(undefined)), '没传模型也退回到能用的一个');
-// 「没指定时用哪个」的断言挪到下面那个受控的块里去了 ——
-// 原来这里直接拿 pickModel() 跟 cfg.imageProvider（.env 那个值）比，
-// 🔴 **而这条断言在任何人点过一次「设为默认」之后就必然红**：
-// 取值顺序是「后台设的 > .env」，后台设过就不该等于 .env 了 ——
-// 也就是说它测的东西跟它守护的规则**方向相反**。
-// 08-22 撞到的：库里 app_settings 是 minimax、.env 是 nanobanana，两边都没错，红的是断言。
-
-// 这条是安全红线：给小程序的形状里**绝不能**出现密钥或地址。
-// 破了它等于把钥匙串挂在门上 —— 加模型之所以放在后台而不是设置页，就是为了这条
-const leaked = models
-  .map((m) => JSON.stringify(publicShape(m)))
-  .filter((s) => /apiKey|api_key|sk-|http/i.test(s));
-chk(leaked.length === 0, '下发给小程序的模型信息里没有密钥、没有地址');
+// 「没指定时用哪个」的断言在下面那个受控的块里 ——
+// 直接拿 pickModel 跟 .env 比的断言**在任何人点过一次「设为默认」之后必然红**
+// （取值顺序是「后台设的 > .env」），它测的东西跟它守护的规则方向相反。08-22 撞过。
 
 // 用哪个模型**由后台定**，老师不选（2026-08-18）。
 // 这条要是破了，等于把技术选型的开关交到客户端手上，而客户端是可以被随便改的。
@@ -293,36 +364,47 @@ chk(
   '配图路由不读请求里的 provider（传了也不算数）'
 );
 
-/* 取值顺序 **后台设的 > .env > 列表第一个**（appSettings.js 文件头写着）。
-   三档都要验，而且**得在一个受控的状态里验** —— 直接读库里当前那个值来断言，
-   测的就变成了「库里现在恰好是什么」，那不是规则。
+/* 取值顺序 **后台设的 > .env > 列表第一个**（appSettings.js 文件头写着），
+   文本和配图各自一个键，两套都要验，而且**得在一个受控的状态里验** ——
+   直接读库里当前那个值来断言，测的就变成了「库里现在恰好是什么」，那不是规则。
 
    🔴 跑完必须还原：数据库是跟用户那个 3000 共用的，
-   留一个被测试改过的默认下去，他下次配图用的就是我们的测试值。 */
-const savedDefault = await getSetting(SETTING_KEYS.imageProvider, '');
-const keys = (await listModels()).map((m) => m.key);
-try {
-  // ① 后台没设过（值为空）时退回 .env 那一档
-  await setSetting(SETTING_KEYS.imageProvider, '');
-  chk((await pickModel()).key === cfg.imageProvider,
-    `后台没设过时退回 .env 的默认（${cfg.imageProvider}）`);
-  // ② 后台设过就以它为准，而且**立刻生效**，不用重启 —— 否则还是得进服务器改 .env，白做
-  const other = keys.find((k) => k !== cfg.imageProvider);
-  if (other) {
-    await setSetting(SETTING_KEYS.imageProvider, other);
-    chk((await pickModel()).key === other, `后台设过就以它为准，且立刻生效（临时切到 ${other}）`);
+   留一个被测试改过的默认下去，他下次用的就是我们的测试值。
+   🔴 **还原之后要读回来核一遍**：只写不核的话，哪天还原写歪了
+   （或者中间抛异常绕过了 finally），结果是「他精心选的默认被一次回归悄悄换掉」，
+   而脚本报全绿。2026-08-22 就疑似发生过一次（minimax 变成了 nanobanana）。 */
+for (const [kind, settingKey, envDefault] of [
+  ['image', SETTING_KEYS.imageProvider, cfg.imageProvider],
+  ['text', SETTING_KEYS.textProvider, cfg.textProvider],
+]) {
+  const savedDefault = await getSetting(settingKey, '');
+  const kindKeys = (await listModels({ kind })).map((m) => m.key);
+  try {
+    // ① 后台没设过（值为空）时退回 .env 那一档
+    await setSetting(settingKey, '');
+    chk((await pickModel(kind)).key === envDefault,
+      `${kind}：后台没设过时退回 .env 的默认（${envDefault}）`);
+    // ② 后台设过就以它为准，且**立刻生效**，不用重启 —— 否则还是得进服务器改 .env，白做
+    const other = kindKeys.find((k) => k !== envDefault);
+    if (other) {
+      await setSetting(settingKey, other);
+      chk((await pickModel(kind)).key === other, `${kind}：后台设过就以它为准，且立刻生效（临时切到 ${other}）`);
+    }
+    // ③ kind 隔离：把默认写成**另一类**的 key，pickModel 不许跨类命中，要退回本类
+    const alien = (await listModels({ kind: kind === 'image' ? 'text' : 'image' }))[0]?.key;
+    if (alien) {
+      await setSetting(settingKey, alien);
+      const picked = await pickModel(kind);
+      chk(picked && picked.key !== alien && kindKeys.includes(picked.key),
+        `${kind}：默认被写成另一类的 key（${alien}）时退回本类，不跨类命中`);
+    }
+  } finally {
+    await setSetting(settingKey, savedDefault);
   }
-} finally {
-  await setSetting(SETTING_KEYS.imageProvider, savedDefault);
+  const restored = await getSetting(settingKey, '');
+  chk(restored === savedDefault,
+    `${kind}：跑完还原成原来那个（'${savedDefault}'），读回来是 '${restored}'`);
 }
-/* 🔴 **还原之后要读回来核一遍。**
-   这个设置是跟用户那个 3000 共用的**生产值** —— 它决定所有老师配图用哪家。
-   只写不核的话，哪天还原写歪了（或者中间抛异常绕过了 finally），
-   结果是「他精心选的默认被一次回归悄悄换掉了」，而脚本报全绿。
-   2026-08-22 就疑似发生过一次：跑完之后库里的值从 minimax 变成了 nanobanana。 */
-const restored = await getSetting(SETTING_KEYS.imageProvider, '');
-chk(restored === savedDefault,
-  `跑完还原成原来那个（'${savedDefault}'），读回来是 '${restored}'`);
 
 // Gemini 那套没有宽高，只有比例。我们按打印定的宽高要能落到最近的一档
 chk(nearestRatio(1536, 2048) === '3:4', '记录表 1536×2048 → 3:4');
