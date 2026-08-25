@@ -123,6 +123,28 @@ export function enqueueLessonGeneration({ conv, teacher, memories, qaHistory }) 
           [next, row.id]
         );
 
+        /* 生成这件事本身也进 messages（2026-08-23 用户提「对话记录没有思考链路」）：
+           后台「查看正文」的对话记录由 messages 卷出来，AI 产出了第几版、
+           当时的思考链路（模型开了思考模式才有）、**当时那份提示词**
+           都记在这条的 payload 里。
+           ⚠️ payload 里**不许有 id 字段**：老师端的状态重建（conversations.js）
+           只认带 id 的 assistant 消息，没有 id 它天然被跳过 ——
+           加了 id 它会混进引导页的题目列表。
+           ⚠️ 这里也**不存教案正文**（用户明确说不要）：正文在 lesson_plans
+           和版本快照里各有一份，再抄一份进 messages 只是把同一段话存三遍。 */
+        await client.query(
+          `INSERT INTO messages (conversation_id, role, content, payload)
+           VALUES ($1, 'assistant', $2, $3)`,
+          [conv.id, plan.title.slice(0, 128), JSON.stringify({
+            kind: 'generation',
+            version: next,
+            round: revisions.length || null,
+            reasoning: plan.reasoning || null,
+            prompt_system: plan.prompt?.system || null,
+            prompt_user: plan.prompt?.user || null,
+          })]
+        );
+
         return { id: row.id, version: next };
       });
 
@@ -136,6 +158,33 @@ export function enqueueLessonGeneration({ conv, teacher, memories, qaHistory }) 
           WHERE id = $3`,
         [plan.title.slice(0, 128), plan.age_group, conv.id]
       );
+
+      /* 自检的结果事后回填（2026-08-24）—— **故意不 await**。
+         老师这时候已经拿到教案了；自检那 3 秒只服务于我做内测分析
+         （8 个维度的打分，成稿页上一个字都不显示）。
+
+         用 jsonb_set 只改 model 和 model_pending 两个键，不整块覆盖 ——
+         age_band_violations 那些是出稿时算好的，覆盖会把它们冲掉。
+
+         ⚠️ **只回填 lesson_plans，不回填 lesson_plan_versions 的快照。**
+         快照里那一版的 `model` 会一直是 null / pending，这是认下来的代价：
+         自检本来就是可失败的附加信息，而「统计 AI 写的教案质量」查当前版足够。
+         要历史每一版都有自检，得把这一段挪进事务里 await —— 那就等于没改。 */
+      plan.selfCheckTask?.then(async (result) => {
+        try {
+          await query(
+            `UPDATE lesson_plans
+                SET quality_self = jsonb_set(
+                      jsonb_set(quality_self, '{model}', $1::jsonb, true),
+                      '{model_pending}', 'false'::jsonb, true)
+              WHERE id = $2`,
+            [JSON.stringify(result ?? null), saved.id]
+          );
+        } catch (err) {
+          // 回填失败只影响那份教案的自检字段，老师那边什么都不受影响
+          logger.warn('self_check_backfill_failed', { lesson_plan_id: saved.id, message: err.message });
+        }
+      });
 
       logger.info('lesson_generated', {
         conversation_id: conv.id,
@@ -251,15 +300,33 @@ export async function loadQaHistory(conversationId) {
       [conversationId]
     )
   ).rows;
+  return pairQa(rows);
+}
+
+/**
+ * 配对逻辑单独拎出来，是为了能不起服务、不连库地测它（scripts/context-test.mjs）。
+ * @param {Array<{role:string, content:string, payload:object}>} rows 按 id 升序的 messages 行
+ */
+export function pairQa(rows) {
+  /* 🔴 按 id 配对，不按相邻位置。
+     题目是**一次性连发 4 条** assistant 消息的（conversations.js 的 insertQuestionMessage），
+     答案全排在它们后面 —— 按位置只能配出最后一道题，而且配到的是别题的答案。
+     那不是丢信息，是投毒：模型读到的字面意思是「班上的情况 = 大班」，
+     丢了它会自己补，读到一条错配的事实它会照着写。
+     换年龄班会删掉旧题重插（id 变大），所以同一个 id 后写的覆盖先写的，正好等于「取最新那道题」。
+     改稿的追问不收进来 —— buildRevisionBlock 已经把意见和答案都带上了，收两遍是同一段话说两次。 */
+  const titleById = new Map();
+  for (const m of rows) {
+    if (m.role !== 'assistant' || m.payload?.kind === 'revise_question') continue;
+    if (m.payload?.id && m.payload?.title) titleById.set(m.payload.id, m.payload.title);
+  }
 
   const out = [];
-  let q = null;
   for (const m of rows) {
-    if (m.role === 'assistant' && m.payload?.title) q = m.payload.title;
-    else if (m.role === 'user' && q) {
-      out.push({ question: q, answer: m.content });
-      q = null;
-    }
+    if (m.role !== 'user' || m.payload?.kind === 'revise_answer') continue;
+    // 老数据没有 question_id，跳过就是了 —— 退回按位置配对等于把那个缺陷留一条后路
+    const title = titleById.get(m.payload?.question_id);
+    if (title) out.push({ question: title, answer: m.content });
   }
   return out;
 }

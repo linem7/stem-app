@@ -13,6 +13,7 @@
  *   2. 推荐答案里跟年龄相关的选项（时长）由代码从参数表里取，不问模型（见 guideFlow.js）
  *   3. 生成后用代码做一遍硬校验（见 enforceAgeBand），越界就改回来并记录
  */
+import { buildGoalCatalog, matchGoal } from './guide.js';
 
 /**
  * 年龄班参数表 —— 逐字来自 age-band-adaptation.md 第「年龄班参数表（供系统调用）」节。
@@ -22,8 +23,10 @@ export const AGE_BANDS = {
   小班: {
     code: 'K1',
     age: '3-4岁',
+    // 时长 2026-08-24 用户定死三档：小班 20 / 中班 25 / 大班 30。
+    // recommend[1] 是实际默认（pickDuration 取它），max 是硬校验的上限
     duration_recommend: [15, 20],
-    duration_max: 25,
+    duration_max: 20,
     cycles: [1, 2],
     steam_required: ['S', 'A'],
     steam_optional: ['T', 'M'],
@@ -39,8 +42,8 @@ export const AGE_BANDS = {
   中班: {
     code: 'K2',
     age: '4-5岁',
-    duration_recommend: [25, 30],
-    duration_max: 35,
+    duration_recommend: [20, 25],
+    duration_max: 25,
     cycles: [2, 3],
     steam_required: ['S', 'T', 'A', 'M'],
     steam_optional: ['E'],
@@ -56,8 +59,11 @@ export const AGE_BANDS = {
   大班: {
     code: 'K3',
     age: '5-6岁',
-    duration_recommend: [30, 40],
-    duration_max: 45,
+    // 🔴 大班 30 分钟**仍写四环节**（2026-08-24 用户定）：
+    // 平均每段 7.5 分钟，紧，但「换个法子再试一次」那一段是探究循环的核心，
+    // 降成三环节等于把大班最有价值的部分去掉
+    duration_recommend: [25, 30],
+    duration_max: 30,
     cycles: [3, 5],
     steam_required: ['S', 'T', 'E', 'A', 'M'],
     steam_optional: [],
@@ -97,7 +103,9 @@ export function defaultDuration(ageGroup) {
 
 export function durationOptions(ageGroup) {
   const band = getAgeBand(ageGroup);
-  return [...band.duration_recommend, band.duration_max];
+  // 去重：2026-08-24 把上限压到跟推荐上限相同（小班 20/20、中班 25/25、大班 30/30），
+  // 不去重的话老师看到「15 / 20 / 20」——同一个数出现两次，像坏了
+  return [...new Set([...band.duration_recommend, band.duration_max])];
 }
 
 // ============================================================
@@ -152,9 +160,13 @@ export function buildAgeBandRules(ageGroup) {
   const name = AGE_BANDS[ageGroup] ? ageGroup : '中班';
   const b = AGE_BANDS[name];
 
+  /* 🔴 时长不写在这里。这三段是硬编码的，参数表那半截（下面 `${b.duration_*}`）是算出来的，
+     两份写同一件事必然分叉 —— 2026-08-24 把时长定死成 20/25/30 时只改了参数表，
+     于是大班同时读到「最多不超过 45」和「绝对上限 30」，中班的建议下限 25 甚至等于它的上限。
+     循环数和环节数留着：它们跟参数表逐条核对过，一致，而且这里写的是**禁止项**
+     （「不做 4 环节」），那是参数表里一个光秃秃的数字表达不了的。 */
   const perBand = {
-    小班: `- 时长 15-20 分钟，最多不超过 25 分钟
-- 探究循环 1-2 个，不要求幼儿做预测，改为"先玩→发现→再玩一次"
+    小班: `- 探究循环 1-2 个，不要求幼儿做预测，改为"先玩→发现→再玩一次"
 - 教学流程只做 3 个环节，不做 4 环节
 - 测量只用非标准单位（用手比、用积木叠、目测比多少），禁止出现量杯读数、称重克数
 - 记录只用贴纸、盖章、涂色，不写字不画细节
@@ -163,13 +175,13 @@ export function buildAgeBandRules(ageGroup) {
 - 学习指标只选 1-2 个
 - 师生对话中，幼儿的回应应是单词、短句或动作，不要写出带因果推理的完整句子
 - 安全事项必须包含误食风险（材料尺寸需大于幼儿口腔）`,
-    中班: `- 时长 25-30 分钟，最多不超过 35 分钟；循环 2-3 个；4 环节完整
+    中班: `- 循环 2-3 个；4 环节完整
 - 可做二选一预测；非标准单位为主，可引入标准工具做整数比较
 - 记录用简笔画、勾选表；STEAM 四域较完整（S/T/A/M），E 以"改一改让它更好"出现
 - 学习指标 2-3 个
 - 幼儿能描述看到的现象，但还说不清完整的因果推理
 - 分组为 4-5 人小组、两两协作`,
-    大班: `- 时长 30-40 分钟，最多不超过 45 分钟；循环 3 个以上；4 环节完整
+    大班: `- 循环 3 个以上；4 环节完整
 - 预测需带理由；可读简单刻度并记录数字
 - 记录用符号、数字、表格；STEAM 五域齐全且相互关联
 - 学习指标 3-4 个；可设计跨多次活动的长线探究
@@ -195,7 +207,7 @@ ${perBand[name]}
 - 安全关注点必须覆盖：${b.safety_focus.join('、')}
 
 自检：这份教案里有没有${name}孩子做不到的动作？
-特别检查：预测、读数、书写、小组分工、集体讨论、长时间专注 —— 这几项最容易超出小班能力。`;
+特别检查：预测、读数、书写、小组分工、集体讨论、长时间专注 —— 这几项最容易超出${name}能力。`;
 }
 
 /** 老师档案块（显式档案优先于自动提取的记忆） */
@@ -235,18 +247,16 @@ ${lines.join('\n')}`;
 
 /** 已收集答案块：让模型知道前面问过什么、不要重复问 */
 export function buildCollectedBlock(collected = {}) {
+  /* 🔴 这张表必须跟 guideFlow.js 的 QUESTION_PLAN 一一对应，加一道题就要加一行。
+     漏了不报错：答案照样落进 collected，只是从此没人读它 —— 而「场地」就这么漏了七天，
+     11 个后端回归全绿。venue 是 2026-08-17 加的题，那次砍到 4 题之后这张表一次都没同步过，
+     剩下的 duration / materials / flow_pref / key_questions / safety / assessment /
+     extension / adjustments 八个键是 11 题时代的遗物，没有任何路径会写它们，已删。 */
   const labels = {
     age_group: '年龄班',
     focus: '教学重点',
-    duration: '活动时长（分钟）',
+    venue: '场地',
     constraints: '现实条件与限制',
-    materials: '材料倾向',
-    flow_pref: '流程安排',
-    key_questions: '关键提问设计',
-    safety: '安全事项',
-    assessment: '评估方式',
-    extension: '延伸活动',
-    adjustments: '其他调整',
   };
   const lines = [];
   for (const [k, label] of Object.entries(labels)) {
@@ -331,7 +341,10 @@ export function buildLessonSystemPrompt({ teacher, memories, collected, seedInpu
 
 二、特征标注（不是教案正文，是帮老师理解这个活动的特征）
 9. STEAM 五域标注：${band.steam_required.join('/')} ${band.steam_may_omit.length ? `（${band.steam_may_omit.join('/')} 若确实没涉及，如实写"本次未涉及"，不要硬凑）` : '五域齐全且相互关联'}
-10. 《指南》领域指标：${band.indicators_count[0]}-${band.indicators_count[1]} 个，只选教学实例里确实体现的
+10. 《指南》领域指标：${band.indicators_count[0]}-${band.indicators_count[1]} 个。
+    **从下面那份清单里选具体的某一句典型表现，位置和句子都原文照抄**，
+    格式是「领域 （X）子领域 目标N：那一句」——
+    只选教学实例里确实体现出来的，宁可少写一条也不要凑
 
 三、教学实例
 11. 师生对话 4-6 段（T/C 标注），至少一次「没成功→改一改→再试」的过程
@@ -350,6 +363,12 @@ export function buildLessonSystemPrompt({ teacher, memories, collected, seedInpu
     buildCollectedBlock(collected),
     buildRevisionBlock(collected?.revisions),
     structure,
+    /* 《指南》指标清单（2026-08-24）。在这之前这一栏是模型凭记忆写的，
+       实测编出过「数学领域」（《指南》没有这个领域）和「发现磁铁的特性」
+       这种把活动内容缝进指标的句子 —— 详见 services/guide.js 文件头。
+       只注入当前年龄班那一档，约 3000 字符；读不出文件时是空串，
+       join 会把它滤掉，退回老行为（有教案，但指标质量差）。 */
+    buildGoalCatalog(ageGroup),
     AUTONOMY,
   ]);
 }
@@ -489,7 +508,9 @@ ${existingMemories.map((m) => `- ${m.fact}`).join('\n')}`
 3. 类型只能是这五个之一：教学信息 / 教学风格 / 约束条件 / 材料偏好 / 年龄班专长
 4. 置信度 0-1，1 表示非常确定
 5. 只提取跨次可复用的事实（如"园里没有投影仪"），不要提取这一次活动的具体内容（如"这次做浮与沉"）
-6. 绝对不要提取任何关于具体幼儿的信息（姓名、年龄、表现、家庭情况）——这是合规红线
+6. 绝对不要提取任何关于具体幼儿的信息（姓名、年龄、健康状况与过敏、用药、饮食禁忌、
+   能力评价、行为表现、家庭情况）——这是合规红线。第 5 条说的「跨次可复用」不能拿来做例外：
+   「班上有个孩子对牛奶过敏」确实跨次可复用，但它是一条幼儿健康信息，属于这一条管的范围
 7. 最多 5 条，宁少勿滥${existing}
 
 只输出 JSON，格式：
@@ -592,10 +613,23 @@ export function enforceAgeBand(contentJson, ageGroup) {
     contentJson.duration_min = band.duration_max;
   }
 
-  // 2. 环节数
+  /* 2. 环节数 —— 查多也查少。
+     原来只查 `>`，于是大班写成 3 环节一声不吭，而「大班 30 分钟仍写四环节」是
+     2026-08-24 用户亲自定的规则（那一段「换个法子再试」是探究循环的核心，
+     降成三环节等于把大班最有价值的部分去掉）—— 一条用户定死的规则此前没有任何代码守着。 */
   const flow = Array.isArray(contentJson.flow) ? contentJson.flow : [];
-  if (flow.length > band.flow_stages) {
+  if (flow.length !== band.flow_stages) {
     violations.push(`教学流程有 ${flow.length} 个环节，${ageGroup}应为 ${band.flow_stages} 个`);
+  }
+
+  /* 2.5 各环节分钟数之和必须等于总时长。
+     这条以前没人查，而第 1 条的纠正正好会制造它：模型写 30 分钟、四环节 10+10+5+5=30，
+     duration_min 被改成 25 之后 flow 还是 30 —— 成稿页写着 25 分钟，
+     老师照着上会超 5 分钟，页面上没有任何提示。
+     只记不改：把哪一环削掉 5 分钟是教学判断，代码替它决定就是瞎改。 */
+  const minutesSum = flow.reduce((n, s) => n + (typeof s?.minutes === 'number' ? s.minutes : 0), 0);
+  if (flow.length && typeof contentJson.duration_min === 'number' && minutesSum !== contentJson.duration_min) {
+    violations.push(`各环节分钟数加起来是 ${minutesSum}，跟总时长 ${contentJson.duration_min} 分钟对不上`);
   }
 
   // 3. 学习指标数量
@@ -603,6 +637,34 @@ export function enforceAgeBand(contentJson, ageGroup) {
   const [minInd, maxInd] = band.indicators_count;
   if (indicators.length > maxInd) {
     violations.push(`学习指标有 ${indicators.length} 个，${ageGroup}应为 ${minInd}-${maxInd} 个`);
+  }
+
+  /* 3.5 🔴 **指标必须对得上《指南》清单，对不上的剔除**（2026-08-24 用户定）。
+     在这之前这一栏是模型凭记忆写的，而它挂着一个权威文件的名字 ——
+     老师拿教案去交、去评审，指标写错比不写更糟（不写只是不完整，写错是引用错误），
+     而这恰恰是「看起来最专业」的一栏，她最不会去质疑它。
+     实测编出过：「数学领域：…」（《指南》没有数学领域，那是科学领域下的子领域）、
+     「科学领域：能通过观察、比较、操作，发现磁铁的特性」（把活动材料缝进了指标）。
+
+     处置是**剔除那一条**（用户选的），跟「宁可诚实标注缺席，不要虚假齐全」同一条纪律。
+     匹配上的顺带**换成清单里的规范写法** —— 原来同一个字段有五种格式
+     （`科学：` / `科学领域：` / `《指南》科学领域：` / 带全名 / 无前缀）。
+     剔掉了什么记进 violations，进 quality_self 供排查（不影响老师拿到教案）。 */
+  const kept = [];
+  for (const raw of indicators) {
+    const hit = matchGoal(raw, ageGroup);
+    if (hit) kept.push(hit);
+    else violations.push(`指标「${String(raw).slice(0, 40)}」不在《指南》清单里，已剔除`);
+  }
+  // 去重：模型偶尔把同一条目标写两遍（引一次目标名、引一次典型表现）
+  contentJson.indicators = [...new Set(kept)];
+  /* 🔴 下限这一条**不许包在 `if (indicators.length)` 里**。
+     原来包着，于是「模型一条指标都不写」= 整段跳过 = 零违规、零剔除记录 ——
+     那是当前唯一完全不报警的失败形态，而《指南》指标正是老师拿去评审最要命、
+     也最不会去质疑的那一栏。
+     只记不补 —— 编一条凑数正是这一整段要防的事。 */
+  if (contentJson.indicators.length < minInd) {
+    violations.push(`只剩 ${contentJson.indicators.length} 个指标，${ageGroup}应为 ${minInd}-${maxInd} 个`);
   }
 
   // 4. 小班禁止项：读数、称重、书写、预测、统计图表
@@ -624,10 +686,15 @@ export function enforceAgeBand(contentJson, ageGroup) {
   }
 
   // 5. STEAM 必需领域是否有实质内容
+  /* 🔴 判空不能用裸的「无」字做子串匹配。原来是 `/未涉及|无|不涉及/`，于是
+     「科学：木头**无**论大小都能浮在水面」和「技术：学会用夹子夹取，**无**需老师帮忙」
+     都被判成「内容为空」—— quality_self 是研究要用的数据，而假违规和真违规在里面长得一样。
+     「未涉及」「不涉及」留作子串（它们没有别的意思）；单个「无」只在整句就是它时才算。 */
   const steam = contentJson.steam || {};
+  const SAYS_ABSENT = /^(本次)?(无|没有|暂无|不适用)[。.！!]?$/;
   for (const key of band.steam_required) {
-    const v = steam[key];
-    if (!v || String(v).trim().length < 2 || /未涉及|无|不涉及/.test(String(v))) {
+    const v = String(steam[key] ?? '').trim();
+    if (!v || v.length < 2 || /未涉及|不涉及/.test(v) || SAYS_ABSENT.test(v)) {
       violations.push(`STEAM 的 ${key} 是${ageGroup}必须涉及的，但内容为空或写了"未涉及"`);
     }
   }
@@ -671,6 +738,11 @@ export function enforceAgeBand(contentJson, ageGroup) {
   const kp = contentJson.key_points || {};
   if (!String(kp.focus || '').trim()) violations.push('缺少活动重点');
   if (!String(kp.difficulty || '').trim()) violations.push('缺少活动难点');
+
+  /* 9. 设计意图不许空。它是大陆格式八节的第一节，而且**一直都导出**
+     （别跟折叠的「教案解读」搞混，那两样是不同的字段）。
+     模型漏写就是一份第一节空着的教案，此前静默出稿。 */
+  if (!String(contentJson.intent || '').trim()) violations.push('缺少设计意图');
 
   return { violations, fixed };
 }

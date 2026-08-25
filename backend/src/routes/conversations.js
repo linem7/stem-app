@@ -165,10 +165,13 @@ conversationsRouter.get(
 
     // 覆盖掉旧的题目消息：老师换了年龄班，旧推荐答案已经不适用了。
     // 她**已经填的答案不动** —— collected 一个字都没碰。
+    // generation（生成事件，2026-08-23）也要排除：它不是题目，
+    // 删了等于把「AI 产出过第几版、当时怎么想的」这段历史悄悄抹掉
     await withTransaction(async (client) => {
       await client.query(
         `DELETE FROM messages WHERE conversation_id = $1 AND role = 'assistant'
-           AND payload->>'kind' IS DISTINCT FROM 'revise_question'`,
+           AND payload->>'kind' IS DISTINCT FROM 'revise_question'
+           AND payload->>'kind' IS DISTINCT FROM 'generation'`,
         [conv.id]
       );
       for (const q of questions) await insertQuestionMessage(client, conv, q);

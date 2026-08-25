@@ -15,7 +15,7 @@
  * db-schema.md 要求同时存 md 和 json，且「编辑时以 json 为准，md 由 json 渲染」。
  * 所以生成时就只产出 json 一份真相，md 由 renderMarkdown 渲染 —— 两份永远不会漂移。
  */
-import { chatJSON, chat } from './deepseek.js';
+import { chatJSON, chat } from './textChat.js';
 import {
   buildLessonSystemPrompt,
   buildCollectedBlock,
@@ -42,9 +42,13 @@ export const PROGRESS_HINTS = {
  *   `features`   —— 两个子字段各自搬去了 intent / objectives
  *   `reflection` —— 「预期与实际的差异」在活动开始前只能是编的
  */
-const JSON_SHAPE = `{
+/* 🔴 `duration_min` 必须插值，不许写死 30。
+   这段结构拼在 user prompt 的最末尾，是模型出稿前看到的**最后一个数字** ——
+   写死 30 等于给小班（20 分钟）和中班（25 分钟）递了一个错的锚点，
+   比年龄班规则块里那句时长矛盾离「模型写出 30 分钟」更近。 */
+const jsonShape = (durationTarget) => `{
   "title": "活动名称，动词+对象的形式，不超过 20 字",
-  "duration_min": 30,
+  "duration_min": ${durationTarget},
   "intent": "设计意图：为什么设计这个活动、想解决孩子什么问题。两三句话，写活动之前的判断，不要写事后语气",
   "objectives": [
     { "dimension": "认知", "text": "孩子会知道或理解什么" },
@@ -67,7 +71,7 @@ const JSON_SHAPE = `{
   "steam": {
     "S": "科学：这次活动里具体是什么现象或特性",
     "T": "技术：具体用什么工具、什么技巧",
-    "E": "工程：具体改进了什么、优化了什么。这个年龄班若确实不涉及，写「本次未涉及」",
+    "E": "工程：具体改进了什么、优化了什么",
     "A": "艺术：具体的美感或创意表现",
     "M": "数学：具体的比较、测量或数量经验"
   },
@@ -138,20 +142,32 @@ ${collected.duration_note ? `\n注意：${collected.duration_note}` : ''}
 8. 全程简体中文，大陆幼教用语
 
 只输出 JSON，结构如下（不要加任何解释文字）：
-${JSON_SHAPE}`;
+${jsonShape(durationTarget)}`;
 
   onProgress('drafting');
 
-  const { data, tokenIn, tokenOut } = await chatJSON({
+  const { data, reasoning, tokenIn, tokenOut } = await chatJSON({
     system,
     messages: [{ role: 'user', content: userPrompt }],
     temperature: 0.7,
-    maxTokens: 4000,
+    /* 8000 不是 4000（2026-08-23 上调）。4000 是按 deepseek-chat 的输出长度定的，
+       而换成 deepseek-v4-flash 之后一份完整教案要 4000 以上 —— 每次都顶到
+       3999 截断、JSON 解析失败，表现是「这次没生成成功」而重试永远不会好。
+       max_tokens 只是上限，给大了不多花钱（按实际输出计费）。
+       真被截断时 textChat 还会加倍重试一次，那是兜底，不该常态依赖。 */
+    maxTokens: 8000,
     // 整份教案比出题慢得多，超时单独放宽到 3 分钟
     timeoutMs: 180000,
     purpose: 'lesson_generate',
     // 这是最贵的一次调用 —— 在 model_calls 之前它一分钱都没被记下来
     teacherId: teacher?.id ?? null,
+    // 「思考/联网」开关只作用于这次和解读那次 —— 管理员开思考的本意是
+    // 「教案写得更好」，胶水调用（回应/自检/翻译）跟着开只有慢和贵
+    applyToggles: true,
+    /* 🔴 **只有这一次调用值得为「被截断」重来一次。**
+       教案是老师唯一真正要的东西，缺一半等于没有；而自检、解读、每题回应
+       都有兜底（失败只记日志或用中性句），为它们重试只是让老师多等。 */
+    retryOnTruncate: true,
   });
 
   const contentJson = normalizePlan(data, ageGroup, durationTarget);
@@ -169,13 +185,20 @@ ${JSON_SHAPE}`;
     });
   }
 
-  // 模型自检（8 维度）。失败不影响出稿 —— 自检只是内测分析用的附加信息。
-  let modelSelfCheck = null;
-  try {
-    modelSelfCheck = await selfCheck(contentJson, ageGroup, system, teacher?.id ?? null);
-  } catch (err) {
-    logger.warn('self_check_failed', { conversation_id: conversation.id, code: err?.code });
-  }
+  /* 模型自检（8 维度）——**不 await，不挡出稿**（2026-08-24）。
+     它的产出只进 quality_self 给内测分析用，**老师一个字都看不到**
+     （成稿页那个「模型自检」入口 08-22 就撤了），而它实测要 3 秒 ——
+     那 3 秒是白让老师等的。
+     现在它跟教案解读并行跑（解读是学习模式老师真要看的，仍然 await），
+     算完之后由 generate.js 事后回填进 lesson_plans.quality_self。
+
+     ⚠️ 这里就得 catch 掉：promise 漏出去 reject 会变成 unhandled rejection。
+     失败就是 null，跟「没跑」由 model_pending 区分。 */
+  const selfCheckTask = selfCheck(contentJson, ageGroup, system, teacher?.id ?? null)
+    .catch((err) => {
+      logger.warn('self_check_failed', { conversation_id: conversation.id, code: err?.code });
+      return null;
+    });
 
   /*
     教案解读 —— 学习模式才有（api-spec 第 5 节）。
@@ -207,7 +230,12 @@ ${JSON_SHAPE}`;
     age_group: ageGroup,
     age_band_violations: violations, // 代码查出来的越界（这几条最要紧）
     age_band_auto_fixed: fixed, // 代码自动纠正掉的
-    model: modelSelfCheck, // 模型的 8 维度打分
+    /* 模型的 8 维度打分 —— 出稿时它还没算完（见上面 selfCheckTask），
+       由 generate.js 事后回填。`model_pending: true` 是**必须有的**：
+       没有它，「自检还在跑」和「自检失败了」在库里长得一模一样，
+       而「有多少比例的自检真的成了」正是要用这个字段回答的问题。 */
+    model: null,
+    model_pending: true,
     /*
       学习模式下这份教案的解读写成了没有、写了哪几个板块。
       记这个是因为它的失败**完全没有声音**：老师看到一份没有「为什么这样设计」的
@@ -232,6 +260,22 @@ ${JSON_SHAPE}`;
     content_json: contentJson,
     content_md: contentMd,
     quality_self: qualitySelf,
+    // 生成这次调用的思考链路（模型没开思考模式时是 null）。
+    // 落进 messages 的 generation 消息，后台「查看正文」的对话记录里能看到
+    reasoning: reasoning ?? null,
+    /* 这次用的提示词原文（2026-08-23 用户提「对话记录同时涵盖提示词的部分」）。
+       system 是每次实时拼装的（框架 + 年龄班规则 + 档案 + 记忆 + 改稿历史），
+       user 带着她的想法、引导问答和那 8 条生成要求 —— 两样都不在别处存着。
+
+       ⚠️ 001_init.sql 里那句「system 消息不入库：存了会大量重复，
+       且改了提示词后旧记录会失真」的后半截**现在正好是要它的理由**：
+       想知道「这份教案当时是用什么提示词生成的」，就得存当时那一份。
+       前半截（重复）是真代价：一次生成约 5KB，落在 generation 消息的 payload 里。 */
+    prompt: { system, user: userPrompt },
+    /* 自检那个还在跑的 promise。generate.js 存完库拿到 id 之后 .then 回填 ——
+       调用方**不要 await 它**，那就把刚省下来的 3 秒又等回去了。
+       它已经 catch 过，永远 resolve（失败是 null）。 */
+    selfCheckTask,
     tokenIn,
     tokenOut,
   };
@@ -278,7 +322,10 @@ function normalizePlan(raw, ageGroup, durationTarget) {
         const m = /^\s*([TC])\s*[:：]\s*(.+)$/.exec(d);
         return m ? { speaker: m[1], text: m[2].trim() } : { speaker: 'T', text: d.trim() };
       }
-      return { speaker: d?.speaker === 'C' ? 'C' : 'T', text: str(d?.text) };
+      /* 说话人认宽一点。原来只认严格等于 'C'，模型写「幼儿」「C（幼儿）」一律被**静默**转成 T ——
+         结果是一份「孩子一句话都没说」的对话看起来完全正常，
+         而「呈现幼儿的思维过程」正是这一节存在的全部理由。 */
+      return { speaker: /^\s*[cC]\b|幼儿|孩子|儿童/.test(String(d?.speaker ?? '')) ? 'C' : 'T', text: str(d?.text) };
     })
     .filter((d) => d.text);
 
@@ -370,7 +417,13 @@ ${JSON.stringify(contentJson)}
       },
     ],
     temperature: 0.2,
-    maxTokens: 800,
+    /* 1600 不是 800（2026-08-23 上调）。8 个维度打分 + 问题列表，800 对
+       deepseek-chat 够用，对 v4-flash 实测**每次都截断**（那时它连打三次
+       800→1600→3200 全失败，白等 46 秒）—— 于是自检这个功能等于不存在，
+       而 quality_self.model 是研究要用的数据。
+       ⚠️ 这次调用**串在老师的等待时间上**（await 在生成之后），所以只给到
+       一次够用的量，不做截断重试：它失败不影响出稿，不值得让她多等一轮。 */
+    maxTokens: 1600,
     timeoutMs: 90000,
     purpose: 'lesson_self_check',
     teacherId,
@@ -402,6 +455,8 @@ async function buildCommentary(contentJson, ageGroup, systemPrompt, teacherId = 
     timeoutMs: 90000,
     purpose: 'lesson_commentary',
     teacherId,
+    // 解读讲的是「为什么这样设计」，思考模式对它是有意义的（同 lesson_generate）
+    applyToggles: true,
   });
 
   return normalizeCommentary(data, Array.isArray(contentJson.flow) ? contentJson.flow.length : 0);

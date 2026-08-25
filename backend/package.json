@@ -13,6 +13,7 @@
     "migrate": "node src/db/migrate.js",
     "smoke": "node scripts/smoke.js",
     "test:ageband": "node scripts/ageband-test.mjs",
+    "test:context": "node scripts/context-test.mjs",
     "test:commentary": "node scripts/commentary-test.mjs",
     "test:mode": "node scripts/mode-test.mjs",
     "test:versions": "node scripts/versions-test.mjs",
