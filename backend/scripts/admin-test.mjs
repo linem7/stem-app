@@ -35,6 +35,26 @@ chk(/^STEM-[34679ACDEFGHJKMNPQRTUVWXY]{4}-[34679ACDEFGHJKMNPQRTUVWXY]{4}$/.test(
 const batch=await adm('POST','/codes/batch',{count:3,grant_reason:'回归测试批量'});
 chk(batch.ok && batch.data.created.length===3, `批量建码：一次拿到 ${batch.data?.created?.length} 个`);
 
+// 「说明」最多 20 字（2026-08-25 用户定）。界面上那个输入框有 maxlength，
+// 所以这一条守的是**绕过界面**的那条路 —— 而建码有两条路（单个和批量），
+// 「两条路只守一条」这个项目已经踩过（08-22 配图模型地址被清空那次）。
+// 上限失效的表现只是「某一行的说明比别人长」，等宽的格子被顶开，没人会来报
+{
+  const LONG='一二三四五六七八九十一二三四五六七八九十一二三四五';  // 25 字
+  const b1=await adm('POST','/codes',{init_text:20,init_image:10,grant_reason:LONG});
+  const b2=await adm('POST','/codes/batch',{count:1,grant_reason:LONG});
+  const b3=await adm('POST','/codes/batch',{count:1,grant_reason:'   '});
+  const list=await adm('GET','/codes?status=all');
+  const reasonOf=(id)=>(list.data.items.find((x)=>x.id===id)||{}).grant_reason||'';
+  const CUT='一二三四五六七八九十一二三四五六七八九十';
+  chk(reasonOf(b1.data?.batch_id)===CUT,
+    `单个建码：25 字的说明被截到 20 字（${reasonOf(b1.data?.batch_id).length} 字）`);
+  chk(b2.data?.batch?.grant_reason===CUT,
+    `批量建码那条路也守着（${(b2.data?.batch?.grant_reason||'').length} 字）`);
+  // 空说明照旧回落到默认句，别被 slice 弄成空串
+  chk(b3.data?.batch?.grant_reason==='批量发放', '说明留空仍然回落到默认句');
+}
+
 L('=== 名单：一份岗位清单（没有手机号）===');
 const NAME=`王小美${RND}`;
 const imp=await adm('POST','/roster/import',

@@ -20,7 +20,10 @@
       <text class="q">{{ done ? (isRevise ? '改好了' : '写好了') : '等我 20-30 秒' }}</text>
     </view>
 
-    <!-- 阶段清单。progress_hint 由后端按生成阶段推进，等待才有反馈 -->
+    <!--
+      阶段清单。**这三步现在是真的**（2026-08-25）：后端回的 phase 是
+      thinking / writing / checking 三个真实阶段，不再是四句按代码行数推进的文案。
+    -->
     <view v-for="(s, i) in steps" :key="s" class="step" :class="stepClass(i)">
       <view class="step__ic" :class="stepClass(i)">
         <image v-if="stepIndex > i || done" class="step__check" :src="checkWhite" mode="widthFix" />
@@ -28,7 +31,24 @@
       <text class="step__t">{{ s }}</text>
     </view>
 
-    <view v-if="hint && !failed" class="hint"><text class="hint__t">{{ hint }}</text></view>
+    <!--
+      正文一个字一个字长出来（2026-08-25 用户定）。
+      这一屏原来是三个假勾 + 一句「正在设计教学流程…」，看起来跟没开始一样；
+      现在她看见的是**她那份教案本身**在长。
+
+      🔴 用 scroll-view 不用 view：正文有两千多字，普通 view 会把整页撑长，
+      而这一页底下还有「可以先去忙」和操作条。固定高度 + 自动滚到底。
+      失败之后**不再显示这块** —— 半截教案配一句「没写成」是自相矛盾的。
+    -->
+    <scroll-view
+      v-if="!failed"
+      class="live"
+      scroll-y
+      :scroll-top="scrollTop"
+      :scroll-with-animation="true"
+    >
+      <text class="live__t">{{ shown || '正在想怎么写…' }}</text>
+    </scroll-view>
 
     <view v-if="failed" class="fail" :class="{ 'fail--net': failKind === 'net' }">
       <text class="fail__t" :class="{ 'fail__t--net': failKind === 'net' }">{{ failMessage }}</text>
@@ -37,15 +57,12 @@
     </view>
 
     <!--
-      「可以离开」不是安慰话，是产品要求：老师在幼儿园随时被叫走，
-      不能要求她盯着屏幕等 30 秒。后端会继续写完，教案库里找得回。
+      「可以先去忙」那张卡片 **2026-08-25 用户定：删掉**。
+      ⚠️ 它背后那条产品要求没变（老师在幼儿园随时被叫走，不能要求她盯着屏幕等），
+      只是这一屏现在正一个字一个字地写给她看 —— 在这时候劝她走，
+      跟这一屏新的目的正好相反。
+      **离开的出口还在**：顶栏那个返回。走了后端照样写完，教案库里找得回。
     -->
-    <view v-if="!done && !failed" class="leave" @tap="leave">
-      <view class="leave__t">
-        <text class="leave__h">可以先去忙</text>
-        <text class="leave__s">写好了在教案库里等你，不用守着</text>
-      </view>
-    </view>
 
     <template #dock>
       <!--
@@ -107,15 +124,29 @@ import { showApiError } from '../../utils/ui.js'
 
 const checkWhite = iconCheck(COLORS.white, 2.6)
 
-// 后端的 progress_hint 是自由文案，这里只用来给一个「走到哪了」的粗略进度条。
-// 真正给老师看的那句话是 hint，原样显示后端给的。
+/* 三步对应后端的三个 phase，**顺序不能动**（见下面 PHASE_STEP）。
+   2026-08-25 之前它们由 progress_hint 那四句文案用正则猜出来 ——
+   而那四句是按代码走到哪一行发的，跟模型真的写到哪没关系。 */
 const STEPS = ['读你答的那几题', '设计活动流程', '按年龄班校一遍']
 // 改稿走的是同一条链路，只有第一步读的东西不一样 —— 她提的意见 + 刚答的三题
 const REVISE_STEPS = ['读你提的意见', '重排活动流程', '按年龄班校一遍']
 
 const conversationId = ref(0)
-const hint = ref('正在准备…')
 const stepIndex = ref(0)
+
+/* 正文分两个变量，是有理由的（2026-08-25）：
+     buf    后端已经给到的全文
+     shown  已经显示出来的那一截
+   轮询是 800 毫秒一次，一次带回来几十个字。直接显示 buf 的话是一坨一坨往外蹦；
+   `shown` 由一个 40 毫秒的小定时器把 buf 慢慢放出来，看起来才像在写。
+   **放出来的速度跟着积压量走**（见 tick），所以它只会平滑、不会掉队 ——
+   写完那一刻积压清空，最后一个字跟着就到。 */
+const buf = ref('')
+const shown = ref('')
+/* scroll-view 要靠 scroll-top 变化才滚。给一个只增不减的数，
+   它自己会夹到底部 —— 比维护一个 sentinel 元素 id 省事，也不会因为
+   同一个 id 不触发而卡在半空 */
+const scrollTop = computed(() => shown.value.length * 40)
 const done = ref(false)
 const failed = ref(false)
 const failMessage = ref('')
@@ -145,6 +176,7 @@ const hasDockButton = computed(
 const steps = computed(() => (isRevise.value ? REVISE_STEPS : STEPS))
 
 let handle = null
+let reveal = null
 
 const stepClass = (i) => ({
   'is-done': done.value || stepIndex.value > i,
@@ -157,7 +189,8 @@ onLoad((query) => {
   start()
 })
 
-// 必须停。老师退出去了还在打请求是不对的 —— 后端会自己写完，她回教案库照样看得到
+// 必须停。老师退出去了还在打请求是不对的 —— 后端会自己写完，她回教案库照样看得到。
+// 那个 40 毫秒的定时器也要停：页面没了它还在跑就是一个泄漏
 onUnload(() => stop())
 
 function stop() {
@@ -165,20 +198,49 @@ function stop() {
     handle.stop()
     handle = null
   }
+  if (reveal) {
+    clearInterval(reveal)
+    reveal = null
+  }
 }
+
+/**
+ * 把 buf 里积压的字慢慢放到 shown 上。
+ *
+ * 每次放的量 = 积压的十二分之一（至少 2 个字）。这个写法有两个好处：
+ *   · 积压多就放得快，**永远不会越落越远** —— 定速放字的话，
+ *     模型写得比放得快时，她会在教案早就写完之后还盯着字往外爬
+ *   · 积压少就一个一个放，看起来才是「正在写」而不是「贴上去的」
+ */
+function startReveal() {
+  if (reveal) return
+  reveal = setInterval(() => {
+    const gap = buf.value.length - shown.value.length
+    if (gap <= 0) return
+    shown.value = buf.value.slice(0, shown.value.length + Math.max(2, Math.ceil(gap / 12)))
+  }, 40)
+}
+
+/** 后端三个真实阶段 → 清单上的第几步。**一一对应，不用正则猜** */
+const PHASE_STEP = { thinking: 0, writing: 1, checking: 2 }
 
 function start() {
   stop()
   failed.value = false
   done.value = false
+  startReveal()
   handle = pollGenerate(conversationId.value, {
     onTick: (d) => {
-      if (d.progress_hint) {
-        hint.value = d.progress_hint
-        // 后端阶段文案里带「检查/校」的是最后一段，其余按出现顺序往前推
-        if (/检查|适合|校/.test(d.progress_hint)) stepIndex.value = 2
-        else if (/流程|环节|设计/.test(d.progress_hint)) stepIndex.value = 1
-        else stepIndex.value = 0
+      if (d.phase in PHASE_STEP) stepIndex.value = PHASE_STEP[d.phase]
+      const s = d.stream
+      if (!s) return
+      // restart = 后端重打了一次（被截断、或思考吃穿了预算），刚才那些不算了。
+      // 显示的那一截也要一起清 —— 只清 buf 的话 shown 比 buf 长，reveal 再也不动
+      if (s.restart) {
+        buf.value = s.text
+        shown.value = ''
+      } else {
+        buf.value += s.text
       }
     },
   })
@@ -195,7 +257,9 @@ function start() {
       }
       done.value = true
       stepIndex.value = steps.value.length
-      hint.value = isRevise.value ? '改好了' : '写好了'
+      // 最后那几个字直接补齐，不等慢放 —— 450 毫秒之后这一屏就跳走了，
+      // 让她带着一句写到一半的话离开是奇怪的
+      shown.value = buf.value
       lessonPlanId.value = d.lesson_plan_id || 0
       // 写完直接进成稿，不让她再点一下 —— 她就是在等这个结果。
       // 留一小段是为了让最后那个勾能被看见，不然屏幕像是闪了一下。
@@ -251,7 +315,9 @@ async function retry() {
   try {
     await startGenerate(conversationId.value)
     stepIndex.value = 0
-    hint.value = '正在准备…'
+    // 重新生成 = 一份全新的教案。旧那半截必须清掉，否则新的接在它后面
+    buf.value = ''
+    shown.value = ''
     start()
   } catch (err) {
     showApiError(err)
@@ -334,17 +400,24 @@ async function retry() {
   color: $ink-2;
 }
 
-.hint {
-  background: $sky-soft;
+/* 正在写出来的正文。**高度写死** —— 里面有两千多字，
+   不定高的话这一屏会被撑成一条长得没边的页面，底下的操作条被推走。
+   底色用最浅的纸色而不是白：白色块在奶油底上像一张贴上去的纸，
+   而这段字是「正在长出来的东西」，不是一份已经做好的文件 */
+.live {
+  height: 520rpx;
+  background: $paper-2;
   border-radius: 20rpx;
-  padding: 18rpx 24rpx;
+  padding: 20rpx 24rpx;
   margin-top: 24rpx;
+  box-sizing: border-box;
 }
 
-.hint__t {
+.live__t {
   font-size: var(--fs-sub);
   color: $ink-2;
-  line-height: 1.65;
+  line-height: 1.75;
+  white-space: pre-wrap;
 }
 
 .fail {
@@ -379,33 +452,7 @@ async function retry() {
   margin-top: 6rpx;
 }
 
-.leave {
-  display: flex;
-  align-items: center;
-  background: $mint-soft;
-  border: 2rpx solid $mint-line;
-  border-radius: 28rpx;
-  padding: 24rpx 28rpx;
-  margin-top: 32rpx;
-}
-
-.leave__t {
-  flex: 1;
-}
-
-.leave__h {
-  display: block;
-  font-size: var(--fs-body);
-  font-weight: 600;
-  color: $mint-deep;
-  line-height: 1.5;
-}
-
-.leave__s {
-  display: block;
-  font-size: var(--fs-tag);
-  color: $ink-3;
-  line-height: 1.5;
-  margin-top: 4rpx;
-}
+/* 「可以先去忙」那张卡片的样式（.leave / .leave__t / .leave__h / .leave__s）
+   跟卡片本身一起删掉了（2026-08-25）。留着就是没人用的死样式。
+   ⚠️ `leave()` 那个函数**不是死的** —— dock 里「去教案库找」还在用它 */
 </style>

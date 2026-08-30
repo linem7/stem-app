@@ -60,8 +60,8 @@ export function startGenerate(conversationId) {
   return post(`/conversations/${conversationId}/generate`)
 }
 
-export function getGenerateStatus(conversationId) {
-  return get(`/conversations/${conversationId}/generate/status`)
+export function getGenerateStatus(conversationId, { epoch = 0, from = 0 } = {}) {
+  return get(`/conversations/${conversationId}/generate/status`, { epoch, from })
 }
 
 /**
@@ -72,11 +72,28 @@ export function getGenerateStatus(conversationId) {
  * 她回教案库照样能看到。
  */
 export function pollGenerate(conversationId, { onTick } = {}) {
+  /* 游标存在这里，不存在页面里（2026-08-25）。
+     页面只管把 `d.stream.text` 往后拼；「我收到哪儿了」是这条轮询链自己的事 ——
+     摆到页面上的话，「重试」和「断网接着等」两条路各要记得重置一次，
+     总有一条会忘，而忘了的表现是正文重复一段，不报错。 */
+  let epoch = 0
+  let from = 0
   return poll({
-    fetch: () => getGenerateStatus(conversationId),
+    fetch: async () => {
+      const d = await getGenerateStatus(conversationId, { epoch, from })
+      if (d.stream) {
+        epoch = d.stream.epoch
+        // 用后端报的 len，不用自己算 —— 两边各算一份迟早差一个字，
+        // 而差一个字之后每一次增量都错位
+        from = d.stream.len
+      }
+      return d
+    },
     isDone: (d) => d.status === 'completed' || d.status === 'failed',
     onTick,
-    interval: 2000,
-    timeout: 120000, // 生成 15–30 秒，给到 2 分钟已经很宽
+    /* 800 毫秒（原来 2 秒）：现在每一次轮询带回来的是**正文新长出来的那一段**，
+       2 秒一次会一坨一坨地往外蹦。带游标之后一次只有几十个字，请求不贵。 */
+    interval: 800,
+    timeout: 120000, // 生成 15–30 秒，开了思考模式会翻倍；给到 2 分钟
   })
 }

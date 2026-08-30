@@ -133,6 +133,12 @@ export const config = {
   // 生产环境强制关闭 —— 这是一道防线，不依赖运维记得改 .env。
   devFakeLogin: nodeEnv !== 'production' && bool('DEV_FAKE_LOGIN', false),
 
+  /* 🔴 只在微信云托管环境里开（控制台环境变量）。
+     开了它，/auth/login 会信任请求头里的 X-WX-OPENID —— 那个头在云托管里
+     由微信网关注入、外部伪造会被覆盖；在任何别的部署形态下它就是个后门。
+     它跟 devFakeLogin 不同：这是**真 openid**，不是假登录。 */
+  trustWxOpenidHeader: bool('TRUST_WX_OPENID_HEADER', false),
+
   taskConcurrency: num('TASK_CONCURRENCY', 2),
 
   // 管理后台。只有一个账号 —— 系统里不存在「园所管理员」这种角色，

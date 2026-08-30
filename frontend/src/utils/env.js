@@ -31,3 +31,16 @@ apiBase = pick('VITE_H5_API_BASE') || apiBase
 
 export const API_BASE = apiBase
 export const DEV_FAKE_LOGIN = String(pick('VITE_DEV_FAKE_LOGIN')) === 'true'
+
+/* 微信云托管（2026-08-25）。两个都填了、且平台是小程序，请求层就走
+   wx.cloud.callContainer（免域名免备案的微信内部通道）；否则照旧走 wx.request。
+   H5 永远走 wx.request 那条（callContainer 只存在于小程序运行时）。 */
+let cloudEnv = ''
+let cloudService = ''
+// #ifdef MP-WEIXIN
+cloudEnv = pick('VITE_WX_CLOUD_ENV')
+cloudService = pick('VITE_WX_CLOUD_SERVICE')
+// #endif
+export const WX_CLOUD_ENV = cloudEnv
+export const WX_CLOUD_SERVICE = cloudService
+export const USE_CLOUD = Boolean(cloudEnv && cloudService)

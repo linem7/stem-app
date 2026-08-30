@@ -76,6 +76,11 @@ function pagerBar(k, page, pages, fn = 'setPage') {
 }
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+/** 截到 20 字，超了加省略号。给兑换码那张表的「说明」列用 —— 那一列的格子是等宽的 */
+const cut20 = (s) => {
+  const t = String(s ?? '').trim();
+  return t.length > 20 ? `${t.slice(0, 20)}…` : t;
+};
 const fmtDate = (d) => (d ? new Date(d).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
 const fmtDay = (d) => (d ? new Date(d).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : '—');
 /**
@@ -407,8 +412,10 @@ function thFilter(label, key, options, cur, allValue = '', width = 0) {
   // ② 每个有筛选的页面都有一个**常驻**的「清除筛选」按钮。见 index.html 那段
   const all = [[allValue, label], ...options];
   // width 是给 .tbl-fixed 用的：那种表**每一列都得写 width**，
-  // 漏掉的会去平分余量（两个字的「年级」跟十个字的「园所」一样宽）
-  return `<th${width ? ` style="width:${width}px"` : ''}><select class="thf" onchange="setColFilter('${key}',this.value)">
+  // 漏掉的会去平分余量（两个字的「年级」跟十个字的「园所」一样宽）。
+  // 数字当 px，字符串原样用（兑换码那张表是百分比等宽的，见那边的注释）
+  const w = typeof width === 'number' ? `${width}px` : width;
+  return `<th${w ? ` style="width:${w}"` : ''}><select class="thf" onchange="setColFilter('${key}',this.value)">
     ${all.map(([v, l]) => `<option value="${esc(String(v))}" ${String(cur ?? '') === String(v) ? 'selected' : ''}
       >${esc(l)}</option>`).join('')}
   </select></th>`;
@@ -635,10 +642,15 @@ const convStatusPill = (s) => (s === 'completed'
  * 而反馈有它自己一整页 —— 这一屏原来是把三个页面的东西堆在一个弹窗里。
  *
  * 留下的除了那两块，还有：
- *   · 编号和兑换码 —— 那是「她是谁」。匿名码激活的老师没有手机号，
- *     认她只能靠编号和她兑的那个码（CLAUDE.md）。**这不是「兑换情况」**，
- *     「兑换情况」指的是额度台账
+ *   · **编号**（teacher_ref）—— 那是「她是谁」。匿名码激活的老师没有手机号，
+ *     跨园所跨学期追同一个人只能靠它
  *   · 底部三个动作（岗位调整 / 重新绑定微信 / 停用）和未使用的换绑码提示
+ *
+ * ⚠️ **兑换码那一格 2026-08-25 用户要求撤掉**（推翻了 08-22 留它的理由）。
+ * 认下来的代价：这一屏从此答不了「她当初用的是哪个码」——
+ * 那个数据一个字没删（`redemption_codes.used_by`），兑换码那一页按码查得到人，
+ * 反过来查不到。真需要的话走 SQL。
+ * `GET /teachers/:id` 的 `redeem_code` 字段也留着，回归脚本在测它。
  *
  * 教案列表**默认 10 条 + 翻页**（用户定）：她写了 40 份的话，
  * 一个弹窗里铺 40 行得滚很久，而要看的往往是最近那几份。
@@ -683,7 +695,7 @@ window.openTeacher = async (id, rosterId) => {
       ])}
       <div class="sub" style="margin:10px 0 14px">
         编号 <span class="mono">${t.teacher_ref ?? '—'}</span>${t.name_masked ? '（超级管理员可见完整姓名）' : ''}
-        　兑换码 <span class="mono">${esc(t.redeem_code || '—')}</span>　年级 ${esc(t.age_group || '—')}<br>
+        　年级 ${esc(t.age_group || '—')}<br>
         激活 ${fmtDate(t.activated_at)}　同意协议 ${fmtDate(t.agreed_at)}　最近登录 ${fmtDate(t.last_login_at)}
       </div>
 
@@ -838,7 +850,19 @@ window.openPlan = async (id, backTo, version) => {
         })()}
       </div>` : ''}
 
-      <div class="card" style="white-space:pre-wrap;font-size:13.5px;line-height:1.8;max-height:44vh;overflow-y:auto">${esc(p.content_md || '（没有正文）')}</div>
+      <!-- 正文和对话记录**两个框等高**（2026-08-25 用户定）。原来正文 max-height:44vh、
+           对话记录 rows=14（约 25vh），下面那个矮一截，而它才是这一屏新加的东西。
+           两边都写成 height:32vh（不是 max-height）—— 用 max-height 的话正文短的那几份
+           又会缩回去，两个框重新不一样高。
+
+           32 是量出来的，不是拍的：外层 .box 是 max-height:86vh，
+           标题 + 版本条 + 小标题 + 脚注 + padding 实测占 233px。
+           第一版写 36vh，1000px 高的窗口上外层多出 93px、**自己也长一条滚动条** ——
+           两个内滚动条外面再套一个外滚动条，谁也说不清该滚哪个。32vh 只差 13px。
+           ⚠️ **不再往下调**：那 233px 是 px 不是 vh（窗口越矮它占的比例越大），
+           而且改过稿的教案多一条版本按钮行、又多 40px —— 一个数字盖不住所有情况。
+           外层偶尔滚一下是 .box 的 overflow-y:auto 本来就在管的事。 -->
+      <div class="card" style="white-space:pre-wrap;font-size:13.5px;line-height:1.8;height:32vh;overflow-y:auto">${esc(p.content_md || '（没有正文）')}</div>
 
       <!-- 「模型自检」那一块 **2026-08-22 撤掉了**（用户定）。
            它是 quality_self 那坨 JSON 原样铺开 —— 八个质量维度加年龄班违规列表，
@@ -848,9 +872,9 @@ window.openPlan = async (id, backTo, version) => {
            （这段注释里不能用反引号 —— 它在一个模板字符串里面。） -->
 
       <b style="font-size:13px">对话记录（${turns} 条）</b>
-      ${turns ? `<textarea readonly rows="14"
-        style="width:100%;margin-top:8px;font-family:ui-monospace,Consolas,monospace;
-               font-size:12px;line-height:1.6;resize:vertical"
+      ${turns ? `<textarea readonly
+        style="width:100%;height:32vh;margin-top:8px;font-family:ui-monospace,Consolas,monospace;
+               font-size:12px;line-height:1.6;resize:vertical;box-sizing:border-box"
         >${esc(JSON.stringify(transcript, null, 2))}</textarea>` : '<div class="empty">没有对话记录</div>'}
 
       <div class="foot"><button class="btn" onclick="${back}">返回</button></div>
@@ -915,19 +939,31 @@ function codesView() {
       <!-- 一行 = 一次建码操作（019 迁移）。原来是一个码一行 ——
            而实际动作是「批量建 20 个」，那一次操作会摊成 20 行，
            几批混在一起按时间倒序，分不出哪 20 个是刚才那一批的。
-           列宽写死 + .tbl-fixed：这张表有状态筛选，不固定的话筛掉几行就整表重排。
-           只有「说明」不写 width —— 唯一不写的那一列会拿到全部余量。 -->
+           **这张表的列宽是平均的**（2026-08-25 用户定：「可以平均列宽来提高表格美观」）。
+           ⚠️ 这一张是**例外**，别推广到别的表 —— 08-22 定过「列宽按每一列的实际内容定，
+           不是等宽」，那条对教师页、园所页仍然有效（那几张表的列内容长短差得远）。
+           这张表能等宽是因为「说明」上限 20 字之后，六列所需宽度落在同一个量级里。
+
+           为什么是百分比而不是 px：
+           🔴 ① 写死 px 会让这张表在 1280 的屏上**横向溢出**（容器只有 1075），
+              而后台其它四张表在 1280 下都不溢出 —— 那是个只有小屏幕才看得见的回归。
+           🔴 ② px + 一个「吸收余量的空列」那一版是上一轮的做法，撤掉了：
+              空列在宽屏上就是一块几百像素的空白，正是这次要治的「不美观」。
+              百分比六列同宽，任何屏宽下都占满、都相等。
+           复选框那一列**不参与平均**：它装的是一个 16px 的控件，
+           跟着一起长到 300px 会让整张表左边空出一大块。 -->
       <tr>
         <th style="width:34px"><input type="checkbox" ${allOn ? 'checked' : ''} onchange="toggleAllCodes(this.checked)"></th>
-        <th style="width:118px">操作</th>
+        <th style="width:16%">操作</th>
         <!-- 日期单独一列（2026-08-23 用户定，到秒）。原来它是「操作」那一格里的小字，
              跟操作名挤在一起；而这一列正是这张表的排序依据 -->
-        <th style="width:168px">日期</th>
-        <th style="width:150px">额度说明</th><th>说明</th>
+        <th style="width:16%">日期</th>
+        <th style="width:16%">额度说明</th>
         ${thFilter('状态', 'codeStatus', [
           ['unused', '未使用'], ['used', '已使用'], ['void', '已作废'],
-        ], S.filter.codeStatus, 'all', 116)}
-        <th style="width:118px"></th></tr>
+        ], S.filter.codeStatus, 'all', '16%')}
+        <th style="width:16%">说明</th>
+        <th style="width:16%"></th></tr>
       ${items.map((c) => `<tr>
         <td><input type="checkbox" ${sel.has(c.id) ? 'checked' : ''} onchange="toggleCode(${c.id},this.checked)"></td>
         <!-- 只留操作标题（2026-08-23 用户定：「只要记录操作标题，不需要其他」）。
@@ -936,7 +972,6 @@ function codesView() {
         <td>${c.kind === 'single' ? '建 1 个码' : `批量建 ${c.requested} 个`}</td>
         <td class="mono" style="white-space:nowrap;font-size:12.5px">${fmtStamp(c.created_at, true)}</td>
         <td class="num">${c.init_text} 教案 / ${c.init_image} 配图</td>
-        <td>${esc(c.grant_reason || '—')}</td>
         <!-- 批量显示「已用几张 / 共几张」，单张就是 1/1（用户定的两种写法）。
              这两个数是 COUNT 出来的，不是存的 —— 见后端那段 -->
         <td class="num">${c.used} / ${c.total} 已用${
@@ -944,6 +979,10 @@ function codesView() {
             // 建成的张数跟要建的不一样 = 撞码重试失败。少见，但不该被抹平
             ? `<br><span class="low" style="font-size:11.5px">要 ${c.requested} 个，只建成 ${c.total} 个</span>`
             : ''}${c.voided ? `<br><span style="font-size:11.5px;color:var(--ink-3)">作废 ${c.voided}</span>` : ''}</td>
+        <!-- 上限 20 字在建码那一步就守住了（输入框 maxlength + 服务端 grantReason）。
+             这里再截一次是为了**早于那条规则建的行**：库里已经有
+             「回归·整批导出 35062456」这种更长的，不截会把等宽的格子顶开 -->
+        <td>${esc(cut20(c.grant_reason) || '—')}</td>
         <td style="white-space:nowrap">
           <button class="btn-sm" onclick="openCodeBatch(${c.id})">查看兑换码</button></td>
       </tr>`).join('')}
@@ -1039,8 +1078,13 @@ window.openNewCode = () => {
     <div class="grid2">
       <div class="field"><label>数量</label>
         <input type="number" id="c_count" value="1" min="1" max="200" style="width:100%"></div>
-      <div class="field"><label>说明（记入台账）</label>
-        <input type="text" id="c_reason" value="完成问卷 · 首次" style="width:100%"></div>
+      <!-- 「说明（记入台账）」→「说明」（2026-08-25 用户定）：括号里那句是
+           写给我自己的备忘，她按下生成的时候不需要知道它落进哪张表。
+           上限靠 maxlength 挡住，**界面上不写「限 20 字」** ——
+           输入框自己会停下来，写出来只是拿她的注意力替我记笔记。
+           服务端也拦一道（grantReason），因为建码有两条路。 -->
+      <div class="field"><label>说明</label>
+        <input type="text" id="c_reason" maxlength="20" value="完成问卷 · 首次" style="width:100%"></div>
     </div>
     <div class="grid2">
       <div class="field"><label>每码教案额度</label><input type="number" id="c_text" value="20" style="width:100%"></div>

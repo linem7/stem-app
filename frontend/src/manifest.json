@@ -21,6 +21,10 @@
       "postcss": true
     },
     "usingComponents": true,
+    // 按需注入（2026-08-25，上传版本时微信强制要求的性能项）：
+    // 只注入当前页面用到的组件代码，不是打包体积优化，是启动耗时优化。
+    // 编译时会原样写进 dist 的 app.json。
+    "lazyCodeLoading": "requiredComponents",
     "permission": {
       // 配图要存到相册给老师拿去打印。第一次保存会弹这句授权说明
       "scope.writePhotosAlbum": {

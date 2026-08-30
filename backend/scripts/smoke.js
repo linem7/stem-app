@@ -144,18 +144,38 @@ line(`3. 引导走完，共答了 ${step} 题`);
 const task = await call('POST', `/conversations/${conv.conversation_id}/generate`, {});
 line(`4. 已提交生成 · task_id=${task.task_id}，开始轮询…`);
 
+/* 2026-08-25：progress_hint（一句编出来的进度文案）换成了 phase + 流式正文。
+   这里顺带**验一遍增量协议真的在拼**：把收到的每一段接起来，
+   最后跟后端报的 len 对一次账 —— 对不上就是 from 游标算错了，
+   而那个错在小程序上表现成「正文重复了一段」，没有人会去报它。 */
 const startedAt = Date.now();
 let status = null;
-let lastHint = '';
-for (let i = 0; i < 90; i += 1) {
-  await new Promise((r) => setTimeout(r, 2000));
-  status = await call('GET', `/conversations/${conv.conversation_id}/generate/status`);
-  if (status.progress_hint !== lastHint) {
-    lastHint = status.progress_hint;
-    line(`   [${Math.round((Date.now() - startedAt) / 1000)}s] ${lastHint}`);
+let lastPhase = '';
+let buf = '';
+let epoch = 0;
+let firstCharAt = 0;
+for (let i = 0; i < 180; i += 1) {
+  await new Promise((r) => setTimeout(r, 1000));
+  const q = `epoch=${epoch}&from=${buf.length}`;
+  status = await call('GET', `/conversations/${conv.conversation_id}/generate/status?${q}`);
+  const s = status.stream;
+  if (s) {
+    if (s.restart) buf = '';
+    buf += s.text;
+    epoch = s.epoch;
+    if (buf.length !== s.len) line(`   ⚠️ 增量对不上：拼出 ${buf.length} 字，后端说 ${s.len} 字`);
+    if (buf.length && !firstCharAt) {
+      firstCharAt = Date.now();
+      line(`   [${Math.round((firstCharAt - startedAt) / 1000)}s] 第一个字出来了`);
+    }
+  }
+  if (status.phase && status.phase !== lastPhase) {
+    lastPhase = status.phase;
+    line(`   [${Math.round((Date.now() - startedAt) / 1000)}s] ${lastPhase}`);
   }
   if (status.status !== 'generating') break;
 }
+line(`   流式收到 ${buf.length} 字正文；开头：${JSON.stringify(buf.slice(0, 40))}`);
 const elapsed = Math.round((Date.now() - startedAt) / 1000);
 
 if (status.status !== 'completed') {

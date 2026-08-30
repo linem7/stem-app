@@ -15,6 +15,7 @@
     "test:ageband": "node scripts/ageband-test.mjs",
     "test:context": "node scripts/context-test.mjs",
     "test:commentary": "node scripts/commentary-test.mjs",
+    "test:stream": "node scripts/stream-test.mjs",
     "test:mode": "node scripts/mode-test.mjs",
     "test:versions": "node scripts/versions-test.mjs",
     "test:import": "node scripts/import-test.mjs",

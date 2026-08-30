@@ -9,7 +9,7 @@
  * 调用方只要 try/catch，不用每次判断 res.ok。
  */
 
-import { API_BASE } from './env.js'
+import { API_BASE, USE_CLOUD, WX_CLOUD_ENV, WX_CLOUD_SERVICE } from './env.js'
 
 const TOKEN_KEY = 'stem_token'
 
@@ -72,6 +72,10 @@ export function onAuthExpired(handler) {
  * @returns {Promise<object>}   已拆掉信封的 data
  */
 export function request({ method = 'GET', path, data, timeout = 20000, auth = true }) {
+  // 配了云托管就走微信内部通道（免域名免备案），没配照旧走 wx.request。
+  // 分流写在这一个函数里，21 个 api 文件一个都不用知道传输层换了。
+  if (USE_CLOUD) return cloudRequest({ method, path, data, timeout, auth })
+
   // 打包时没注入后端地址，请求会发到一个相对路径上，微信那边直接 fail，
   // 表现出来跟「网络断了」一模一样 —— 真拿这个包给老师用，她会一直以为是自己的网有问题。
   // 最容易撞上的场景：build:mp-weixin 出的是上线包，而线上域名还没备案，.env.production 里就空着。
@@ -147,6 +151,77 @@ export function request({ method = 'GET', path, data, timeout = 20000, auth = tr
       },
     })
   })
+}
+
+/* ============ 云托管通道 ============ */
+
+/**
+ * 经 wx.cloud.callContainer 打到云托管容器 —— 跟 wx.request 那条的差别只有传输层：
+ * 同一个信封协议、同一个 ApiError、同一套 401 兜底。
+ *
+ * 三个跟 wx.request 不一样、写错了只在云上坏的地方：
+ *   1. GET 的 query 要**自己拼进 path**。wx.request 会把 data 转成 query，
+ *      callContainer 文档只说「其余参数同 wx.request」—— 与其赌它的实现，
+ *      不如自己拼，两边一定一致
+ *   2. path 是相对容器根的（我们的路由挂在 /v1），不走 API_BASE
+ *   3. 必须带 X-WX-SERVICE 头（环境里可以有多个服务，不带打不到人）
+ */
+function cloudRequest({ method, path, data, timeout, auth }) {
+  if (method === 'PATCH') {
+    return Promise.reject(
+      new ApiError({
+        code: 'METHOD_UNSUPPORTED',
+        message: '小程序发不出 PATCH 请求，这个接口要先改成 POST（见 api-spec）',
+        retryable: false,
+      })
+    )
+  }
+
+  let fullPath = `/v1${path}`
+  let body = data
+  if (method === 'GET' && data && typeof data === 'object') {
+    const qs = Object.entries(data)
+      .filter(([, v]) => v !== undefined && v !== null)
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+      .join('&')
+    if (qs) fullPath += (fullPath.includes('?') ? '&' : '?') + qs
+    body = undefined
+  }
+
+  const header = { 'Content-Type': 'application/json', 'X-WX-SERVICE': WX_CLOUD_SERVICE }
+  if (auth) {
+    const t = getToken()
+    if (t) header.Authorization = `Bearer ${t}`
+  }
+
+  return wx.cloud
+    .callContainer({
+      config: { env: WX_CLOUD_ENV },
+      path: fullPath,
+      method,
+      header,
+      data: body,
+      timeout,
+    })
+    .then((res) => {
+      const bodyData = res.data
+      if (!bodyData || typeof bodyData !== 'object' || typeof bodyData.ok !== 'boolean') {
+        throw new ApiError({ ...NETWORK_ERROR, http: res.statusCode })
+      }
+      if (bodyData.ok) return bodyData.data
+
+      const err = new ApiError({ ...bodyData.error, http: res.statusCode })
+      if (err.code === 'UNAUTHORIZED') {
+        clearToken()
+        if (authExpiredHandler) authExpiredHandler(err)
+      }
+      throw err
+    })
+    .catch((err) => {
+      if (err instanceof ApiError) throw err
+      const isTimeout = String(err?.errMsg || '').includes('timeout')
+      throw new ApiError({ ...(isTimeout ? TIMEOUT_ERROR : NETWORK_ERROR) })
+    })
 }
 
 export const get = (path, data, opts) => request({ method: 'GET', path, data, ...opts })

@@ -73,8 +73,8 @@ imagesRouter.post(
     // 老师那边不该出现「用途填错了」这种事
     const purpose = resolvePurpose(req.body?.purpose);
     // 她一句话里说了几样（「小狗、小猫和兔子的头饰」= 3）。
-    // 只影响头饰：一张纸上排几条、画布要多高。**不拆成几张** ——
-    // 一份教案总共 3 张配额，一句话吃光配额是另一种糟糕
+    // 头饰是一张纸上排几条，材料图是排成几列几行的裁切网格（2026-08-25）。
+    // 两个都**不拆成几张** —— 一份教案总共 3 张配额，一句话吃光配额是另一种糟糕
     const subjects = countSubjects(note);
     const spec = purposeSpec(purpose, subjects);
     // 用哪家模型**由后台定**，不看请求里传了什么（2026-08-18 定：老师不选模型）。

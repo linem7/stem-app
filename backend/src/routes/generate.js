@@ -12,8 +12,9 @@ import { Router } from 'express';
 import { query, queryOne, withTransaction } from '../db/pool.js';
 import { ok, asyncRoute, badRequest } from '../utils/errors.js';
 import { limitGenerate } from '../middleware/rateLimit.js';
-import { taskQueue, setProgressHint, getProgressHint } from '../services/taskQueue.js';
-import { generateLessonPlan, PROGRESS_HINTS } from '../services/lessonGenerator.js';
+import { taskQueue, setPhase, setStreamText, resetStream, getProgress } from '../services/taskQueue.js';
+import { generateLessonPlan } from '../services/lessonGenerator.js';
+import { readablePrefix } from '../services/planStream.js';
 import { extractAndSaveMemories, listMemories } from '../services/memoryExtractor.js';
 import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
 import { canFinish } from '../services/guideFlow.js';
@@ -33,18 +34,35 @@ export const taskIdOf = (conversationId) => `gen_${conversationId}`;
  */
 export function enqueueLessonGeneration({ conv, teacher, memories, qaHistory }) {
   const taskId = taskIdOf(conv.id);
-  setProgressHint(taskId, PROGRESS_HINTS.start);
+  setPhase(taskId, 'thinking');
 
   taskQueue.enqueue({
     id: taskId,
     kind: 'generate_lesson',
     run: async () => {
+      /* 模型吐出来的原始 JSON 攒在这个闭包里，**不进队列的进度存储** ——
+         那里存的是已经翻成人话的正文（老师看的那份）。
+         两份分开的理由：原始 JSON 是给 planStream 吃的中间物，
+         摆进接口响应里等于让前端也认识一遍这个结构。 */
+      let raw = '';
       const plan = await generateLessonPlan({
         conversation: conv,
         teacher,
         memories,
         qaHistory,
-        onProgress: (key) => setProgressHint(taskId, PROGRESS_HINTS[key] || PROGRESS_HINTS.drafting),
+        onPhase: (phase) => setPhase(taskId, phase),
+        onStream: (chunk, { restart } = {}) => {
+          if (restart) {
+            raw = '';
+            resetStream(taskId);
+            return;
+          }
+          raw += chunk;
+          // 第一个字到了 = 它不是在想，是在写。这一步的判据只能在这里 ——
+          // lessonGenerator 那边看不见模型什么时候开的口
+          setPhase(taskId, 'writing');
+          setStreamText(taskId, readablePrefix(raw));
+        },
       });
 
       // AI 输出也要过内容安全（api-spec 第 10 节）
@@ -280,16 +298,40 @@ generateRouter.get(
 
     return ok(res, {
       status,
-      progress_hint:
-        status === 'generating'
-          ? getProgressHint(taskIdOf(id)) || PROGRESS_HINTS.drafting
-          : status === 'completed'
-            ? '写好了'
-            : '这次没生成成功，再试一次通常就好',
+      // 走到哪一段了：thinking / writing / checking。生成结束后就没有阶段可言了
+      phase: status === 'generating' ? getProgress(taskIdOf(id))?.phase ?? 'thinking' : null,
+      // 正文长到哪了。**只回新增的那一段**，见 streamDelta
+      stream: status === 'generating' ? streamDelta(getProgress(taskIdOf(id)), req.query) : null,
       lesson_plan_id: status === 'completed' ? plan?.id ?? null : null,
     });
   })
 );
+
+/**
+ * 增量协议 —— 前端每次把「我已经收到哪儿了」告诉后端，后端只回后面新长出来的那一截。
+ *
+ * 全量重发一次要几千字，一次生成轮三四十次 = 几十上百 KB，
+ * 而老师多半在幼儿园的手机流量上。所以带游标。
+ *
+ * 两个字段缺一不可：
+ *   epoch  第几次尝试。模型被截断会重打一遍，那时候正文要**从头再来** ——
+ *          光有 from 的话前端会把两份教案首尾相接拼在一起，而且不报错
+ *   from   已经收到的字数
+ * 对不上（换了 epoch、或者 from 比后端还多）就 `restart: true` + 回全量，
+ * 前端清屏重画。慢一拍，但画面不会花。
+ */
+export function streamDelta(p, q) {
+  if (!p) return null;
+  const epoch = Number(q?.epoch) || 0;
+  const from = Number(q?.from) || 0;
+  const restart = epoch !== p.epoch || from < 0 || from > p.text.length;
+  return {
+    epoch: p.epoch,
+    restart,
+    text: p.text.slice(restart ? 0 : from),
+    len: p.text.length,
+  };
+}
 
 /** 引导过程的问答对，供生成教案时作为上下文。改稿路由也用它，所以导出。 */
 export async function loadQaHistory(conversationId) {

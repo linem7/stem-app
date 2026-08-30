@@ -17,11 +17,25 @@ authRouter.post(
   '/login',
   asyncRoute(async (req, res) => {
     const { code, nickname, avatar_url } = req.body || {};
-    if (!code || typeof code !== 'string') {
+
+    /* 云托管通道（2026-08-25）：请求经 wx.cloud.callContainer 进来时，
+       微信网关会在 header 里注入调用者的 X-WX-OPENID —— 不需要 code、
+       不需要 AppSecret（我们一直没有 AppSecret，这条路是它的替代品）。
+
+       🔴 只有 TRUST_WX_OPENID_HEADER=true 时才信这个头（云托管控制台配）。
+       默认不信，因为普通部署下这个头是**谁都能伪造的**：
+       本地 curl 加一个 X-WX-OPENID 就能变成任何老师。
+       云托管环境里它可信的前提是微信网关会覆盖外部传入的同名头 ——
+       所以这个开关**只能在云托管环境里开**，别处开了就是后门。 */
+    const wxOpenid = config.trustWxOpenidHeader ? String(req.headers['x-wx-openid'] || '') : '';
+
+    if (!wxOpenid && (!code || typeof code !== 'string')) {
       throw badRequest('登录信息不完整，请退出小程序重新进入');
     }
 
-    const { openid, unionid } = await code2Session(code);
+    const { openid, unionid } = wxOpenid
+      ? { openid: wxOpenid, unionid: req.headers['x-wx-unionid'] || null }
+      : await code2Session(code);
 
     // 一条 SQL 解决「没有就建、有就更新登录时间」。
     // nickname/avatar 用 COALESCE(EXCLUDED.x, 原值)：这次没传就保留上次的，

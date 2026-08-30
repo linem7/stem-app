@@ -26,13 +26,11 @@ import { isLearning, buildCommentaryUserPrompt, normalizeCommentary } from './le
 import { AppError, ErrorCode } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 
-/** 生成阶段的提示文案（api-spec 第 4 节 progress_hint） */
-export const PROGRESS_HINTS = {
-  start: '正在梳理你的想法…',
-  drafting: '正在设计教学流程…',
-  checking: '正在检查是否适合这个年龄班…',
-  finishing: '就快好了，正在排版…',
-};
+/* PROGRESS_HINTS（'正在梳理你的想法…' 那四句）**2026-08-25 删掉了**。
+   它是「编出来的进度」：四句文案按代码走到哪一行推进，跟模型真的写到哪没关系。
+   现在老师看到的是**正文本身**一个字一个字长出来（onStream），
+   进度只剩三个真实阶段：thinking / writing / checking。
+   ⚠️ 别照旧稿把它加回来 —— 一屏上同时摆真进度和假进度，假的那份迟早说反话。 */
 
 /**
  * 要模型返回的形状 —— **中国大陆幼儿园常见的教案格式**（2026-08-20 改版）。
@@ -90,10 +88,15 @@ const jsonShape = (durationTarget) => `{
  * @param {object} o.teacher       teachers 行
  * @param {Array}  o.memories      teacher_memories 行
  * @param {Array}  [o.qaHistory]   [{question, answer}] 引导过程的问答，供模型理解上下文
- * @param {Function} [o.onProgress] (hintKey) => void，用来推进 progress_hint
+ * @param {Function} [o.onPhase]   (phase) => void，'thinking' | 'checking'。
+ *   'writing' 不在这里发 —— 那一步的判据是「模型吐出第一个字」，由 onStream 那边认
+ * @param {Function} [o.onStream]  (chunk, {restart}) => void，模型每吐一小段就调一次。
+ *   老师那一屏靠它看见正文长出来（2026-08-25）
  * @returns {Promise<{title,age_group,duration_min,content_json,content_md,quality_self,tokenIn,tokenOut}>}
  */
-export async function generateLessonPlan({ conversation, teacher, memories, qaHistory = [], onProgress = () => {} }) {
+export async function generateLessonPlan({
+  conversation, teacher, memories, qaHistory = [], onPhase = () => {}, onStream,
+}) {
   // 模式挂在会话上（017 迁移）。这里不 resolveMode ——
   // 值是开会话时收敛过才落库的，重新收敛一遍只会掩盖「库里怎么会有乱值」这个问题
   const learning = isLearning(conversation.mode);
@@ -101,7 +104,7 @@ export async function generateLessonPlan({ conversation, teacher, memories, qaHi
   const ageGroup = collected.age_group || conversation.age_group || teacher?.age_group || '中班';
   const band = getAgeBand(ageGroup);
 
-  onProgress('start');
+  onPhase('thinking');
 
   const system = buildLessonSystemPrompt({
     teacher,
@@ -144,8 +147,6 @@ ${collected.duration_note ? `\n注意：${collected.duration_note}` : ''}
 只输出 JSON，结构如下（不要加任何解释文字）：
 ${jsonShape(durationTarget)}`;
 
-  onProgress('drafting');
-
   const { data, reasoning, tokenIn, tokenOut } = await chatJSON({
     system,
     messages: [{ role: 'user', content: userPrompt }],
@@ -168,11 +169,16 @@ ${jsonShape(durationTarget)}`;
        教案是老师唯一真正要的东西，缺一半等于没有；而自检、解读、每题回应
        都有兜底（失败只记日志或用中性句），为它们重试只是让老师多等。 */
     retryOnTruncate: true,
+    /* 🔴 **八次文本调用里只有这一次开流式**（2026-08-25）。
+       老师那一屏等的就是这份教案，让她看着它长出来；
+       出题回应、自检、解读、翻译、记忆提取没有任何人在看，
+       给它们开流式只是各自多一条更容易出错的代码路径。 */
+    onStream,
   });
 
   const contentJson = normalizePlan(data, ageGroup, durationTarget);
 
-  onProgress('checking');
+  onPhase('checking');
 
   // 代码层硬校验：模型是概率的，这一层是确定的
   const { violations, fixed } = enforceAgeBand(contentJson, ageGroup);
@@ -222,8 +228,6 @@ ${jsonShape(durationTarget)}`;
       logger.warn('commentary_failed', { conversation_id: conversation.id, code: err?.code });
     }
   }
-
-  onProgress('finishing');
 
   const qualitySelf = {
     checked_at: new Date().toISOString(),

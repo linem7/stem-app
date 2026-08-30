@@ -178,8 +178,12 @@ export function resolvePurpose(value) {
  * 数出来是为了：一张纸上排几条。**不是**拆成几张 ——
  * 一份教案总共才 3 张配额，一句话就把配额吃光是另一种糟糕。
  *
- * 顿号、逗号、和、跟、与、以及、还有，都算分隔。多算一样最多是纸上多排一条空的，
+ * 顿号、逗号、和、跟、与、以及、还有，都算分隔。多算一样最多是纸上多一个空格子，
  * 少算一样才是真丢东西，所以这里宁可多算。
+ *
+ * ⚠️ 上限在这里是 9（一张 A4 排得下的最多格数），**每个用途各自再收一次**
+ * —— 头饰收到 4（再多每条就窄到剪不动，A4 上一条不到 5 厘米高），材料图到 9。
+ * 收口写在 purposeSpec 里，不写在这儿：这个函数只回答「她说了几样」。
  */
 export function countSubjects(note) {
   const s = String(note || '').trim();
@@ -188,37 +192,96 @@ export function countSubjects(note) {
     .split(/[、,，;；]|和|跟|与|以及|还有/)
     .map((x) => x.trim())
     .filter(Boolean);
-  // 上限 4：再多每条就窄到剪不动了，A4 上一条不到 5 厘米高
-  return Math.min(Math.max(parts.length, 1), 4);
+  return Math.min(Math.max(parts.length, 1), 9);
+}
+
+/**
+ * 一张纸上排 n 样，排成几列几行。
+ *
+ * 只有一条规矩：**列数少、行数多**，因为纸是竖的（A4 纵向）。
+ * 6 样 = 2 列 3 行（用户 2026-08-25 点名要的那个例子）。
+ * 除不尽时多出来的格子留空 —— 一张裁切纸上有一个空格子不是缺陷，
+ * 而为了凑整把 5 样排成 1 列 5 行，每一格会扁到剪出来的东西不成样子。
+ */
+function gridFor(n) {
+  const cols = n <= 3 ? 1 : n <= 8 ? 2 : 3;
+  return { cols, rows: Math.ceil(n / cols) };
 }
 
 /**
  * @param {string} value 用途
- * @param {number} [count] 这张纸上要排几样（只有头饰用得上，见 countSubjects）
+ * @param {number} [count] 这张纸上要排几样（头饰和材料图用得上，见 countSubjects）
  */
 export function purposeSpec(value, count = 1) {
-  const spec = PURPOSES[resolvePurpose(value)];
-  const n = Math.min(Math.max(Number(count) || 1, 1), 4);
-  if (resolvePurpose(value) !== 'headwear' || n < 2) return spec;
+  const key = resolvePurpose(value);
+  const spec = PURPOSES[key];
+  const raw = Math.max(Number(count) || 1, 1);
 
-  // 排几条就要多高的纸。一条是 2:1 的横条，三条就得接近方的，
-  // 否则每条被压扁到剪不动。宽度不动 —— 带子要横着通到边
-  const height = { 2: 1280, 3: 1536, 4: LONG }[n];
-  return {
-    ...spec,
-    height,
-    style:
-      `A printable sheet of ${n} separate cut-out headband templates, stacked one above another, ` +
-      'evenly spaced with a clear white gap between them for cutting. Each template has one outlined ' +
-      'shape in the center and two long horizontal strips running from it all the way off the left and ' +
-      'right edges of the image. Outlines only, hollow for children to colour in.',
-    rules: `1. 这是**一张纸上排 ${n} 条**头饰纸样，上下排开，条与条之间留出白边好下剪刀
+  if (key === 'headwear') {
+    const n = Math.min(raw, 4);
+    if (n < 2) return spec;
+
+    // 排几条就要多高的纸。一条是 2:1 的横条，三条就得接近方的，
+    // 否则每条被压扁到剪不动。宽度不动 —— 带子要横着通到边
+    const height = { 2: 1280, 3: 1536, 4: LONG }[n];
+    return {
+      ...spec,
+      height,
+      style:
+        `A printable sheet of ${n} separate cut-out headband templates, stacked one above another, ` +
+        'evenly spaced with a clear white gap between them for cutting. Each template has one outlined ' +
+        'shape in the center and two long horizontal strips running from it all the way off the left and ' +
+        'right edges of the image. Outlines only, hollow for children to colour in.',
+      rules: `1. 这是**一张纸上排 ${n} 条**头饰纸样，上下排开，条与条之间留出白边好下剪刀
 2. 老师说了几样就画几样，**一样都不能少**（她说的每一样各占一条）
 3. 每一条都是：中间一个主体图案（那样动物/角色的正面简笔轮廓），左右各接一条水平长带，
    带子必须一直画到画面最左边和最右边、被画面切断 —— 没顶到边印出来就围不上小孩的头
 4. 轮廓线要粗、要闭合，方便沿线剪；图案空心，留给孩子涂色
 5. 描述里要逐条点明每一条画的是什么，并出现 "stacked cut-out headband templates"`,
-  };
+    };
+  }
+
+  /* 材料图说了好几样时，排成**能裁开的网格**（2026-08-25 用户定）。
+     跟头饰那条是同一个毛病的同一个治法：单件构图写死了
+     "drawn large and centered, filling most of the frame"，
+     于是三样材料只有一样被画出来，另外两样悄悄丢掉、配额照扣。
+
+     排成网格而不是「整齐排开的一组」，是因为**它的终点是打印机**：
+     格子间留白边 + 细裁切线，老师印一张 A4 剪开就是几张材料卡，
+     糊在一起的一组图她还得自己想办法分。 */
+  if (key === 'material') {
+    const n = Math.min(raw, 9);
+    if (n < 2) return spec;
+
+    const { cols, rows } = gridFor(n);
+    const blanks = cols * rows - n;
+    return {
+      ...spec,
+      // 竖版对着 A4（约 250 DPI）。单件那档留着 1536 见方 ——
+      // 那张不是裁切纸，是一张「照着去准备」的目录图
+      width: 1536,
+      height: LONG,
+      /* 🔴 关掉 MiniMax 的提示词润色，理由跟记录表那条一样：
+         「一张网格裁切纸」这个视觉套路在训练数据里几乎全是识字卡 ——
+         每格底下一个单词。润色器会把那些标签补回来，盖掉我们写死的禁令。 */
+      optimize: false,
+      style:
+        `A printable sheet divided into a grid of ${cols} column${cols > 1 ? 's' : ''} and ${rows} rows, ` +
+        'separated by thin straight cut lines with clear white gaps between cells, ' +
+        'one single object drawn large and centered inside each cell. ' +
+        'Plain flat cream background, no room, no floor, no wall, no scenery, no perspective. ' +
+        'Portrait orientation, like a page to be printed on A4 and cut apart.',
+      rules: `1. 这是**一张纸上排 ${n} 样**材料，${cols} 列 × ${rows} 行的网格，老师印出来沿线剪开
+2. 老师说了几样就画几样，**一样都不能少**，每一格里放一样${
+        blanks ? `（${cols} × ${rows} 共 ${cols * rows} 格，最后 ${blanks} 格留空白）` : ''
+      }
+3. 每一格里那样东西画大、居中、占满这一格；格与格之间留出白边，好下剪刀
+4. 画的是**材料本身**，静物 —— 不要背景故事、不要教室场景、不要正在被使用的样子
+5. 描述里要逐格点明画的是什么，并出现 "grid of ${cols} column${cols > 1 ? 's' : ''} and ${rows} rows, cut apart"`,
+    };
+  }
+
+  return spec;
 }
 
 /** 这个用途要的是「印出来当东西用」还是「画出来给人看」 */

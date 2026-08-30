@@ -1116,6 +1116,20 @@ adminRouter.post('/codes/batches/delete', requireSuper, asyncRoute(async (req, r
 }));
 
 /**
+ * 建码时那句「说明」——**最多 20 个字**（2026-08-25 用户定）。
+ *
+ * 20 是从表格反推的：兑换码列表那一列是等宽的一格，装得下 20 个字。
+ * 再长就得靠省略号截断，而这句话的用处是「一眼看出这批码是发给谁的」——
+ * 看不全就等于没写。
+ *
+ * ⚠️ 界面上那个输入框也有 `maxlength="20"`，所以这里的截断实际上打不着。
+ * 留着是因为**建码有两条路**（单个和批量），而 update 那种「两条路只守一条」
+ * 的事这个项目已经踩过（2026-08-22 配图模型地址被清空那次）。
+ * 界面上**不写「限 20 字」**：输入框自己会停下来，写出来只是替我记笔记。
+ */
+const grantReason = (v, fallback) => String(v || '').trim().slice(0, 20) || fallback;
+
+/**
  * 建一个码。
  *
  * **码只是一张入场券**，不带任何身份（016 迁移把那几列删了）。
@@ -1132,7 +1146,7 @@ adminRouter.post(
     const kgId = b.kindergarten_id ? Number(b.kindergarten_id) : null;
     const initText = Number(b.init_text) > 0 ? Number(b.init_text) : 20;
     const initImage = Number(b.init_image) > 0 ? Number(b.init_image) : 10;
-    const reason = String(b.grant_reason || '').trim() || '首次激活';
+    const reason = grantReason(b.grant_reason, '首次激活');
     const batch = await queryOne(
       `INSERT INTO code_batches
          (kind, requested, init_text, init_image, grant_reason, kindergarten_id, created_by)
@@ -2615,7 +2629,7 @@ adminRouter.post('/codes/batch', asyncRoute(async (req, res) => {
   const count = Math.min(Math.max(Number(b.count) || 0, 1), 200);
   const initText = Number(b.init_text) > 0 ? Number(b.init_text) : 20;
   const initImage = Number(b.init_image) > 0 ? Number(b.init_image) : 10;
-  const reason = String(b.grant_reason || '').trim() || '批量发放';
+  const reason = grantReason(b.grant_reason, '批量发放');
 
   // 先记这一次操作，再往里塞码。列表是按操作列的（019 迁移），
   // `requested` 记的是「要建几个」—— 跟实际建成的张数分开存：

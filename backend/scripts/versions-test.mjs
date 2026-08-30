@@ -419,7 +419,8 @@ const { countSubjects, purposeSpec } = await import('../src/services/imagePurpos
 chk(countSubjects('小鱼头饰') === 1, '「小鱼头饰」= 1 样');
 chk(countSubjects('我需要准备小狗、小猫和兔子的头饰') === 3, '「小狗、小猫和兔子」= 3 样');
 chk(countSubjects('') === 1, '没写描述时按 1 样');
-chk(countSubjects('一、二、三、四、五、六') === 4, '再多也封顶 4 条（每条会窄到剪不动）');
+chk(countSubjects('一、二、三、四、五、六') === 6, '数到 6 就是 6（封顶挪进了 purposeSpec，各用途各自收）');
+chk(countSubjects('一、二、三、四、五、六、七、八、九、十') === 9, '再多也封顶 9（一张 A4 排得下的最多格数）');
 
 const hw1 = purposeSpec('headwear', 1);
 const hw3 = purposeSpec('headwear', 3);
@@ -427,7 +428,27 @@ chk(hw3.height > hw1.height, `排 3 条时画布要更高（${hw1.height} → ${
 chk(hw3.width === hw1.width, '宽度不变 —— 带子要横着通到画面边缘');
 chk(/sheet of 3 separate cut-out headband templates/.test(hw3.style), '构图规则改成「一张纸上 3 条」');
 chk(/one outlined shape in the center/.test(hw1.style), '只说一样时还是单条那套');
+// 头饰的 4 条封顶没有被挪走，只是换了地方 —— 每条窄到剪不动的理由还在
+chk(/sheet of 4 separate/.test(purposeSpec('headwear', 9).style), '头饰仍然封顶 4 条');
 chk(purposeSpec('worksheet', 3).height === purposeSpec('worksheet', 1).height, '记录表不受这条影响');
+
+// 材料图说了好几样 → 排成能裁开的网格（2026-08-25 用户定）。
+// 跟头饰同一个毛病同一个治法：单件构图写死了 "drawn large and centered, filling most of the frame"，
+// 三样材料只有一样被画出来，另外两样悄悄丢掉、配额照扣。
+const mt1 = purposeSpec('material', 1);
+const mt6 = purposeSpec('material', 6);
+chk(/drawn large and centered, filling most of the frame/.test(mt1.style), '只说一样时还是单件那套');
+chk(mt1.width === mt1.height, '单件材料图是方的（一张「照着去准备」的目录图，不是裁切纸）');
+chk(/grid of 2 columns and 3 rows/.test(mt6.style), '6 样 = 2 列 × 3 行（用户点名要的那个例子）');
+chk(mt6.height === 2048 && mt6.width === 1536, `多样材料图是 A4 竖版（${mt6.width}×${mt6.height}）`);
+chk(/cut apart/.test(mt6.style), '构图里写明「印出来剪开」—— 这张图的终点是打印机');
+// 🔴 润色器会把「识字卡」那套标签补回来，盖掉写死的禁令。记录表就是这么翻的车
+chk(mt6.optimize === false, '多样材料图关掉了 MiniMax 的提示词润色');
+chk(/grid of 1 column and 3 rows/.test(purposeSpec('material', 3).style), '3 样 = 1 列 × 3 行（纸是竖的，列少行多）');
+chk(/grid of 2 columns and 2 rows/.test(purposeSpec('material', 4).style), '4 样 = 2 列 × 2 行');
+// 除不尽时多出来的格子留空，而不是凑整排成 1 列 5 行（每格会扁到剪出来不成样子）
+chk(/最后 1 格留空白/.test(purposeSpec('material', 5).rules), '5 样排 2×3，多出来那一格明说留空');
+chk(!/留空白/.test(mt6.rules), '排得满时不提「留空」—— 没有的事不写进提示词');
 
 // ---------------------------------------------------------------
 L('\n=== 11. 两个 POST .../update 别名（2026-08-21）===');
