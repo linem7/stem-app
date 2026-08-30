@@ -1,0 +1,97 @@
+/**
+ * 设计令牌 · CSS 变量 + 全局基底
+ *
+ * 值全部来自 _vars.scss 的 SCSS 变量（那份才是源）。这里再导出一份 CSS 变量，
+ * 是为了模板里 :style 动态绑定、以及少数需要在运行时切换的地方能用 var()。
+ *
+ * SCSS 变量由 vite.config.js 注入，所以这份文件里不写 @use。
+ */
+
+:root {
+  --canvas: #{$canvas};
+  --paper: #{$paper};
+  --paper-2: #{$paper-2};
+
+  --amber: #{$amber};
+  --amber-soft: #{$amber-soft};
+  --amber-line: #{$amber-line};
+  --amber-deep: #{$amber-deep};
+
+  --mint: #{$mint};
+  --mint-deep: #{$mint-deep};
+  --mint-soft: #{$mint-soft};
+
+  --sky: #{$sky};
+  --sky-soft: #{$sky-soft};
+  --sky-deep: #{$sky-deep};
+  --coral: #{$coral};
+  --coral-deep: #{$coral-deep};
+
+  --ink: #{$ink};
+  --ink-2: #{$ink-2};
+  --ink-3: #{$ink-3};
+  --rule: #{$rule};
+
+  --r-chip: #{$r-chip};
+  --r-btn: #{$r-btn};
+  --r-card: #{$r-card};
+  --r-input: #{$r-input};
+  --r-sm: #{$r-sm};
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+/*
+  🔴 **正文区是一整块同一个颜色**（2026-08-30 用户定）。
+
+  原来 body 是 $canvas（展板色）、正文列是 $paper（近白），桌面上正文列就成了
+  一条**纵向的白带**竖在奶油底上 —— 它把「一列正文」画成了「一张贴上去的纸」。
+  参照 GPT：正文区一整片同色，只有侧边栏比它深一档。
+
+  所以 body 就是 $paper，`.s-page` 不再自己画底（见 s-page.vue），
+  深一档的 $paper-2 只留给侧边栏。
+*/
+body {
+  background: $paper;
+  color: $ink;
+  font-family: $font-family;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+
+  /*
+    字号**不在这里定**。八级梯子的唯一源是 utils/typography.js，
+    由 s-page 内联到根节点上（要能在运行时切档，只能走 CSS 变量）。
+
+    这里只留一个兜底字号，给「万一有文字画在了 s-page 外面」的情况。
+    它故意不跟字号档走：那种地方本来就不该有文字。
+  */
+  font-size: 15px;
+}
+
+/* 浏览器给按钮和输入框的默认样式全清掉，样式由组件自己定 */
+button,
+input,
+textarea {
+  font-size: inherit;
+  font-family: inherit;
+  color: inherit;
+}
+
+button {
+  padding: 0;
+  margin: 0;
+  line-height: normal;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+}

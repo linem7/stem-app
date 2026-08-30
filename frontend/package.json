@@ -1,0 +1,25 @@
+{
+  "name": "stem-lesson-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "幼儿园 STEAM 教案生成平台 · 手机网页前端（Vue 3 + Vite）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "dev:account": "node scripts/dev-activate.mjs",
+    "test:api": "node scripts/api-contract-test.mjs",
+    "test:tokens": "node scripts/tokens-test.mjs",
+    "test:contrast": "node scripts/contrast-test.mjs"
+  },
+  "dependencies": {
+    "vue": "^3.5.42",
+    "vue-router": "^5.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.8",
+    "sass": "^1.103.1",
+    "vite": "^8.2.2"
+  }
+}
