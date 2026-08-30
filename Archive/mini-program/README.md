@@ -10,7 +10,7 @@ web 端重做时有一部分能直接用。
 
 | 文件 / 目录 | 是什么 | web 端还用得上吗 |
 |---|---|---|
-| `frontend-uniapp/` | uni-app Vue3 + Vite 工程，十一屏全部接过真后端 | **部分**：`src/api/`（21 个文件）、`src/stores/`、`src/styles/`、`src/utils/typography.js` 原样可搬；页面模板要重写 |
+| `frontend-uniapp/` | uni-app Vue3 + Vite 工程，10 个页面全部接过真后端 | **部分**：`src/api/`（6 个文件）、`src/stores/`（4 个）、`src/styles/tokens.scss`、`src/utils/typography.js` 原样可搬；页面模板要重写 |
 | `CLAUDE-mp-lessons.md` | 小程序那一路踩过的坑（从主 `CLAUDE.md` 搬出来的） | 否，但值得读一遍 |
 | `PRD-miniprogram.md` | 2026-08-16 的产品需求，写的是小程序 | 被 `docs/PRD-web.md` 取代 |
 | `deployment-wxcloudrun.md` | 微信云托管部署方案 | 否 |
