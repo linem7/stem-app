@@ -29,7 +29,7 @@ import { memoriesRouter } from './routes/memories.js';
 import { accountRouter } from './routes/account.js';
 import { feedbackRouter } from './routes/feedback.js';
 import { tasksRouter } from './routes/tasks.js';
-import { adminRouter, requireAdmin } from './routes/admin.js';
+import { adminRouter, requireAdmin } from './routes/admin/index.js';
 import { ensureSuperAdmin } from './services/admins.js';
 
 // ---------------------------------------------------------------
