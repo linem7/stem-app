@@ -19,6 +19,7 @@ AI 一屏问 4 个问题、每题附可点选的推荐答案卡片，最后生�
 |---|---|
 | `MEMORY.md` | **协作记忆**：他的偏好、他反悔过什么、我犯过的错、只能他做的事。**这份先读，五分钟** |
 | `docs/handoff/2026-08-31-web-前端主体完成.md` | **前端现在是什么样、接着做什么、会绊倒你的五件事** |
+| `docs/handoff/2026-08-31-数据库部署问答与-teacher-bat.md` | 数据库在哪、部署要上传什么、两个 bat 怎么用、**三个挂着等用户拍板的决定** |
 | `docs/adr/ADR-002-pivot-to-web.md` | **转向 web 的决定**：真实理由、被推翻的旧决策、认下的代价、三道闸门 |
 | `docs/PRD-web.md` | 产品需求（web 版），含身份模型、核心流程、教学内核、数据传输逻辑 |
 | `docs/design/api-spec.md` | **前后端契约。改接口先改这里，再改代码** |
@@ -539,6 +540,12 @@ API 层的函数写好了，没有任何页面调用它。「有入口但点不�
 注释里一个反引号就把字符串截断，报的 `SyntaxError` 指向的行看起来完全正常。
 改完 `node --check backend/admin/*.js` 过一遍。
 
+⚠️ **`.bat` 文件必须是 CRLF 换行。** 2026-08-31 踩过：`teacher.bat` 用 Write 工具写出来是 LF，
+cmd.exe 逐行解析时把中文注释切错位，报出一串
+`'---' is not recognized as an internal or external command` —— 报错指向的内容跟真正的原因
+（换行符）毫无关系。`admin.bat` 一直是 CRLF，所以它没事。
+改完 `file *.bat` 看一眼有没有 `with CRLF line terminators`。
+
 ⚠️ **「改了没生效」先查端口被谁占着**（`netstat -ano` 找 3100），按 PID 杀。
 `kill %1` 在新 shell 里杀不到上一个 Bash 调用启动的进程，新进程 EADDRINUSE 静默退出，
 **应答的一直是旧代码**。
@@ -640,8 +647,14 @@ vite 自己重启，浏览器刷新即可。
 ## 开发约定
 
 - `npm install` **必须在本地硬盘跑**。项目原在 Google Drive 上，那是虚拟盘，npm 会报 `EBADF`
-- 前端：`cd frontend && npm run dev`（5173，被占了 vite 会换端口，看它自己那行输出）。
-  后端没配 CORS，所以 `/v1` 和 `/local-images` 走 vite 的同源代理转给 3000 —— **后端得先起着**
+- **两个 bat 双击即可**：`admin.bat` 起后端 + 开管理后台，`teacher.bat` 起前端 + 开教师端
+  （前端不在就起，已经在跑就只开浏览器；后端不在 3000 它会自己新开窗口起一个）。
+  **窗口就是服务本体，关掉窗口 = 关掉服务**
+- 前端也可以手敲 `cd frontend && npm run dev`（5173，被占了 vite 会换端口，看它自己那行输出）
+- 🔴 **后端必须在 3000，前端才有数据**：`vite.config.js` 的 proxy 把 `/v1` 和 `/local-images`
+  **写死**转给 `localhost:3000`（后端没配 CORS，只能走同源代理）。后端跑在 3100 时页面
+  **照样打开**，只是每个接口都 404 —— 看起来像前端坏了。`teacher.bat` 因此不做端口轮换，
+  3000 被别的程序占着就直接报错退出
 - **拿真手机看**：`vite.config.js` 里 `host: true`，所以同一个 WiFi 下手机直接开
   `http://<这台电脑的内网 IP>:<端口>/`（`ipconfig` 查 IPv4）。Windows 防火墙第一次会弹窗，点「允许」。
   开发者工具那个模拟框看不出滚动惯性、输入法顶起页面、系统字号调过这些事
