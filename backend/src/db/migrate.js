@@ -57,7 +57,9 @@ export async function runMigrations({ silent = false } = {}) {
         log(`  完成 ${file}`);
       } catch (err) {
         await client.query('ROLLBACK');
-        throw new Error(`迁移文件 ${file} 执行失败，数据库已回滚到执行前的状态。\n  原因：${err.message}`);
+        throw new Error(
+          `迁移文件 ${file} 执行失败，数据库已回滚到执行前的状态。\n  原因：${err.message}`,
+          { cause: err });
       }
     }
   } finally {

@@ -169,7 +169,7 @@ export function guessFormat(kind, baseUrl, modelId) {
       if (k === kind && re.test(model)) return fmt;
     }
   }
-  let host = '';
+  let host;
   try {
     host = new URL(String(baseUrl || '')).hostname;
   } catch {

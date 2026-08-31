@@ -123,7 +123,7 @@ export async function request({ method = 'GET', path, data, timeout = 20000, aut
 
   // 后端没按约定返回信封（被网关/代理截了、或者路径写错吃到了 HTML）。
   // 这时 body 里没有可展示的中文，只能给一句兜底。
-  let payload = null
+  let payload
   try {
     payload = await res.json()
   } catch (err) {

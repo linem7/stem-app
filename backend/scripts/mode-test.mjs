@@ -91,7 +91,7 @@ L('\n=== 1. 效率模式 ===');
 // 漏的永远是另外两条路 —— 而它们都不报错。
 
 L('\n=== 2. 学习模式 ===');
-let learnId = 0;
+let learnId;
 {
   const d = await ok('POST', '/conversations', { seed_input: '我想做个浮与沉的活动', mode: 'learning' });
   learnId = d.conversation_id;

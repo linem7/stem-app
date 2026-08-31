@@ -207,7 +207,7 @@ chk(resolvePurpose('乱填的') === 'material', '不认识的用途退回材料�
 chk(resolvePurpose(undefined) === 'material', '没传用途也退回材料图');
 
 /** 从系统提示词里抠出那段被引号包着的强制英文前缀 */
-const prefixOf = (k) => (buildPurposeSystem(k).match(/"([^]*?)"\n\n然后/) || [, ''])[1];
+const prefixOf = (k) => (buildPurposeSystem(k).match(/"([^]*?)"\n\n然后/) || ['', ''])[1];
 
 // 最重要的一条：否定约束必须落在**英文风格前缀**里。
 // 中文那几条只有 DeepSeek 看得到，图片模型从头到尾没见过 —— 第一版就是这么翻的车，

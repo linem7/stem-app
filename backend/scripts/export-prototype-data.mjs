@@ -107,7 +107,7 @@ for (const c of CASES) {
 
 // ---- 改一改：拿小班那份走一遍 ----
 L(`\n── 改一改（小班）──`);
-token = (await call('POST', '/auth/login', { code: '小班' === '小班' ? 'dev:proto_small' : '' })).token;
+token = (await call('POST', '/auth/login', { code: 'dev:proto_small' })).token;
 const beforePlan = structuredClone(out.plans['小班']);
 
 const r1 = await call('POST', `/lesson-plans/${out._small.planId}/revise`, { feedback: REVISE_FEEDBACK });

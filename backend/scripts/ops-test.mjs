@@ -10,8 +10,8 @@ const chk=(cond,msg)=>{ L(`  ${cond?'✓':'✗'} ${msg}`); if(!cond) fail++; };
 // 自己造干净数据，可反复跑
 const RND=String(Date.now()).slice(-8);
 const A=`dev:ops_a_${RND}`, Bacc=`dev:ops_b_${RND}`;
-let CODE=null;
-let SLOT=null;
+let CODE;
+let SLOT;
 {
   // 016 之后激活要两样：码（一张入场券，不带身份）+ 从名单里选一个岗位。
   // 库里没有手机号了，身份全部来自名单那一行

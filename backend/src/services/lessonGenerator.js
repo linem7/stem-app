@@ -351,7 +351,7 @@ function normalizePlan(raw, ageGroup, durationTarget) {
   const objectives = arr(raw.objectives)
     .map((o) => {
       if (typeof o === 'string') {
-        const m = /^\s*[【\[]?(认知|能力|情感)[态度]*[】\]]?\s*[:：]?\s*(.+)$/.exec(o);
+        const m = /^\s*[【[]?(认知|能力|情感)[态度]*[】\]]?\s*[:：]?\s*(.+)$/.exec(o);
         return m ? { dimension: m[1], text: m[2].trim() } : { dimension: '', text: o.trim() };
       }
       const d = str(o?.dimension).replace(/态度|目标/g, '').trim();

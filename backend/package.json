@@ -9,6 +9,8 @@
   },
   "scripts": {
     "start": "node src/server.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "dev": "node --watch src/server.js",
     "migrate": "node src/db/migrate.js",
     "smoke": "node scripts/smoke.js",
@@ -28,5 +30,10 @@
     "jsonwebtoken": "^9.0.2",
     "openai": "^4.77.0",
     "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.9.1",
+    "globals": "^17.11.0"
   }
 }
