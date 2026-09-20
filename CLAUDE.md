@@ -651,6 +651,19 @@ diff --strip-trailing-cr -rq /opt/stem-app /root/workspace/stem-app \
 ⚠️ **反方向只有两个文件**（`rebind-test.mjs`、`dev-activate.mjs`），
 都是工作区里**故意删掉的**，服务器上留着是废弃残余 —— **别以为服务器更新**。
 
+🔴 **服务器上有一层 mihomo 代理（2026-09-20 装）** —— 之前哪份文档都没写。
+`systemctl` 服务 `mihomo`，`/etc/mihomo/config.yaml`，规则模式，`127.0.0.1:7890`，
+**GitHub 靠它才通**。⚠️ **`Restart=on-failure`，不是 `always`** ——
+被正常 `stop` 之后不会自己回来。出网断了先查这里：
+
+```bash
+curl -x http://127.0.0.1:7890 -sS -o /dev/null -w '%{http_code}\n' https://github.com
+```
+
+`ADR-003` 里「大陆机器连不通 GitHub，所以部署是 `scp` 不是 `git pull`」这句话的
+**前提已经不成立了**，但部署方式仍然没改（`/opt/stem-app` 不是 git 仓库）。
+详见 `docs/handoff/2026-09-20-服务器落后与-deploy-key.md` 第三节。
+
 🔴 **假登录还开着**，而且比 09-20 那份写的更糟：那份说「最坏是烧点 API 费用」，
 因为当时还有两道护栏 —— 现在**两道都不在**。
 

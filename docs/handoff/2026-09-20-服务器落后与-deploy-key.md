@@ -103,15 +103,116 @@ select column_name from information_schema.columns
 
 **在线老师数为 0**，所以还没有人受害。但这条是「下一步绕不过去」，不是「可以一直挂着」。
 
-⚠️ **部署方式不是 `git pull`**：大陆机器连不通 GitHub（见 `ADR-003`），
-是打包 + `scp`。**服务器上这份 `/opt/stem-app` 不是 git 仓库**，
-所以这次配的 deploy key **只解决了从服务器往外推**，没解决往服务器上部署。
-反过来，现在既然服务器能连 GitHub 了（实测 `curl https://github.com` 返回 200），
-可以考虑改成 `git pull` —— **但这要另外验证，别顺手就改**。
+⚠️ **部署方式不是 `git pull`**：是打包 + `scp`。**注意理由要更新** ——
+`ADR-003` 当时写的理由是「大陆机器连不通 GitHub」，**那个理由已经不成立了**
+（见下一节）。现在**仍然不该改成 `git pull`**，但理由是另外三条：
+`/opt/stem-app` 是 `git archive` 解开的、**不是 git 仓库**；
+`proxy-on` 写在 `/root/.bashrc` 里，**非交互 shell 拿不到那些环境变量**；
+以及多一个「代理活着」的依赖。改成 `git pull` 值得单独一轮验证，**别顺手就改**。
+
+**服务器上这份 `/opt/stem-app` 不是 git 仓库**，所以这次配的 deploy key
+**只解决了从服务器往外推**，没解决往服务器上部署。
 
 ---
 
-## 三、🔴 假登录还开着，而且护栏变了
+## 三、🔴 mihomo 代理层 —— 之前哪份文档里都没写
+
+这一层是 2026-09-20 当天装上的（`mihomo.service` 建于 14:27），
+**`ADR-003`、CLAUDE.md、之前两份 09-20 交接全都没提**。
+它解释了「GitHub 怎么突然通了」，也解释了一个新的失败模式。
+
+### 是什么
+
+Server 上跑的 **`mihomo`（Clash 内核）**，`/usr/local/bin/mihomo -d /etc/mihomo`。
+
+```
+/etc/systemd/system/mihomo.service    systemctl is-enabled → enabled ；is-active → active
+/etc/mihomo/config.yaml               权限 600（含订阅凭据，别打印、别提交）
+mixed-port: 7890                      只听 127.0.0.1（allow-lan: false）
+external-controller: 127.0.0.1:9090   （目前没有东西在用它做健康检查）
+```
+
+🔴 **不是「流量转发到作者本机」也不是 ssh 隧道**：`~/.ssh/config` 里没有
+`ProxyCommand` / `ProxyJump` / `-R`，没有任何内网穿透进程（frp / ngrok / cloudflared），
+`git` 也没配代理。**出网路径是「服务器 → mihomo → 订阅节点」**，
+不含作者电脑上的任何东西。（作者问过一次「是不是走我本机的转发」，答案是**不是**。）
+
+### 怎么接上每一层的
+
+`/root/.bashrc` 里有 `proxy-on` / `proxy-off` 一对函数，
+**文件末尾直接调了一次 `proxy-on`** —— 所以每个交互式 shell 进来就带着代理变量。
+
+`no_proxy` 里**含阿里云镜像和实例元数据地址**（`mirrors.cloud.aliyuncs.com`、
+`100.100.100.200`、`169.254.169.254`）—— 这个写得很对，**别删**，
+否则 `apt` 和实例元数据会走代理然后失败。
+
+### 路由是规则的（不是全局）
+
+```yaml
+mode: rule
+rules:
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve      # 内网直连
+  - IP-CIDR,10/172.16/192.168 … ,DIRECT
+  - GEOSITE,cn,DIRECT                           # 国内域名直连
+  - GEOIP,CN,DIRECT,no-resolve                  # 国内 IP 直连
+  - MATCH,PROXY                                 # 其余走节点
+```
+
+**GitHub 不在 `cn` 里 → 命中 `MATCH,PROXY` → 走节点。** 实测：
+`github.com` / `api.github.com` 都返回 200，SSH 到 `github.com` 也能 `Connection established`。
+**比直连慢（约 2 秒一个请求）但稳定**，对 `git push` 这种低频操作够用。
+
+### 🔴 它带来的新失败模式
+
+**mihomo 死了之后，`127.0.0.1:7890` 没人听，但那几个 `http_proxy` 环境变量还在**
+（`proxy-on` 在每个新 shell 里都会设）。表现是**所有出网请求连不上** ——
+包括 `apt`、`curl`、`git`。而报的错看起来像网络问题，**不像代理死了**。
+
+`.bashrc` 里自己都写了这条：「mihomo 未运行时开着这些变量会让所有网络请求失败，
+用 `proxy-off` 临时关闭」。**遇到「服务器突然连不上外网」先怀疑这里。**
+
+最直接的判据（一条命令分清「代理死了」还是「上游断了」）：
+
+```bash
+curl -x http://127.0.0.1:7890 -sS -o /dev/null -w '%{http_code}\n' https://github.com
+```
+
+### 🔴 `Restart=on-failure` 盖不住作者要的场景（2026-09-20 发现，**还没改**）
+
+作者的要求是「**开机就启动，而且 GitHub 交互很重要，我需要它一直在**」。
+开机自启**已经有了**（`enabled` + `WantedBy=multi-user.target`），
+但 unit 里是：
+
+```
+Restart=on-failure      ← 只在「异常退出」时重启
+RestartSec=5s
+```
+
+| 挂法 | `on-failure` 管不管 |
+|---|---|
+| 崩溃、被 OOM Killer 杀、`kill -9` | ✅ 管，5 秒后拉起 |
+| 被 `systemctl stop` / `kill -TERM` 正常收掉 | ❌ **不管，就静静地不回来了** |
+| 配置有错、节点全挂 → 进程活着但代理不通 | ❌ 不管（进程没退，systemd 看不见） |
+| 整机重启 | ✅ 管（这条靠的是 `enabled`，不是 `Restart`） |
+
+**建议改成 `Restart=always`**，命令：
+
+```bash
+cp /etc/systemd/system/mihomo.service /etc/systemd/system/mihomo.service.bak-$(date +%Y%m%d-%H%M%S)
+sudo sed -i 's/^Restart=on-failure$/Restart=always/' /etc/systemd/system/mihomo.service
+sudo systemctl daemon-reload && sudo systemctl restart mihomo
+```
+
+⚠️ 安全：配置一直有错时会反复起停，但 systemd 默认「10 秒内超 5 次」就放弃并进 failed，
+**不会无限刷**。重启那几秒代理会断，**别在有任务跑的时候做**。
+
+⚠️ 第三行（进程活着但代理不通）`Restart` 无论如何盖不住，
+只能靠 `external-controller:9090` 做健康检查 —— **没有监控需求之前不要加**，
+徒增复杂度。
+
+---
+
+## 四、🔴 假登录还开着，而且护栏变了
 
 ### 现状
 
@@ -150,7 +251,7 @@ select column_name from information_schema.columns
 
 ---
 
-## 四、服务器上的 deploy key（这轮新配的）
+## 五、服务器上的 deploy key（这轮新配的）
 
 ### 为什么配
 
@@ -199,7 +300,7 @@ GitHub 仓库 Settings → Deploy keys 删掉那条即可，服务器上那个�
 
 ---
 
-## 五、接着做什么
+## 六、接着做什么
 
 ### 0. 排在最前面的两件（本轮查出）
 
@@ -220,7 +321,7 @@ GitHub 仓库 Settings → Deploy keys 删掉那条即可，服务器上那个�
 
 ---
 
-## 六、给下一个人的话
+## 七、给下一个人的话
 
 - 🔴 **别信「服务器上的代码 = 工作区代码」这句话**，哪怕上一份交接写着「零差异」。
   **跑一遍那条 `diff --strip-trailing-cr`**，十秒钟的事
@@ -228,6 +329,13 @@ GitHub 仓库 Settings → Deploy keys 删掉那条即可，服务器上那个�
   别去逐行读 diff。`git diff --ignore-all-space --stat` 是空的就结案了
 - 🔴 **交接文档里的判断会过期，尤其是「最坏情况是什么」那种**。
   这一轮就撞上一次：假登录那段的前提（`activate.js` 不存在）已经不成立
+- 🔴 **「服务器连不通 X」这类事实，要问清「在什么条件下连不通」。**
+  `ADR-003` 写「大陆机器连不通 GitHub」时是对的，但那是**没有代理层**时的性质，
+  不是服务器本身的性质 —— 加了 mihomo 之后就翻了。
+  **把一个「当时的条件」写成「机器的属性」，后面每一份文档都会跟着错。**
+- 🔴 **查过环境再答「是不是走你本机」这种问题**。
+  作者问过一次，答案是「不是，是服务器上跑的 mihomo」——
+  这类问题凭直觉答会答错，而答错了他会基于错的模型去排查别的问题
 - **用户已经拍板的事别重新讨论**：「先开着」（他知道情）、「不用加 swap」、
   管理员账号用 `lin`、`* text=auto eol=lf` 这个取向
 - ⚠️ **这台机器是用户的线上服务器**，不是他的电脑。在上面装任何东西、放任何凭据之前先想一遍
