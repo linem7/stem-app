@@ -1,0 +1,20 @@
+# 换行符归一。
+#
+# 为什么需要这份文件：2026-09-20 发现工作区里 20 个文件被写成 CRLF，而仓库里存的是 LF。
+# `git status` 报的是「已修改」7436 行增 / 7436 行删 —— 逐字节核过才知道
+# 一个字符的内容都没变（`git diff --ignore-all-space` 的输出是空的）。
+# 没有规则时，同一个人在两台机器上就会得到两种工作区。
+#
+# 🔴 *.bat 必须钉成 CRLF，这条是 CLAUDE.md 里记过的真事故：
+# `teacher.bat` 存成 LF 时 cmd.exe 逐行解析会把中文注释切错位，报出一串
+# `'---' is not recognized as an internal or external command` ——
+# 报错指向的内容跟真正的原因（换行符）毫无关系，很难倒着查回来。
+# `admin.bat` 一直是 CRLF 所以它没事，两者差别只在换行符，所以只能靠规则守。
+#
+# 其余一律 LF：工作区从此和仓库一致，`git status` 不会再因为换行符报假改动。
+# `text=auto` 遇到二进制（png / jpg）会自动放过，不会去动它们。
+
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
