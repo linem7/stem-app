@@ -11,7 +11,7 @@
  *   node scripts/smoke.js 中班         换年龄班
  *   BASE=http://localhost:3100 node scripts/smoke.js
  *
- * 依赖 DEV_FAKE_LOGIN=true。
+ * 账号靠 `_test-account.mjs` 造（2026-09-20 起假登录没了，见那个文件的文件头）。
  *
  * ⚠️ 2026-08-20 修过两处过时：
  *   · **没有激活**。激活闸门是 08-17 加的，这个脚本一直没跟上 ——
@@ -23,6 +23,8 @@
  *
  * 教训：**能跑起来的脚本才叫回归**。这两处都不报错，只是安静地不干活。
  */
+import { activateAccount } from './_test-account.mjs';
+
 const BASE = process.env.BASE || 'http://localhost:3000';
 const AGE_GROUP = process.argv[2] || '小班';
 const SEED = process.env.SEED || '我想做个浮与沉的活动';
@@ -30,8 +32,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '123456';
 const RND = String(Date.now()).slice(-8);
 // 一个老师只带一个班，所以要做三个班的对照样本就得用三个账号 ——
 // 同一个账号跑完小班再跑大班，「该老师主要带小班」那条记忆会去影响后面的推荐答案。
-// 默认带上随机后缀，正是为了每次都是干净的新账号。
-const TEACHER = process.env.TEACHER || `dev:smoke_${RND}`;
+// 每次都是干净的新账号（`activateAccount` 每轮都会新造一个）。
 
 let token = null;
 
@@ -102,13 +103,12 @@ const rule = () => line('─'.repeat(60));
 line(`\n目标：给「${AGE_GROUP}」生成一份教案\n想法：${SEED}`);
 rule();
 
-// 1. 自造入场券 + 假登录 + 激活 + 同意协议
+// 1. 自造入场券 + 激活 + 同意协议
 const ticket = await makeTicket();
-const auth = await call('POST', '/auth/login', { code: TEACHER, nickname: '测试老师' });
-token = auth.token;
-await call('POST', '/auth/redeem', { code: ticket.code, roster_entry_id: ticket.slot });
+const act = await activateAccount(ticket);
+token = act.token;
 await call('POST', '/me/agree');
-line(`1. 账号就绪 · teacher_id=${auth.teacher.id}（新建园所与名单岗位，可反复跑）`);
+line(`1. 账号就绪 · teacher_id=${act.teacher.id}（新建园所与名单岗位，可反复跑）`);
 
 // 2. 开会话 —— 响应里已经带着那 4 道题
 const conv = await call('POST', '/conversations', { seed_input: SEED });

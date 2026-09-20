@@ -1,6 +1,5 @@
 /**
- * 本机存储。三个调用方：登录令牌（request.js）、字号与模式偏好（stores/prefs.js）、
- * 开发期假 openid（api/auth.js）。
+ * 本机存储。两个调用方：登录令牌（request.js）、字号与模式偏好（stores/prefs.js）。
  *
  * 包一层是为了两件事：
  *

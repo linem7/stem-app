@@ -20,6 +20,7 @@
         而数到 100 份时断行位置又换一个地方 —— 排版跟着数据变。
         每段 `flex:1` 等宽平分之后，**宽度跟数字几位无关，永远不换行**。
       -->
+      <template v-if="loggedIn">
       <div class="seg">
         <button
           v-for="s in STATES"
@@ -48,6 +49,7 @@
           <span class="seg__t">{{ a.label }}</span>
         </button>
       </div>
+      </template>
 
       <div class="side__list">
         <template v-if="loading">
@@ -61,6 +63,22 @@
           :text="loadError.message"
           action-label="重试"
           @action="load"
+        />
+
+        <!--
+          🔴 **还没登录**，跟「拉不到」和「一份都没写过」都不是一回事。
+
+          手机号 + 密码落地之前这里没有这一支：那时候人人一进来就有 token，
+          未登录这个状态根本不存在。现在她第一次打开网站落在激活页，
+          这一栏会去拉教案库、拿到 401、然后画成一个带着「重试」的失败态 ——
+          她还没做错任何事，左边先报一个错。
+
+          也不画成「还没有写过教案」—— 那是句假话，她还没账号呢。
+        -->
+        <s-state
+          v-else-if="!loggedIn"
+          kind="empty"
+          text="登录后，你写过的教案都在这儿"
         />
 
         <!-- 筛完一份都没有，跟「一份都没写过」不是一回事：前者要给一条**回去的路**，
@@ -156,6 +174,9 @@ const loadError = ref(null)
 
 const isFiltered = computed(() => status.value !== 'all' || ageGroup.value !== 'all')
 
+/** 没登录时这一栏没有内容可给。筛选那一排也要跟着收起来 —— 摆一排点了没用的按钮更糟 */
+const loggedIn = computed(() => Boolean(session.teacher))
+
 /** 正在看的那一份，在列表里高亮。`/c?id=` 里的 id 就是会话 id（列表的主键） */
 const activeId = computed(() => (route.name === 'conv' ? Number(route.query.id || 0) : 0))
 
@@ -167,7 +188,23 @@ onMounted(load)
    只认路由名字变化，同一页里改 query（比如回退版本）不重拉。 */
 watch(() => route.name, load)
 
+/* 登录成功之后必须补拉一次。
+   ⚠️ 顺序上这一条是**必须的**，不是保险：main.js 里 `ensureSession()` 没有 await，
+   而本组件的 onMounted 跑在它前面 —— 拿到 token 的那一刻，session.teacher 还是 null，
+   上面那次 load() 会直接返回。少了这个 watch，登录之后侧边栏会一直是空的。 */
+watch(() => session.teacher, (t) => { if (t) load() })
+
 async function load() {
+  /* 没登录就没有教案库可拉，**也不能拉**（那一下是 401）。
+     这一支不是失败态：她还没登录而已，不该在激活页/登录页旁边看到一个「重试」。 */
+  if (!session.teacher) {
+    items.value = []
+    Object.assign(counts, { all: 0, draft: 0, completed: 0 })
+    loadError.value = null
+    loading.value = false
+    return
+  }
+
   loadError.value = null
   if (!items.value.length) loading.value = true
   try {

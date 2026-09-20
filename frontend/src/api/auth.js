@@ -1,49 +1,41 @@
 /** 登录与激活 —— api-spec 第 1、1.5 节 */
-import { post, setToken, ApiError } from '../utils/request.js'
-import { DEV_FAKE_LOGIN, DEV_OPENID } from '../utils/env.js'
-import { readLocal, writeLocal } from '../utils/storage.js'
+import { post, setToken } from '../utils/request.js'
 
 /**
- * 拿一个能换出身份的 code。
+ * 手机号 + 密码登录。**换设备、清缓存之后走这条。**
  *
- * 🔴 **这个函数是临时的。** 网页里没有 wx.login，而手机号 + 密码的新身份模型
- * 后端还没做（ADR-002 / PRD-web「身份与账号」）。现在只有开发期假登录这一条路：
- * code 以 "dev:" 开头，后端的 DEV_FAKE_LOGIN 分支按固定 openid 处理。
+ * 手机号在这个系统里只是用户名 —— 不用于联系、不进 AI 提示词、不下发到页面、不进日志。
+ * 所以这里不弹「登录过期」这类框，也不用存它到任何地方：她自己知道那个号。
  *
- * 新身份模型落地时，整个 login() 换成「手机号 + 密码」，这个函数删掉。
+ * `auth: false` 是必须的：这次请求本身还没有 token，
+ * 而它回的 401 意思是「手机号或密码不对」，不是「登录态失效」。
+ * 带上 auth 的话，输错密码会被当成掉线处理，错误提示一闪就被弹走。
  */
-function getLoginCode() {
-  if (!DEV_FAKE_LOGIN) {
-    // 关掉开关就没有可用的登录方式了。**必须当场说清楚**，
-    // 否则表现是首页停在骨架屏上不动，看着像后端挂了。
-    throw new ApiError({
-      code: 'LOGIN_NOT_IMPLEMENTED',
-      message: '网页端的登录还没做好（手机号 + 密码那套）。本地开发请把 VITE_DEV_FAKE_LOGIN 设为 true',
-      retryable: false,
-    })
-  }
-  // .env.development 里指定了就用它 —— 那是 `npm run dev:account` 激活好的那个账号。
-  // 不指定就随机造一个，但**造出来的没激活**，首页会跳去还没搬的 /redeem
-  if (DEV_OPENID) return `dev:${DEV_OPENID}`
-
-  // 同一台设备固定同一个假 openid，否则每次刷新都是新老师，激活状态一直丢
-  let devId = readLocal('stem_dev_openid')
-  if (!devId) {
-    devId = `dev:${Math.random().toString(36).slice(2, 10)}`
-    writeLocal('stem_dev_openid', devId)
-  }
-  return devId
+export async function login(phone, password) {
+  const data = await post('/auth/login', { phone, password }, { auth: false })
+  setToken(data.token)
+  return data
 }
 
 /**
- * 静默登录。返回 teacher，其中 activated / agreed 两位决定落在哪个页。
- * 响应里永远没有 phone 和 real_name —— 包括老师自己的（operations.md 的铁律）。
+ * 首次激活：一个码 + 她从名单里选的那一位 + 自己设的手机号密码。
+ *
+ * **手机号传两遍。** 11 位打错一位是常事，而后果特别隐蔽 ——
+ * 她下次登录输的是**正确的号**、库里存的是**打错的号**，进不去，
+ * 且她完全不知道哪里出了问题。后端也会再比一次，两边都守。
+ *
+ * 建完账号直接就有一个 token（后端回的），她不用立刻再用一次密码。
  */
-export async function login(profile = {}) {
-  const code = getLoginCode()
+export async function activate({ code, rosterEntryId, phone, phoneConfirm, password }) {
   const data = await post(
-    '/auth/login',
-    { code, nickname: profile.nickname, avatar_url: profile.avatar_url },
+    '/auth/activate',
+    {
+      code,
+      roster_entry_id: rosterEntryId,
+      phone,
+      phone_confirm: phoneConfirm,
+      password,
+    },
     { auth: false }
   )
   setToken(data.token)
@@ -51,25 +43,27 @@ export async function login(profile = {}) {
 }
 
 /**
- * 兑一个码。后端按码的类型决定做哪件事（api-spec 第 1.5 节）：
- * 首次激活（还要一个 `roster_entry_id`：她从名单里选的那个位置）、
- * 续兑（只要码）、换绑（挪 openid，回一个新 token）。
+ * 激活那一屏的选择器：先拿有空位的园，再拿那个园里的位置。
+ *
+ * **必须带码** —— 后端靠它挡住「任何人打开网页就能看到一整个园的老师名单」。
+ * 回来的姓名只有姓氏。
+ */
+export function rosterOptions(code, kindergartenId) {
+  return post('/auth/roster/options', { code, kindergarten_id: kindergartenId }, { auth: false })
+}
+
+/**
+ * 续兑：**只要码**。她已经登录了，身份一个字段都不动。
+ *
+ * ⚠️ 这个跟激活是**两个不同的接口**，因为调用它们的人不同：
+ * 续兑的人已经登录（token 带着），激活的人还没有账号。
+ * 老师端看到的都是一个输入框，分岔在代码里，不在她的操作里。
  *
  * 输入宽容由后端负责（大小写、空格、下划线、各种横线都认），
  * 前端**不做任何格式校验** —— 认不出来是我们的问题，不是老师的。
  */
-export function redeem(code, rosterEntryId) {
-  return post('/auth/redeem', { code, roster_entry_id: rosterEntryId })
-}
-
-/**
- * 激活那一屏的选择器：先拿有空位的园，再拿那个园里的位置。
- *
- * **必须带码** —— 后端靠它挡住「任何人打开小程序就能看到一整个园的老师名单」。
- * 回来的姓名只有姓氏。
- */
-export function rosterOptions(code, kindergartenId) {
-  return post('/auth/roster/options', { code, kindergarten_id: kindergartenId })
+export function redeem(code) {
+  return post('/auth/redeem', { code })
 }
 
 /** 同意协议。激活后、进主流程前必须调一次。 */

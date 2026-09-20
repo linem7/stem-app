@@ -18,6 +18,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { query, queryOne, closePool } from '../src/db/pool.js';
+import { activateAccount } from './_test-account.mjs';
 
 const BASE = process.env.API_BASE || 'http://localhost:3000';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '123456';
@@ -69,8 +70,7 @@ async function makeTicket() {
 // ---------------------------------------------------------------
 L('=== 0. 准备：激活 + 生成一份教案 ===');
 const ticket = await makeTicket();
-token = (await call('POST', '/auth/login', { code: `dev:ver_${RND}` })).data.token;
-await call('POST', '/auth/redeem', { code: ticket.code, roster_entry_id: ticket.slot });
+token = (await activateAccount(ticket)).token;
 await call('POST', '/me/agree');
 
 const conv = (await call('POST', '/conversations', { seed_input: '我想做个磁铁的活动' })).data;

@@ -1,4 +1,5 @@
 /** 管理后台验证：隔离性、兑换码全流程、发额度、手机号打码 */
+import { activateAccount } from './_test-account.mjs';
 const B=process.env.API_BASE||'http://localhost:3000';
 let A=null, T=null;
 const call=async(base,m,p,tok,b)=>{
@@ -12,11 +13,22 @@ const L=console.log; let fail=0;
 // 每次跑用不同的手机号和账号 —— 回归测试必须能反复跑，
 // 上一轮留下的数据不该让这一轮失败（第一版就栽在这上面）
 const RND=String(Date.now()).slice(-8);
-const DEVCODE=`dev:iso_${RND}`;
 const chk=(c,m)=>{L(`  ${c?'✓':'✗'} ${m}`); if(!c) fail++;};
 
 A=(await adm('POST','/login',{username:'admin',password:'123456'})).data.token;
-T=(await usr('POST','/auth/login',{code:DEVCODE})).data.token;
+
+/* 老师那个 token 只能**真激活一个账号**出来（2026-09-20 假登录删了）。
+   这一段顺手把后面「兑换码全流程」要用的园也建好 ——
+   原来两边各建一个同名的园，查起来对不上号。 */
+const myKg=await adm('POST','/kindergartens',{name:`后台回归园_${RND}`});
+const kgId=myKg.data.id;
+{
+  const imp0=await adm('POST','/roster/import',
+    {text:`隔离测试${RND}, 中一班, 主班, 中班`,kindergarten_id:kgId,dry_run:false});
+  const c0=await adm('POST','/codes',
+    {kindergarten_id:kgId,init_text:20,init_image:10,grant_reason:'后台回归账号'});
+  T=(await activateAccount({code:c0.data.code, slot:imp0.data.created[0].id})).token;
+}
 
 L('=== 隔离性（「园长看不到」那句承诺的技术底线）===');
 const cross1=await call(B+'/admin/api','GET','/teachers',T);
@@ -27,8 +39,7 @@ chk(cross2.status===401 || cross2.ok===false, '管理员 token 调不了业务�
 L('=== 兑换码全流程 ===');
 // 016 之后**码只是一张入场券**，不带任何身份 —— 身份全部来自名单。
 // 所以建码只有三个参数：给哪个园、初始额度、原因
-const myKg=await adm('POST','/kindergartens',{name:`后台回归园_${RND}`});
-const kgId=myKg.data.id;
+// （园在上面造老师账号时已经建好了）
 const c1=await adm('POST','/codes',{kindergarten_id:kgId,init_text:20,init_image:10,grant_reason:'完成8月问卷'});
 chk(c1.ok, `生成码 ${c1.data?.code}`);
 chk(/^STEM-[34679ACDEFGHJKMNPQRTUVWXY]{4}-[34679ACDEFGHJKMNPQRTUVWXY]{4}$/.test(c1.data?.code||''), '字符集避开易混字（无 0O1Il2Z5S8B）');
@@ -67,19 +78,26 @@ const again=await adm('POST','/roster/import',
   {text:`${NAME}, 小一班, 主班, 小班`,kindergarten_id:kgId,dry_run:true});
 chk(again.data.summary.duplicate===1, '同一个人重复导入被认出来（跳过，不覆盖）');
 
-L('=== 老师激活：码 + 从名单里选一个位置 ===');
-const red=await usr('POST','/auth/redeem',{code:c1.data.code, roster_entry_id:SLOT});
-chk(red.ok, `激活成功${red.ok?'':'：'+red.error?.message}`);
-chk(red.data?.quota?.text?.left===20, '首笔额度到账');
-chk(red.data?.teacher?.class_name==='小一班', '身份从名单那一行搬过来了');
+L('=== 老师激活：码 + 名单 + 手机号密码 ===');
+/* 激活是**建账号**，所以它走 /auth/activate 而不是 /auth/redeem
+   （后者现在只管续兑）。这一步产生第二个账号，后面几段都用它。 */
+const act2=await activateAccount({code:c1.data.code, slot:SLOT});
+T=act2.token;
+chk(Boolean(act2.token), '激活成功，当场拿到 token');
+chk(act2.quota?.text?.left===20, '首笔额度到账');
+chk(act2.teacher?.class_name==='小一班', '身份从名单那一行搬过来了');
 
 L('=== 姓名打码 + 三层身份 ===');
 const list=await adm('GET','/teachers');
 const wang=list.data.items.find(t=>t.teacher_ref===REF);
 chk(Boolean(wang), `列表里按 teacher_ref 找得到她：${REF}`);
 chk(wang?.real_name===NAME, '超管看到全名');
+// ⚠️ 022 迁移之后 teachers.phone 真的存在了（老师的用户名），
+// 但**后台还没接** ——「超管看全号、一般管理员看打码」那一段留到
+// 「找回密码 / 改手机号」那一轮一起做。
+// 所以这条现在守的是「后台没有顺手把手机号漏出去」。
 chk(wang?.phone===undefined && wang?.phone_masked===undefined,
-  '🔴 列表里根本没有手机号字段（016 删了那一列）');
+  '🔴 列表里没有手机号字段（后台还没接那一块）');
 const detail=await adm('GET',`/teachers/${wang.id}`);
 chk(detail.data.teacher.teacher_ref===REF && detail.data.teacher.roster_entry_id===SLOT,
   '详情带三层身份：人（teacher_ref）+ 位置（roster_entry_id）+ 账号（id）');

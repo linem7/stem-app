@@ -1,62 +1,73 @@
 /**
  * POST /auth/login —— api-spec 第 1 节
  *
- * 唯一一个不需要 Authorization 的接口。
+ * 老师用**手机号 + 密码**登录。这是不需要 Authorization 的三个接口之一
+ * （另外两个 /auth/activate 和 /auth/roster/options 在 routes/activate.js，
+ * 都是「还没有账号的人」要用的）。
+ *
+ * 【为什么不再是 code2Session】（2026-09-20 改）
+ * 2026-08-30 转向 web（ADR-002）。网页里没有 wx.login，拿不到 code，
+ * 也没地方放 openid。原来那条静默登录的路随小程序一起作废了。
+ *
+ * 【手机号在这个系统里只是用户名】
+ * 不用于联系、不进 AI 提示词、不下发到页面、不进日志。
+ * 所以下面每一步都刻意不把它写进日志 —— 包括登录失败那一条，
+ * 那一条原本最顺手记「是谁失败了」。
  */
+import crypto from 'node:crypto';
 import { Router } from 'express';
-import { code2Session } from '../services/wechat.js';
 import { queryOne } from '../db/pool.js';
+import { verifyPassword } from '../services/admins.js';
 import { signToken, toTeacherDTO } from '../middleware/auth.js';
 import { ok, asyncRoute, badRequest, AppError, ErrorCode } from '../utils/errors.js';
 import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
+import { normalizePhone } from '../utils/phone.js';
 
 export const authRouter = Router();
 
 authRouter.post(
   '/login',
   asyncRoute(async (req, res) => {
-    const { code, nickname, avatar_url } = req.body || {};
+    const phone = normalizePhone(req.body?.phone);
+    const password = String(req.body?.password || '');
 
-    /* 云托管通道（2026-08-25）：请求经 wx.cloud.callContainer 进来时，
-       微信网关会在 header 里注入调用者的 X-WX-OPENID —— 不需要 code、
-       不需要 AppSecret（我们一直没有 AppSecret，这条路是它的替代品）。
+    if (!phone) throw badRequest('手机号看起来不对，是 11 位数字');
+    if (!password) throw badRequest('请输入密码');
 
-       🔴 只有 TRUST_WX_OPENID_HEADER=true 时才信这个头（云托管控制台配）。
-       默认不信，因为普通部署下这个头是**谁都能伪造的**：
-       本地 curl 加一个 X-WX-OPENID 就能变成任何老师。
-       云托管环境里它可信的前提是微信网关会覆盖外部传入的同名头 ——
-       所以这个开关**只能在云托管环境里开**，别处开了就是后门。 */
-    const wxOpenid = config.trustWxOpenidHeader ? String(req.headers['x-wx-openid'] || '') : '';
+    const teacher = await queryOne(`SELECT * FROM teachers WHERE phone = $1`, [phone]);
 
-    if (!wxOpenid && (!code || typeof code !== 'string')) {
-      throw badRequest('登录信息不完整，请退出小程序重新进入');
-    }
+    /* 手机号不存在时也跑一次哈希比较，让响应时间跟「密码错」一致 ——
+       否则可以靠计时枚举出哪些号注册过。管理员登录那套（admin/index.js）同理。
 
-    const { openid, unionid } = wxOpenid
-      ? { openid: wxOpenid, unionid: req.headers['x-wx-unionid'] || null }
-      : await code2Session(code);
-
-    // 一条 SQL 解决「没有就建、有就更新登录时间」。
-    // nickname/avatar 用 COALESCE(EXCLUDED.x, 原值)：这次没传就保留上次的，
-    // 避免老师后来改过昵称又被一次静默登录冲掉。
-    const teacher = await queryOne(
-      `INSERT INTO teachers (openid, unionid, nickname, avatar_url, last_login_at)
-       VALUES ($1, $2, $3, $4, now())
-       ON CONFLICT (openid) DO UPDATE SET
-         unionid       = COALESCE(EXCLUDED.unionid, teachers.unionid),
-         nickname      = COALESCE(EXCLUDED.nickname, teachers.nickname),
-         avatar_url    = COALESCE(EXCLUDED.avatar_url, teachers.avatar_url),
-         last_login_at = now(),
-         updated_at    = now()
-       RETURNING *`,
-      [openid, unionid, nickname?.slice(0, 64) || null, avatar_url?.slice(0, 500) || null]
+       `?? ` 那两个兜底是给**迁移前的老行**留的：它们 phone 是 NULL，
+       正常查不到；但万一有人手工填了 phone 没填哈希，这里会是 500 而不是 401。 */
+    const okPwd = await verifyPassword(
+      password,
+      teacher?.password_hash ?? crypto.randomBytes(64).toString('hex'),
+      teacher?.password_salt ?? 'x'
     );
 
-    // 注销过的账号不许再登录。这是「删完就不能再用这个平台」那句承诺的技术兑现 ——
-    // teachers 那一行是**留壳去身份**的：身份字段已经清空，只留 id 和 openid 用来认出她。
-    // 拦在这里而不是等 requireAuth：那样她会先拿到一个 token、进到首页再被弹出来，
-    // 看起来像「时好时坏」，而不是「这个账号注销了」。
+    /* 🔴 两种失败**必须是同一句话**。
+       分开说（「这个号没注册」/「密码不对」）等于白送一个
+       「查这个手机号在不在我们库里」的接口 —— 而老师最怕的正是
+       「园长知道我用了 AI 写教案」。 */
+    if (!teacher || !okPwd) {
+      logger.warn('teacher_login_failed', { ip: req.ip });
+      throw new AppError(ErrorCode.UNAUTHORIZED, { message: '手机号或密码不对' });
+    }
+
+    /* 注销过的账号不许再登录。
+
+       ⚠️ **这条路现在是窄的**：注销会把手机号一并清掉，所以上面那句
+       `WHERE phone = $1` 根本找不到注销过的行 —— 她再拿一个新码、用同一个手机号，
+       会走激活流程建一个新账号。这是**认下来的代价**（api-spec「DELETE /me」一节）：
+       要堵死「同一个手机号重新报名」就得留一份手机号哈希，
+       那跟「删掉全部数据」直接矛盾。
+       真正的门槛是**码**：我们只给填过问卷的人发码。
+
+       那这一段为什么还留着？因为它是那道承诺唯一的技术表达，
+       删掉之后「注销」就只是一个状态位了。留着，成本是六行。 */
     if (teacher.status === 'deleted') {
       logger.warn('login_rejected_deleted', { teacher_id: teacher.id });
       throw new AppError(ErrorCode.UNAUTHORIZED, {
@@ -65,15 +76,17 @@ authRouter.post(
       });
     }
 
-    // created_at 和 updated_at 是 Date 对象，必须比时间戳；直接用 === 比的是引用，永远 false
-    const isNew = teacher.created_at?.getTime() === teacher.updated_at?.getTime();
-    logger.info('login', { teacher_id: teacher.id, is_new: isNew });
+    const fresh = await queryOne(
+      `UPDATE teachers SET last_login_at = now(), updated_at = now()
+        WHERE id = $1 RETURNING *`,
+      [teacher.id]
+    );
+    logger.info('teacher_login', { teacher_id: fresh.id });
 
     return ok(res, {
-      // 带上 token_version：换绑之后它 +1 了，新签的 token 必须用当前那个值
-      token: signToken(teacher.id, teacher.token_version),
+      token: signToken(fresh.id, fresh.token_version),
       expires_in: config.jwt.expiresInSeconds,
-      teacher: toTeacherDTO(teacher),
+      teacher: toTeacherDTO(fresh),
     });
   })
 );

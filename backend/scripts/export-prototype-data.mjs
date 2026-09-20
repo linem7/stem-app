@@ -11,13 +11,50 @@
  * 为什么原型要用真数据而不是编的：编的文案会不自觉地往好里写 ——
  * 每个选项都恰到好处、每份教案都完美适龄。那样的原型看着舒服，但骗自己。
  */
+import { activateAccount } from './_test-account.mjs';
+
 const BASE = process.env.BASE || 'http://localhost:3000';
 const OUT = new URL('../../prototype/data.json', import.meta.url);
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '123456';
+const RND = String(Date.now()).slice(-8);
+
+/* 2026-09-20：假登录没了，账号必须真建。三个年龄班三个账号 ——
+   一个老师只带一个班，同一个账号跑完小班再跑大班，
+   「该老师主要带小班」那条记忆会污染后面的推荐答案。 */
+const adminToken = (
+  await fetch(`${BASE}/admin/api/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'admin', password: ADMIN_PASSWORD }),
+  }).then((r) => r.json())
+).data.token;
+
+async function adminPost(path, body) {
+  const r = await fetch(`${BASE}/admin/api${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+    body: JSON.stringify(body),
+  }).then((x) => x.json());
+  if (!r.ok) throw new Error(`后台 ${path} 失败：${r.error?.message}`);
+  return r.data;
+}
+
+/** 造一个园 + 一份名单 + 一个码，用来激活一个原型账号 */
+async function makeTicket(age) {
+  const kg = await adminPost('/kindergartens', { name: `原型数据园_${RND}` });
+  const imp = await adminPost('/roster/import', {
+    text: `原型${age}老师${RND}, 一班, 主班, ${age}`, kindergarten_id: kg.id, dry_run: false,
+  });
+  const code = await adminPost('/codes', {
+    kindergarten_id: kg.id, init_text: 30, init_image: 10, grant_reason: `原型数据 ${RND}`,
+  });
+  return { code: code.code, slot: imp.created[0].id };
+}
 
 const CASES = [
-  { age: '小班', teacher: 'dev:proto_small', seed: '我想做个浮与沉的活动' },
-  { age: '中班', teacher: 'dev:proto_mid',   seed: '我想做个影子的活动' },
-  { age: '大班', teacher: 'dev:proto_big',   seed: '我想做个搭高塔的活动' },
+  { age: '小班', seed: '我想做个浮与沉的活动' },
+  { age: '中班', seed: '我想做个影子的活动' },
+  { age: '大班', seed: '我想做个搭高塔的活动' },
 ];
 /** 拿小班那份演示改稿。这句反馈是真会发生的那种：人数和器材对不上。 */
 const REVISE_FEEDBACK = '我们班只有12个孩子，而且只有一个水盆，分组轮流会等太久';
@@ -45,10 +82,13 @@ async function waitDone(convId) {
 }
 
 /** 走完一个年龄班的完整引导，返回题目快照和成稿 */
-async function runCase({ age, teacher, seed }) {
+async function runCase({ age, seed }) {
   L(`
 ── ${age} ──`);
-  token = (await call('POST', '/auth/login', { code: teacher, nickname: '测试老师' })).token;
+  // 每个年龄班一个新账号。返回 token 给调用方，改一改那一段要接着用同一个
+  const act = await activateAccount(await makeTicket(age));
+  token = act.token;
+  await call('POST', '/me/agree');
   const conv = await call('POST', '/conversations', { seed_input: seed });
 
   // 题目现在是一次性全给的
@@ -91,6 +131,8 @@ async function runCase({ age, teacher, seed }) {
     convId: conv.conversation_id,
     planId: plan.id,
     seed,
+    // 改一改那一段要在**同一个账号**上接着做 —— 所以 token 跟着一起返回
+    tok: act.token,
   };
 }
 
@@ -107,7 +149,8 @@ for (const c of CASES) {
 
 // ---- 改一改：拿小班那份走一遍 ----
 L(`\n── 改一改（小班）──`);
-token = (await call('POST', '/auth/login', { code: 'dev:proto_small' })).token;
+// 必须是小班那个账号 —— 改的是她那份教案，换个人就 404 了
+token = out._small.tok;
 const beforePlan = structuredClone(out.plans['小班']);
 
 const r1 = await call('POST', `/lesson-plans/${out._small.planId}/revise`, { feedback: REVISE_FEEDBACK });

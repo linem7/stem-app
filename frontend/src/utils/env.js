@@ -21,21 +21,8 @@ const pick = (key) => viteEnv[key] ?? nodeEnv[key] ?? ''
  */
 export const API_BASE = pick('VITE_API_BASE') || '/v1'
 
-/**
- * 开发期假登录。
- *
- * 微信那套 wx.login 在网页里不存在，而手机号 + 密码的新身份模型后端还没做
- * （ADR-002）。开着它，前端拿一个固定的假 openid 走后端的 DEV_FAKE_LOGIN 分支，
- * 界面就能跑起来。**上线前 .env.production 里不许出现这一项**，
- * 后端那边 NODE_ENV=production 时也会自己关掉。
- */
-export const DEV_FAKE_LOGIN = String(pick('VITE_DEV_FAKE_LOGIN')) === 'true'
-
-/**
- * 假登录用哪个身份。空串就随机造一个新的（存在本机，下次还是它）。
- *
- * 有这一项是因为**随机造出来的那个老师没激活**，`gate()` 会把首页跳去 `/redeem`，
- * 而那一页要等后端的手机号 + 密码模型才搬得过来。
- * `npm run dev:account` 造一个激活好的账号，顺手把它写进 `.env.development`。
- */
-export const DEV_OPENID = pick('VITE_DEV_OPENID')
+/*
+  这里原来还有两项：`DEV_FAKE_LOGIN` 和 `DEV_OPENID`（开发期假 openid 登录）。
+  手机号 + 密码落地之后（2026-09-20）连同后端的 DEV_FAKE_LOGIN 分支、
+  `scripts/dev-activate.mjs` 一起删掉了 —— 本地和线上现在是同一条路。
+*/

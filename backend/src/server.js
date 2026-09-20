@@ -19,6 +19,7 @@ import { seedEnvModels, anyModelReady, pickModel } from './services/modelRegistr
 import { logger, startTimer } from './utils/logger.js';
 
 import { authRouter } from './routes/auth.js';
+import { activateRouter } from './routes/activate.js';
 import { meRouter } from './routes/me.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { generateRouter } from './routes/generate.js';
@@ -200,9 +201,13 @@ if (!config.storage.configured) {
 // 前端按文档用 /v1，你自己用 curl 调试时懒得敲 /v1 也能通。
 const v1 = express.Router();
 
-v1.use('/auth', authRouter); // 唯一不需要登录的
-// 兑换码激活和协议：要登录，但**不能**要求已激活 —— 否则是「要激活才能激活」的死循环。
-// accountRouter 同时挂在 /auth（redeem）和 /me（agree、quota）下。
+// 不需要登录的三个：登录、激活、拉名单。
+// activateRouter 之所以公开，是因为调用它的人**还没有账号** ——
+// 「拉名单要有 token」+「有 token 要先有账号」合起来就是死循环（见那个文件的文件头）。
+v1.use('/auth', authRouter);
+v1.use('/auth', activateRouter);
+// 续兑和协议：要登录，但**不能**要求已激活 —— 否则是「要激活才能激活」的死循环。
+// accountRouter 同时挂在 /auth（redeem）和 /me（agree、quota、注销）下。
 v1.use('/auth', requireAuth, accountRouter);
 v1.use('/me', requireAuth, accountRouter);
 v1.use('/me', requireAuth, meRouter);

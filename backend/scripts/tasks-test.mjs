@@ -13,6 +13,8 @@
  *
  * 自造隔离数据（三个特征不同的园 + 五位老师），可反复跑。
  */
+import { activateAccount } from './_test-account.mjs';
+
 const B = process.env.API_BASE || 'http://localhost:3000';
 let A = null;
 const call = async (base, m, p, tok, b) => {
@@ -56,31 +58,30 @@ const zjCity = await mkKg('浙城', { province: PROV_ZJ, city: `杭${RND}`, area
 /**
  * 名单 + 码 + 激活，返回她的 token。
  *
- * ⚠️ `slug` 必须是 **ASCII**。`dev:` 假登录把 openid 里的非
- * `[a-zA-Z0-9_-]` 字符全部剥掉（见 services/wechat.js），
- * 所以用中文当 tag 会让所有人**塌成同一个 openid** ——
- * 于是「五位老师」其实是一个账号，测出来的结果看着随机、查半天。
- * 第一版就是这么错的。名字用中文（可读），openid 用 slug（ASCII）。
+ * ⚠️ **五位老师必须是五个不同的账号。**
+ * 假登录时代这里踩过一次：openid 由 code 派生，而 tag 里的中文被剥掉之后
+ * 五个人塌成了同一个 openid —— 于是「五位老师」其实是一个账号，
+ * 测出来的结果看着随机、查半天。
+ * 现在 `activateAccount` 每次新造一个手机号，五个就是五个，
+ * 但**这条教训留着**：造账号时任何「看起来会区分、其实会重合」的标识都要盯一眼。
  */
-async function mkTeacher(slug, name, kgId, cls, age) {
+async function mkTeacher(name, kgId, cls, age) {
   const imp = await adm('POST', '/roster/import',
     // 名字带上 RND：回归脚本要能反复跑，上一轮留下的名单不该让这一轮变成 duplicate
     { text: `${name}${RND}, ${cls}, 主班, ${age}`, kindergarten_id: kgId, dry_run: false });
   if (!imp.ok) throw new Error(`导名单 ${name} 失败：${imp.error?.message}`);
   const code = (await adm('POST', '/codes/batch',
     { count: 1, init_text: 20, init_image: 10, grant_reason: `任务回归 ${RND}` })).data.created[0];
-  const tok = (await usr('POST', '/auth/login', null, { code: `dev:tk${RND}${slug}` })).data.token;
-  const r = await usr('POST', '/auth/redeem', tok, { code, roster_entry_id: imp.data.created[0].id });
-  if (!r.ok) throw new Error(`造老师 ${name} 失败：${r.error?.message}`);
-  await usr('POST', '/me/agree', tok);
-  return tok;
+  const act = await activateAccount({ code, slot: imp.data.created[0].id });
+  await usr('POST', '/me/agree', act.token);
+  return act.token;
 }
-const 粤农小 = await mkTeacher('a', '任务粤农小', gdRural, '小一班', '小班');
-const 粤农中 = await mkTeacher('b', '任务粤农中', gdRural, '中二班', '中班');
-const 粤城小 = await mkTeacher('c', '任务粤城小', gdCity, '小一班', '小班');
-const 浙城大 = await mkTeacher('d', '任务浙城大', zjCity, '大三班', '大班');
+const 粤农小 = await mkTeacher('任务粤农小', gdRural, '小一班', '小班');
+const 粤农中 = await mkTeacher('任务粤农中', gdRural, '中二班', '中班');
+const 粤城小 = await mkTeacher('任务粤城小', gdCity, '小一班', '小班');
+const 浙城大 = await mkTeacher('任务浙城大', zjCity, '大三班', '大班');
 // 没有园所的老师：名单里没填园所（kindergarten_id 传 null）
-const 无园 = await mkTeacher('e', '任务无园', null, '小一班', '小班');
+const 无园 = await mkTeacher('任务无园', null, '小一班', '小班');
 chk(true, '五位老师就位：粤农小 / 粤农中 / 粤城小 / 浙城大 / 无园');
 // 确认她们真是五个不同的账号 —— 上面那个 openid 的坑值得一条断言盯着
 const ids = [];

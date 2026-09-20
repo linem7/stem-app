@@ -1,12 +1,18 @@
 /**
- * 账号激活与协议 —— api-spec 第 1 节补充、operations.md 第 1/2 节
+ * 账号与协议 —— api-spec 第 1 节补充、operations.md 第 1/2 节
  *
- *   POST /auth/redeem   兑换码激活（要登录，但不要求已激活）
- *   POST /me/agree      同意协议
- *   GET  /me/quota      余额 + 台账明细
+ *   POST   /auth/redeem   续兑（要登录）
+ *   POST   /me/agree      同意协议
+ *   GET    /me/quota      余额 + 台账明细
+ *   DELETE /me            注销
  *
- * 这三个接口的共同点：它们是**激活前也能调**的，所以不能挂在 requireActivated 后面，
- * 否则老师会卡在「要激活才能激活」的死循环里。
+ * 这几个都挂在 requireAuth 后面，但**不要求已激活**（首次激活那三个接口
+ * 在 routes/activate.js，它们是公开的，因为调用它们的人还没有账号）。
+ *
+ * 【2026-09-20 改动】
+ * 「首次激活」和「拉名单」搬去了 routes/activate.js。
+ * 原来它们挂在这里，靠的是小程序时代的静默登录 —— 人人一进来都有 token。
+ * web 端没有静默登录，「拉名单要有 token」+「有 token 要先有账号」就是死循环。
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -17,35 +23,19 @@ import { ok, asyncRoute, badRequest, AppError, ErrorCode } from '../utils/errors
 import { normalizeCode } from '../utils/code.js';
 import { getQuota, listGrants } from '../services/quota.js';
 import { toTeacherDTO, signToken } from '../middleware/auth.js';
-import { listOpenKindergartens, listOpenEntries } from '../services/roster.js';
 import { logger } from '../utils/logger.js';
 
 export const accountRouter = Router();
 
 // ---------------------------------------------------------------
-// POST /auth/redeem —— 一个输入框，三件事
+// POST /auth/redeem —— 续兑
 //
 // 老师端只有一个输入框，她分不出也不需要分。后端按码的类型决定做哪件事：
 //
-//   activate  首次激活   要**码 + 她从名单里选的那个位置**
-//   topup     续兑       只要码，只加额度，身份一个字段都不动
-//   rebind    换绑       挪 openid，不发额度，**响应带新 token**
+//   topup     续兑   只要码，只加额度，身份一个字段都不动
+//   rebind    换绑   挪 openid，不发额度，**响应带新 token**
 //
-// 【为什么首次激活要两样】（2026-08-19 定稿，operations.md 第 1 节）
-// 老师不登录 —— openid 是微信给的随机串，微信不告诉我们它属于哪个自然人。
-// 所以「她是谁」必须由别的东西建立：
-//   · 兑换码       证明「你是这批人里的」（问卷星在她提交答卷后当场发）
-//   · 从名单里选   证明「你是哪一个」（园所 → 班级 → 岗位·姓氏）
-//
-// 013 那一版是让她**填手机号**跟名单核对，016 换掉了：11 位手打，
-// 打错一位是常事，而她分不清是「码坏了」还是「我打错了」。
-// 从列表里认自己出错概率低一个数量级，而且她要证明的事情本来就只是
-// 「我是阳光幼儿园小一班的主班」—— 那句话里没有手机号。
-//
-// 要认下来的代价：从列表里选是一个**表单字段，不是钥匙**，
-// 谁有码都能滚到任何一行。所以真正的门槛只剩码那一把。可以接受，因为
-// 同事之间冒领没有收益（她自己填问卷也能拿到同样额度），
-// 而真会发生的「手滑选错同班另一位」是可查可改的 —— claimed_openid 记着是谁认领的。
+// 首次激活**不在这里** —— 它在 routes/activate.js，因为调用它的人还没有账号。
 // ---------------------------------------------------------------
 accountRouter.post(
   '/redeem',
@@ -57,126 +47,9 @@ accountRouter.post(
     const rebind = await queryOne(`SELECT id FROM account_rebinds WHERE code = $1`, [code]);
     if (rebind) return doRebind(req, res, code);
 
-    return req.teacher.activated_at
-      ? doTopup(req, res, code)
-      : doActivate(req, res, code);
+    return doTopup(req, res, code);
   })
 );
-
-/**
- * 激活那一屏的选择器数据 —— 园所 → 位置。
- *
- * ⚠️ **必须带一个有效的码才给数据。** 不设这道门，任何人打开小程序
- * 就能看到一整个园的老师名单。所以这里先校验码，再回名单。
- *
- * 挂在 requireAuth 后面但**不要求已激活**（否则就是「要激活才能激活」的死循环）。
- */
-accountRouter.post(
-  '/roster/options',
-  asyncRoute(async (req, res) => {
-    const code = normalizeCode(req.body?.code);
-    if (!code) throw badRequest('先输兑换码');
-
-    // 换绑码不该能拉名单 —— 换绑的人已经有账号了，不需要选身份
-    const row = await queryOne(`SELECT status FROM redemption_codes WHERE code = $1`, [code]);
-    if (!row) throw badRequest('这个兑换码不存在，检查一下有没有敲错');
-    if (row.status === 'used') throw badRequest('这个兑换码已经被用过了');
-    if (row.status !== 'unused') throw badRequest('这个兑换码已经作废了，找发码给你的人要一个新的');
-
-    const kgId = req.body?.kindergarten_id ? Number(req.body.kindergarten_id) : null;
-    if (!kgId) return ok(res, { kindergartens: await listOpenKindergartens() });
-    return ok(res, { entries: await listOpenEntries(kgId) });
-  })
-);
-
-/**
- * 首次激活：码 + 她从名单里选的那个位置。
- *
- * 🔴 **校验失败绝不能消耗那个码。** 所以事务里的顺序是
- * **先把所有校验做完，再做第一次写入**：任何一条校验不过就 return，
- * 那时候还什么都没写，commit 也是空的。
- */
-async function doActivate(req, res, code) {
-  const entryId = Number(req.body?.roster_entry_id) || null;
-
-  const result = await withTransaction(async (client) => {
-    // ---- 全部校验，一个字都还没写 ----
-
-    // FOR UPDATE 挡住同一个码被两个人同时兑换
-    const row = (await client.query(
-      `SELECT * FROM redemption_codes WHERE code = $1 FOR UPDATE`, [code])).rows[0];
-
-    if (!row) return { err: '这个兑换码不存在，检查一下有没有敲错' };
-    if (row.status === 'used') return { err: '这个兑换码已经被用过了' };
-    if (row.status === 'void') return { err: '这个兑换码已经作废了，找发码给你的人要一个新的' };
-
-    if (!entryId) return { err: '还要从名单里选一下你是哪一位' };
-
-    // FOR UPDATE 挡住两个人同时认领同一个位置
-    const entry = (await client.query(
-      `SELECT * FROM teacher_roster WHERE id = $1 FOR UPDATE`, [entryId])).rows[0];
-
-    // 三句话要分得清 —— 这是她唯一的线索
-    if (!entry) return { err: '名单上找不到这一位，退回去重新选一次' };
-    if (entry.status === 'void') return { err: '名单上这一条已经作废了，找园长确认一下' };
-    if (entry.status === 'moved') return { err: '名单上这一条是旧记录了，退回去重新选一次' };
-    if (entry.status === 'claimed') {
-      return { err: '这个位置已经有人认领了。要是被同事选错了，跟我们说一声' };
-    }
-
-    // ---- 校验全过了，从这里开始写。三件事同生共死 ----
-    // 码标记成已用但额度没发，老师就永远拿不到了
-
-    const teacher = (await client.query(
-      // 一律 COALESCE：名单那几列可能是空的，不能把她已有的信息冲掉
-      `UPDATE teachers
-          SET real_name = COALESCE($1, real_name),
-              position = COALESCE($2, position), class_name = COALESCE($3, class_name),
-              kindergarten_id = COALESCE($4, kindergarten_id),
-              age_group = COALESCE($5, age_group),
-              roster_entry_id = $6,
-              activated_at = now(), updated_at = now()
-        WHERE id = $7 RETURNING *`,
-      [entry.real_name, entry.position, entry.class_name,
-        entry.kindergarten_id, entry.age_group, entry.id, req.teacherId])).rows[0];
-
-    await client.query(
-      `UPDATE redemption_codes SET status = 'used', used_by = $1, used_at = now() WHERE id = $2`,
-      [req.teacherId, row.id]);
-
-    // claimed_openid 单独存一份：即使这个 teachers 行以后被注销清空，
-    // 「谁顶了谁的名额」也要永远查得到
-    await client.query(
-      `UPDATE teacher_roster
-          SET status = 'claimed', claimed_by = $1, claimed_openid = $2, claimed_at = now()
-        WHERE id = $3`,
-      [req.teacherId, req.teacher.openid, entry.id]);
-
-    await client.query(
-      `INSERT INTO quota_grants (teacher_id, delta_text, delta_image, reason)
-       VALUES ($1, $2, $3, $4)`,
-      [req.teacherId, row.init_text, row.init_image, row.grant_reason || '首次激活']);
-
-    return { teacher, granted: { text: row.init_text, image: row.init_image } };
-  });
-
-  if (result.err) throw badRequest(result.err);
-
-  // 日志不记手机号和姓名（三条铁律之一）
-  logger.info('account_activated', {
-    teacher_id: req.teacherId,
-    kindergarten_id: result.teacher.kindergarten_id,
-    granted_text: result.granted.text,
-    granted_image: result.granted.image,
-  });
-
-  return ok(res, {
-    kind: 'activate',
-    teacher: toTeacherDTO(result.teacher),
-    quota: await getQuota(req.teacherId),
-    granted: result.granted,
-  });
-}
 
 /**
  * 续兑（任务奖励）：**只要码，不问手机号** —— 她已经被识别过了。
@@ -366,9 +239,15 @@ accountRouter.get(
  *   2. quota_grants 和 feedback 跟着级联消失 → 额度对账断了、已用于研究的记录也没了
  *
  * 做法是**留壳去身份**：
- *   删：对话、教案、版本、配图（连同磁盘文件）、记忆，以及手机号/姓名/昵称/头像/园所班级岗位
- *   留：teachers 那一行的 id 和 openid（用来认出「这个人注销过」并拒绝再次登录）、
- *       额度台账、已提交的反馈与评价 —— 但它们从此不再关联到任何姓名和手机号
+ *   删：对话、教案、版本、配图（连同磁盘文件）、记忆，
+ *       以及**手机号、密码哈希**、姓名、昵称、头像、园所班级岗位
+ *   留：teachers 那一行的 id（用来挂住额度台账和已提交的反馈与评价，
+ *       它们从此不再关联到任何姓名和手机号）
+ *
+ * ⚠️ **「拒绝再次登录」这道闸现在是窄的。** 手机号被真删了，
+ * 所以上面 `WHERE phone = $1` 找不到注销过的行 —— 她拿一个新码、用同一个号
+ * 可以重新报名。要堵死它就得留手机号哈希，那跟「删掉全部数据」矛盾。
+ * 真正的门槛是**码**：我们只给填过问卷的人发码。
  */
 accountRouter.delete(
   '/',
@@ -391,9 +270,16 @@ accountRouter.delete(
       await client.query(`DELETE FROM conversations WHERE teacher_id = $1`, [teacherId]);
       await client.query(`DELETE FROM teacher_memories WHERE teacher_id = $1`, [teacherId]);
       await client.query(
-        // phone 那一列 016 迁移已经删了 —— 库里根本没有老师的手机号
+        /* 🔴 手机号和密码哈希**必须一起清掉**（2026-09-20 加）。
+           它们是老师本人最直接的身份 —— 留着就等于「删了但没删干净」，
+           而协议里写的是「删掉全部数据」。
+
+           清掉手机号顺带产生一个后果：同一个号可以重新报名（唯一索引不再挡她）。
+           这是**认下来的代价**，见 api-spec「DELETE /me」一节 ——
+           要堵死它就得留一份手机号哈希，那跟这一句直接矛盾。 */
         `UPDATE teachers
             SET status = 'deleted',
+                phone = NULL, password_hash = NULL, password_salt = NULL,
                 real_name = NULL, nickname = NULL, avatar_url = NULL,
                 kindergarten_name = NULL, kindergarten_id = NULL,
                 class_name = NULL, position = NULL, age_group = NULL, teaching_years = NULL,

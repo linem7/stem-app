@@ -138,7 +138,13 @@ export async function request({ method = 'GET', path, data, timeout = 20000, aut
   const err = new ApiError({ ...payload.error, http: res.status })
   if (err.code === 'UNAUTHORIZED') {
     clearToken()
-    if (authExpiredHandler) authExpiredHandler(err)
+    /* 🔴 只有**带着 token 发出去**的请求才说明「登录态失效了」。
+
+       登录接口自己回 401 是「手机号或密码不对」—— 那时候人还没登录，
+       没有登录态可以失效。要是也触发跳转，她会看到密码错误的提示一闪
+       然后被弹走，而两次输错的第二次连错在哪都看不见了。
+       （登录/激活都传 auth: false，见 api/auth.js） */
+    if (auth && authExpiredHandler) authExpiredHandler(err)
   }
   throw err
 }

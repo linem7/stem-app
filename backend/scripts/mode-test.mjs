@@ -13,6 +13,8 @@
  *   node scripts/mode-test.mjs
  */
 
+import { activateAccount } from './_test-account.mjs';
+
 const BASE = process.env.BASE || 'http://localhost:3000';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '123456';
 const RND = String(Date.now()).slice(-8);
@@ -63,8 +65,7 @@ async function makeTicket() {
 // ---------------------------------------------------------------
 L('=== 0. 准备账号 ===');
 const ticket = await makeTicket();
-token = (await ok('POST', '/auth/login', { code: `dev:mode_${RND}` })).token;
-await ok('POST', '/auth/redeem', { code: ticket.code, roster_entry_id: ticket.slot });
+token = (await activateAccount(ticket)).token;
 await ok('POST', '/me/agree');
 L('  ✓ 已激活');
 

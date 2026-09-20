@@ -20,7 +20,6 @@ const WITH_GENERATE = process.argv.includes('--generate')
 
 // 必须在 import 业务模块之前设好 —— utils/env.js 是在模块加载时读的
 process.env.VITE_API_BASE = `${BASE}/v1`
-process.env.VITE_DEV_FAKE_LOGIN = 'true'
 
 /* ============ 断言 ============ */
 
@@ -59,8 +58,8 @@ async function makeCode() {
     body: JSON.stringify(body),
   }).then((r) => r.json())
 
-  // 016 之后激活要两样：码（一张入场券，不带身份）+ 从名单里选的位置。
-  // 库里没有手机号了，身份全部来自名单那一行
+  // 激活要三样：码（一张入场券，不带身份）+ 从名单里选的位置 + 她自己设的手机号密码。
+  // 园所/班级/岗位全部来自名单那一行，她一个字都不用填
   const kg = await post('/kindergartens', { name: `契约测试园_${RND}` })
   const imp = await post('/roster/import', {
     text: `契约测试老师${RND}, 中一班, 主班, 中班`,
@@ -81,10 +80,10 @@ async function makeCode() {
 const { code, slot } = await makeCode()
 L(`（本轮兑换码：${code}，名单位置 #${slot}）\n`)
 
-// 固定这台「设备」的假 openid，走 auth.js 里那条 DEV_FAKE_LOGIN 分支。
-// node 里没有 localStorage，storage.js 自己退到内存 Map —— 一次进程内是连贯的。
-const storageMod = await import('../src/utils/storage.js')
-storageMod.writeLocal('stem_dev_openid', `dev:fe_contract_${RND}`)
+/* 手机号每轮都不一样：上一轮的账号还在库里，撞号会走进「已经注册过了」那条分支。
+   11 位，1 开头第二位 8，跟后端 /^1[3-9]\d{9}$/ 对得上。 */
+const PHONE = `138${String(Date.now()).slice(-8)}`
+const PASSWORD = 'contract123456'
 
 const authApi = await import('../src/api/auth.js')
 const meApi = await import('../src/api/me.js')
@@ -93,22 +92,25 @@ const feedbackApi = await import('../src/api/feedback.js')
 const requestMod = await import('../src/utils/request.js')
 const sessionMod = await import('../src/stores/session.js')
 
-L('=== 1. 登录 ===')
-const teacher = await sessionMod.ensureSession()
-chk(Boolean(teacher), '拿到 teacher')
-chk(requestMod.getToken().length > 20, 'token 已落到 storage')
-chk(teacher.activated === false, 'activated=false')
-chk(!('phone' in teacher) && !('real_name' in teacher), '响应里没有 phone / real_name（铁律）')
-chk(sessionMod.gate() === 'redeem', `gate() → redeem`)
+L('=== 1. 还没登录：这是一个正常状态，不是错误 ===')
+const nobody = await sessionMod.ensureSession()
+chk(nobody === null, 'session.teacher 是 null')
+/* 🔴 这一条守的是「第一次来的人看到的界面」。
+   静默登录那套没了之后，没 token 成了最常见的情况 ——
+   要是 bootstrap 把「没登录」当失败，每个新老师一进来就先看到一个错误框。 */
+chk(sessionMod.session.bootError === null, 'bootError 仍然是 null —— 不能把「没登录」当成失败')
+chk(sessionMod.gate() === 'redeem', 'gate() → redeem（去激活页，那一页底下有去登录的路）')
 
-L('\n=== 2. 没激活时业务接口应被拦下 ===')
-await expectError('开新会话', 'NOT_ACTIVATED', () => convApi.createConversation('我想做个浮与沉的活动'))
+/* ⚠️ 原来这里有一条「没激活时业务接口被 NOT_ACTIVATED 拦下」。现在测不了了 ——
+   teachers 行只有 /auth/activate 一处会建，而它当场就置 activated_at，
+   所以 `requireActivated` 的**前半段**（`!activated_at`）走不到。
 
-L('\n=== 3. 激活：码 + 从名单里选自己（故意把码写脏，输入宽容由后端负责）===')
-await expectError('乱填的码', 'VALIDATION_FAILED', () => authApi.redeem('STEM-0000-0000'))
-// 拉名单必须先有有效的码 —— 后端靠它挡住「任何人打开小程序就能看到一整个园的老师」
-await expectError('码不对就拉不到名单', 'VALIDATION_FAILED',
-  () => authApi.rosterOptions('STEM-0000-0000'))
+   后半段（`!agreed_at`）还活着，而且是必须的 ——
+   ops-test 的「激活了但没同意协议」那一节盯着它。 */
+
+L('\n=== 2. 拉名单必须先有一个有效的码 ===')
+// 后端靠这道门挡住「任何人打开网页就能看到一整个园的老师名单」
+await expectError('乱填的码', 'VALIDATION_FAILED', () => authApi.rosterOptions('STEM-0000-0000'))
 const opts = await authApi.rosterOptions(code)
 chk(Array.isArray(opts.kindergartens) && opts.kindergartens.length > 0,
   `有码就拿到有空位的园：${opts.kindergartens?.length} 个`)
@@ -116,12 +118,54 @@ const picked = await authApi.rosterOptions(code, opts.kindergartens.find((k) => 
 chk(picked.entries.every((e) => e.surname && !('real_name' in e)),
   '选择器只给姓氏，不给全名')
 
+L('\n=== 3. 激活：码 + 名单 + 手机号 + 密码 ===')
+await expectError('两次手机号不一样', 'VALIDATION_FAILED', () => authApi.activate({
+  code, rosterEntryId: slot, phone: PHONE, phoneConfirm: '13900001111', password: PASSWORD,
+}))
+await expectError('手机号不是 11 位', 'VALIDATION_FAILED', () => authApi.activate({
+  code, rosterEntryId: slot, phone: '12345', phoneConfirm: '12345', password: PASSWORD,
+}))
+await expectError('密码太短', 'VALIDATION_FAILED', () => authApi.activate({
+  code, rosterEntryId: slot, phone: PHONE, phoneConfirm: PHONE, password: '123',
+}))
+
+// 故意把码写脏（小写、空格替代横线、前后带空格）—— 输入宽容由后端负责
 const dirty = `  ${code.toLowerCase().replace(/-/g, ' ')} `
-const redeemed = await sessionMod.redeem(dirty, slot)
+const activated = await sessionMod.activate({
+  code: dirty, rosterEntryId: slot, phone: PHONE, phoneConfirm: PHONE, password: PASSWORD,
+})
 chk(sessionMod.session.teacher.activated === true, `脏码 "${dirty.trim()}" 也认得出来`)
-chk(Boolean(redeemed.granted || redeemed.quota), '激活同时发了首笔额度')
+chk(Boolean(activated.granted || activated.quota), '激活同时发了首笔额度')
 chk(sessionMod.session.teacher.class_name === '中一班', '身份从名单那一行搬过来了')
+chk(!('phone' in activated.teacher) && !('real_name' in activated.teacher),
+  '响应里没有 phone / real_name（铁律）')
+chk(requestMod.getToken().length > 20, '建完账号直接给了 token，不用再登一次')
 chk(sessionMod.gate() === 'agreement', 'gate() → agreement')
+
+L('\n=== 3.5 一个码只能兑一次 ===')
+await expectError('拿刚用掉的码再激活', 'VALIDATION_FAILED', () => authApi.activate({
+  code, rosterEntryId: slot, phone: `139${String(Date.now()).slice(-8)}`,
+  phoneConfirm: `139${String(Date.now()).slice(-8)}`, password: PASSWORD,
+}))
+
+L('\n=== 3.6 换设备：清掉 token，用手机号 + 密码登回来 ===')
+// 这一节是这轮功能的**核心验收**。前面建账号、发额度都只是它的前提。
+requestMod.clearToken()
+sessionMod.session.teacher = null
+sessionMod.session.ready = false
+
+await expectError('密码填错', 'UNAUTHORIZED', () => authApi.login(PHONE, 'wrongpass'))
+/* 🔴 没注册过的号必须回**一模一样**的话。
+   两句不一样就等于白送一个「查这个手机号在不在我们库里」的接口 ——
+   而老师最怕的正是「园长知道我用了 AI 写教案」。 */
+await expectError('没注册过的号（文案必须跟上面一模一样）', 'UNAUTHORIZED',
+  () => authApi.login('13900009999', 'whatever'))
+
+await sessionMod.login(PHONE, PASSWORD)
+chk(sessionMod.session.teacher.activated === true, '登回来的是同一个账号')
+chk(sessionMod.session.teacher.class_name === '中一班', '身份还在（班级对得上）')
+chk(requestMod.getToken().length > 20, '新 token 落到了 storage')
+chk(sessionMod.gate() === 'agreement', 'gate() → agreement（协议还没签）')
 
 L('\n=== 4. 协议 ===')
 await sessionMod.agree()

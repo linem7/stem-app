@@ -213,6 +213,8 @@ const STATE_EXEMPT = {
   'src/pages/agreement/agreement.vue': '一屏静态文字，没有可失败的读取',
   'src/pages/redeem/redeem.vue':
     '失败都发生在她填好码之后。整屏换掉会把码扔了，所以走 toast，表单原样留着',
+  'src/pages/login/login.vue':
+    '「手机号或密码不对」是这一页最常见的失败，而它必须留在表单上让她改一个字段重试。整屏换成失败态等于把两个框都清空',
   'src/pages/generating/generating.vue':
     '动作在 dock 里，而且「断网接着等」和「重新生成」要两个不同的按钮（一个不花钱一个花钱）',
 }

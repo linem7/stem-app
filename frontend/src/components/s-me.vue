@@ -54,6 +54,43 @@
             </div>
           </div>
 
+          <!--
+            兑换码入口（2026-09-20 补上）。
+            台账**不展开**（2026-08-18 用户定），她这一屏真正要做的是
+            「我拿到码了，兑进来」—— 所以摆的是入口，不是历史。
+
+            续兑**只要码**：她已经登录了，身份一个字段都不动。
+            所以这里没有手机号、没有名单 —— 那些是第一次激活才有的事。
+          -->
+          <div class="rd">
+            <button v-if="!redeemOpen" type="button" class="memadd" @click="openRedeem">
+              <span class="memadd__t">我有兑换码，兑进来 ›</span>
+            </button>
+            <template v-else>
+              <input
+                ref="redeemEl"
+                v-model="codeInput"
+                class="rd__in"
+                type="text"
+                autocapitalize="characters"
+                autocomplete="off"
+                spellcheck="false"
+                maxlength="32"
+                placeholder="STEM-XXXX-XXXX"
+                @keyup.enter="submitRedeem"
+              />
+              <div class="rd__ops">
+                <s-button
+                  label="兑换"
+                  :disabled="!codeInput.trim()"
+                  :loading="redeeming"
+                  @press="submitRedeem"
+                />
+                <s-button label="取消" variant="ghost" @press="closeRedeem" />
+              </div>
+            </template>
+          </div>
+
           <!-- ============ 可以换额度的事 ============ -->
           <template v-if="tasks.length">
             <div class="sec">
@@ -256,17 +293,18 @@
 /**
  * 「我的」—— 屏幕正中间的一个弹窗（2026-08-31 用户定）。
  *
- * 额度 / 可换额度的事 / 我的记忆（含个人档案）/ 注销 / 提建议 / 字号 / 版本。
+ * 额度 / 兑换码 / 可换额度的事 / 我的记忆（含个人档案）/ 注销 / 提建议 / 字号 / 协议 / 版本。
  * 小程序时代这是一整页，网页上收成一个弹窗 —— 侧边栏左下角那一行是唯一入口。
  *
- * ⚠️ **兑换码入口和使用协议这一轮没有**：兑换页要等后端的手机号 + 密码身份模型，
- * 协议页还没搬。摆一个点了跳不动的入口比没有更糟。
+ * 【兑换码入口两轮之后才补上】原来这里是空的，因为续兑要靠后端的身份模型
+ * （它得知道「这个码是给谁的」）。现在有了。**摆一个点了跳不动的入口比没有更糟**，
+ * 所以宁可空着 —— 这条留着，下次想先摆个空壳的时候回头看。
  */
 import { nextTick, reactive, ref, watch } from 'vue'
 import { addMemory, deleteMyAccount, getQuota, listMemories, removeMemory, updateMemory } from '../api/me.js'
 import { sendFeedback } from '../api/feedback.js'
 import { listTasks, markTaskRead } from '../api/tasks.js'
-import { session } from '../stores/session.js'
+import { redeem, session } from '../stores/session.js'
 import { FONT_SCALES, prefs, setFontScale } from '../stores/prefs.js'
 import { iconCheck, iconChevron } from '../utils/icons.js'
 import { COLORS } from '../utils/colors.js'
@@ -312,6 +350,12 @@ const adding = ref(false)
 const addEl = ref(null)
 const newFact = ref('')
 const savingMem = ref(false)
+
+/** 兑换码。折叠着 —— 她多数时候是来看额度的，不是来兑码的 */
+const redeemOpen = ref(false)
+const redeemEl = ref(null)
+const codeInput = ref('')
+const redeeming = ref(false)
 
 const editing = ref(null)
 const editFact = ref('')
@@ -382,6 +426,40 @@ function startAdd() {
   adding.value = true
   newFact.value = ''
   nextTick(() => addEl.value?.focus())
+}
+
+/* ============ 兑换码 ============ */
+
+function openRedeem() {
+  redeemOpen.value = true
+  // 点开就把光标放进输入框 —— 她的下一步一定是粘贴，不该再点一下
+  nextTick(() => redeemEl.value?.focus())
+}
+
+function closeRedeem() {
+  redeemOpen.value = false
+  codeInput.value = ''
+}
+
+async function submitRedeem() {
+  const code = codeInput.value.trim()
+  if (!code || redeeming.value) return
+  redeeming.value = true
+  try {
+    const data = await redeem(code)
+    // 兑换是个**有结果的动作**，光说「成功」她还得抬头去找数字变没变。
+    // 直接把到账多少说出来，再把上面那两个数刷新一遍。
+    if (data.quota) Object.assign(quota, data.quota)
+    closeRedeem()
+    const g = data.granted || {}
+    toast(`到账 ${g.text || 0} 次教案、${g.image || 0} 张配图`)
+  } catch (err) {
+    // 「这个兑换码不存在，检查一下有没有敲错」这类话由后端给，
+    // 她填的东西原样留在框里，改一个字符就能重试
+    showApiError(err)
+  } finally {
+    redeeming.value = false
+  }
 }
 
 async function saveMem() {
@@ -818,6 +896,43 @@ async function submitSuggestion() {
   width: 100%;
   text-align: left;
   padding: 11px 0;
+}
+
+/* ============ 兑换码 ============ */
+
+.rd {
+  margin-top: 11px;
+}
+
+/*
+  这一格用 --fs-body（15px），跟上面 `.add__ta`、跟这一屏其它输入框一致。
+  ⚠️ 它会触发 iOS 的「输入框字号小于 16px 就放大页面」。
+  这里选择跟邻居一致，而不是单独一个 17px 的框 —— 同一个弹窗里两个输入框
+  字号不一样，看起来像做坏了。整屏要不要一起提到 16px 是另一个决定。
+*/
+.rd__in {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  outline: none;
+  border: 1px solid $amber-line;
+  border-radius: $r-btn;
+  background: $white;
+  padding: 10px 12px;
+  font-size: var(--fs-body);
+  letter-spacing: 0.06em;
+  text-align: center;
+  color: $ink;
+  margin-bottom: $sp-2;
+}
+
+.rd__in::placeholder {
+  color: $ink-3;
+}
+
+.rd__ops {
+  display: flex;
+  gap: 8px;
 }
 
 .memadd__t {

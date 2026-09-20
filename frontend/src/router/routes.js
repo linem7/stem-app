@@ -10,6 +10,16 @@ export const routes = [
   { name: 'home', path: '/', component: () => import('../pages/index/index.vue') },
 
   /*
+    还没有账号的人的两个入口。**没有登录态时 `gate()` 送她去 /redeem 那一个**，
+    因为内测期的老师手上都是兑换码，不是手机号密码。
+    两页底下互相有一条路（「已经有账号？」/「第一次用？」），谁都不会走死。
+
+    `?id=` 那套会话参数这两页都不需要 —— 它们发生在有会话之前。
+  */
+  { name: 'redeem', path: '/redeem', component: () => import('../pages/redeem/redeem.vue') },
+  { name: 'login', path: '/login', component: () => import('../pages/login/login.vue') },
+
+  /*
     一条对话流：引导 + 生成 + 成稿 + 改一改（2026-08-30 合并）。
     原来的 /guide /generating /plan 三个地址没了 —— 那三段现在是同一条流里的三截。
     `?id=` 是**会话 id**，不是教案 id。

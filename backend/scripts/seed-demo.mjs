@@ -25,6 +25,7 @@
  * 一份看起来完全正常的假数据混进真数据里，是没人会发现的。
  */
 import { query, queryOne, withTransaction, closePool } from '../src/db/pool.js';
+import { activateAccount } from './_test-account.mjs';
 
 const BASE = (process.env.API_BASE || 'http://localhost:3000').replace(/\/$/, '');
 const A = `${BASE}/admin/api`;
@@ -187,13 +188,10 @@ async function seed() {
     if (!t.act) continue;
     const row = rosterRows.find((r) => r.real_name === t.name);
     if (!row) { L(`  ⚠️ 名单里找不到 ${t.name}，跳过`); continue; }
-    // openid 用 `dev:demo_xxx` → 后端存成 `dev_demo_xxx`（DEV_FAKE_LOGIN）
-    const slug = `demo_${row.id}`;
-    const tok = (await usr('POST', '/auth/login', null, { code: `dev:${slug}` })).token;
-    await usr('POST', '/auth/redeem', tok, { code: codes[ci], roster_entry_id: row.id });
+    const act = await activateAccount({ code: codes[ci], slot: row.id });
     ci += 1;
-    await usr('POST', '/me/agree', tok);
-    tokens[t.name] = tok;
+    await usr('POST', '/me/agree', act.token);
+    tokens[t.name] = act.token;
   }
   L(`激活 ${Object.keys(tokens).length} 位`);
 

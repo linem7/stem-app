@@ -10,7 +10,6 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "dev:account": "node scripts/dev-activate.mjs",
     "test:api": "node scripts/api-contract-test.mjs",
     "test:tokens": "node scripts/tokens-test.mjs",
     "test:contrast": "node scripts/contrast-test.mjs"
