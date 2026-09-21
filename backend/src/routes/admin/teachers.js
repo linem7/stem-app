@@ -320,8 +320,8 @@ teachersRouter.get(
         position: t.position,
         age_group: t.age_group,
         // 学历 / 教龄（018 迁移）：老师自己在小程序档案里填的，是研究要用的自变量。
-        // 🔴 **NULL 是「没填过」，别在任何地方显示成「未评定」或 0** ——
-        // 「未评定」是职称那一栏她主动选的一个值，两者在研究上分得开。
+        // 🔴 **NULL 是「没填过」，别在任何地方显示成「未评级」或 0** ——
+        // 「未评级」是职称那一栏她主动选的一个值，两者在研究上分得开。
         // teaching_years: 0 同理，那是「今年刚入职」，不是空
         education: t.education,
         professional_title: t.professional_title,

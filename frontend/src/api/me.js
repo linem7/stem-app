@@ -40,15 +40,21 @@ export function getQuota() {
  * 只是这次没有额度可领。
  *
  * @param {object} o
- * @param {number} o.birthYear     出生年份（4 位，存年份不存年龄）
- * @param {string} o.education     EDUCATIONS 白名单里的一项
- * @param {number} o.teachingYears 0–60。**0 是有意义的值**（刚入职）
- * @param {string} o.ageGroup      AGE_GROUPS 白名单里的一项
+ * @param {string} o.birthMonth          出生年月 `YYYY-MM`（**不是**只有年）。
+ *   刻意不收「日」：不收的东西不该以任何形式进库，哪怕是补一个默认的 01
+ * @param {string} o.education           EDUCATIONS 白名单里的一项
+ * @param {string} o.professionalTitle   TITLES 白名单里的一项
+ *   （「未评级」是一个有意义的值，不是「没填」）
+ * @param {number} o.teachingYears       0–60。**0 是有意义的值**（刚入职）
+ * @param {string} o.ageGroup            AGE_GROUPS 白名单里的一项
  */
-export function saveProfile({ birthYear, education, teachingYears, ageGroup }) {
+export function saveProfile({
+  birthMonth, education, professionalTitle, teachingYears, ageGroup,
+}) {
   return post('/me/profile', {
-    birth_year: birthYear,
+    birth_month: birthMonth,
     education,
+    professional_title: professionalTitle,
     teaching_years: teachingYears,
     age_group: ageGroup,
   })

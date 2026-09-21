@@ -34,7 +34,10 @@ export async function login(phone, password) {
  * @param {object} o
  * @param {string} o.code
  * @param {number} [o.rosterEntryId] 路径一必填
- * @param {object} [o.self] 路径二必填：{realName, kindergartenName, province, city, ownership}
+ * @param {object} [o.self] 路径二必填：{surname, province, city, ownership}
+ *   🔴 **只要姓氏，不收全名**（2026-09-21 用户定）；**也不填园所名**。
+ *   ⚠️ 字段名是 `surname` 不是 `realName` —— 后端认的是 `req.body.surname`，
+ *   传错了的表现是「填了姓氏，却报『填一下你的姓氏』」。
  */
 export async function activate({
   code, rosterEntryId, self, phone, phoneConfirm, password,
@@ -46,8 +49,7 @@ export async function activate({
       roster_entry_id: rosterEntryId,
       // 路径二那几样**不传就是 undefined**，JSON.stringify 会整个丢掉，
       // 所以路径一不会带上多余的字段
-      real_name: self?.realName,
-      kindergarten_name: self?.kindergartenName,
+      surname: self?.surname,
       province: self?.province,
       city: self?.city,
       ownership: self?.ownership,

@@ -22,6 +22,7 @@ import { ok, asyncRoute, badRequest } from '../utils/errors.js';
 import { config } from '../config.js';
 import { normalizeCode } from '../utils/code.js';
 import { normalizePhone } from '../utils/phone.js';
+import { isKnownRegion } from '../utils/chinaRegions.js';
 import { hashPassword } from '../services/admins.js';
 import { signToken, toTeacherDTO } from '../middleware/auth.js';
 import { getQuota } from '../services/quota.js';
@@ -121,20 +122,20 @@ activateRouter.post(
     /* 路径二要的几样。**在事务外先洗完**，因为它们要参与「先全部校验」
        那一轮，而那一轮里不该有 `req.body` 直接出现。 */
     const self = entryId ? null : {
-      realName: str(req.body?.real_name),
-      kgName: str(req.body?.kindergarten_name),
+      surname: str(req.body?.surname),
       province: str(req.body?.province),
       city: str(req.body?.city),
       ownership: str(req.body?.ownership),
     };
 
     if (self) {
-      if (!self.realName) throw badRequest('填一下你的姓名');
-      if (!self.kgName) throw badRequest('填一下你所在的幼儿园');
-      /* 🔴 地区必须从下拉里选。自由填会脏成「北京 / 北京市 / 北京朝阳」，
-         而研究上要按地区分组 —— 那种数据分不了组。
-         这里只挡空值，**「在不在下拉里」要在事务里跟园所表比**，
-         因为那个校验要查库。 */
+      /* 🔴 **只要姓氏，不收全名**（用户 2026-09-21 定）。
+         跟白名单那条路同一个立场：姓名只给姓氏 ——
+         认出自己只需要一个字，收集全名是没有必要的暴露。
+         存进 `real_name` 的就是这一个字，显示时拼成「林老师」。 */
+      if (!self.surname) throw badRequest('填一下你的姓氏');
+      if (self.surname.length > 2) throw badRequest('姓氏填一个字就够了');
+
       if (!self.province || !self.city) throw badRequest('地区从下拉里选一下');
       if (!self.ownership) throw badRequest('园所类型从选项里选一下');
       if (!OWNERSHIPS.includes(self.ownership)) {
@@ -145,10 +146,23 @@ activateRouter.post(
     const phone = normalizePhone(req.body?.phone);
     if (!phone) throw badRequest('手机号看起来不对，是 11 位数字');
 
-    const phoneAgain = normalizePhone(req.body?.phone_confirm);
-    if (phoneAgain && phoneAgain !== phone) {
-      throw badRequest('两次填的手机号不一样，再核对一下');
-    }
+    /* 🔴 **第二个框必须也是合法号码。**
+       2026-09-21 修：原来是 `if (phoneAgain && phoneAgain !== phone)`，
+       而 `normalizePhone` 认不出来时返回 `null` ——
+       于是「第二个框填了错的」和「第二个框空着」都成了 falsy，
+       **整条校验被跳过、直接放行**。而「第二个框填错」正是她最可能干的事
+       （第一个框多半是复制的，第二个是手打的）。
+       表现就是用户报的那句：「没有对两次手机号码的一致性进行核对」。
+
+       三种情形要分得开 —— 她的线索只有这一句话：
+         · 第二个框空着          → 请她填一遍
+         · 第二个框认不出来      → 格式不对
+         · 两个都合法但不一致    → 不一样，核对一下 */
+    const rawAgain = String(req.body?.phone_confirm ?? '').trim();
+    if (!rawAgain) throw badRequest('再填一遍手机号');
+    const phoneAgain = normalizePhone(rawAgain);
+    if (!phoneAgain) throw badRequest('再填的那一遍看起来不对，是 11 位数字');
+    if (phoneAgain !== phone) throw badRequest('两次填的手机号不一样，再核对一下');
 
     const password = String(req.body?.password || '');
     if (password.length < 6) throw badRequest('密码至少 6 位');
@@ -192,14 +206,20 @@ activateRouter.post(
         } else {
           // ---- 路径二：不在名单，自己填 ----
 
-          /* 🔴 地区必须是库里出现过的。前端是下拉（选不出别的值），
-             但这里是**服务端的第二道** —— 绕过前端（curl、或者哪天前端改坏了）
-             就会存进一个自由文本，而那种数据研究上分不了组。
-             跟「手机号前端输两遍、后端再比一次」同一个理由。 */
-          const known = (await client.query(
-            `SELECT 1 FROM kindergartens WHERE province = $1 AND city = $2 LIMIT 1`,
-            [self.province, self.city])).rows[0];
-          if (!known) return { err: '地区从下拉里选一下' };
+          /* 🔴 地区必须是**真实存在的中国省市**。
+             前端是下拉（选不出别的值），但这里是**服务端的第二道** ——
+             绕过前端（curl、或者哪天前端改坏了）就会存进一个自由文本，
+             而那种数据研究上分不了组。
+             跟「手机号前端输两遍、后端再比一次」同一个理由。
+
+             ⚠️ 判据是**完整中国行政区划**（`utils/chinaRegions.js`），
+             **不是**「库里已有园所的省市」—— 她不在名单里，
+             可能来自任何地方，拿前者的结果是她明明填对了却被拒
+             （用户 2026-09-21 定：「地区信息应该遵循中国的省市写法，
+             而不仅仅是当前已有的地区」）。 */
+          if (!isKnownRegion(self.province, self.city)) {
+            return { err: '地区从下拉里选一下' };
+          }
 
           /* 给她插一行 teacher_roster。
              🔴 **为什么不直接建 teachers 行**：`teacher_ref` 是「人」这一层
@@ -212,14 +232,18 @@ activateRouter.post(
             `SELECT COALESCE(MAX(teacher_ref), 1000) + 1 AS next FROM teacher_roster`
           )).rows[0].next;
 
+          /* ⚠️ `real_name` 存的是**姓氏**（一个字），不是全名 ——
+             `teacher_roster.real_name` 那一列在白名单那条路上存的是全名，
+             `surnameOf()` 取第一个字。自填这条路上存的就是那一个字，
+             `surnameOf()` 对它取第一个字仍然得到它自己，所以两条路一致。 */
           entry = (await client.query(
             `INSERT INTO teacher_roster
                (teacher_ref, real_name, kindergarten_id, class_name, position,
                 age_group, status, claimed_at)
              VALUES ($1, $2, NULL, NULL, NULL, NULL, 'claimed', now())
-             RETURNING *, $3::text AS kindergarten_name, $4::text AS province,
-                       $5::text AS city, $6::text AS ownership`,
-            [ref, self.realName, self.kgName, self.province, self.city,
+             RETURNING *, $3::text AS province, $4::text AS city,
+                       $5::text AS ownership`,
+            [ref, self.surname, self.province, self.city,
               self.ownership])).rows[0];
         }
 
@@ -237,7 +261,8 @@ activateRouter.post(
 
            ⚠️ `entry_source` 和 `kindergarten_name` 的取值分两条路：
              路径一：'roster'、kindergarten_name 由园所名带出来（下面补）
-             路径二：'self'  、kindergarten_name 就是她自己填的那个 */
+             路径二：'self' —— **不填园所名**（用户 2026-09-21 定），
+             所以 `kindergarten_name` 留空，`COALESCE` 取不到东西就是 NULL */
         const teacher = (await client.query(
           `INSERT INTO teachers
              (phone, password_hash, password_salt,
@@ -245,14 +270,13 @@ activateRouter.post(
               kindergarten_name, entry_source,
               roster_entry_id, activated_at, last_login_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-                   COALESCE((SELECT name FROM kindergartens WHERE id = $7), $9),
-                   $10,
-                   $11, now(), now())
+                   COALESCE((SELECT name FROM kindergartens WHERE id = $7), NULL),
+                   $9,
+                   $10, now(), now())
            RETURNING *`,
           [phone, hash, salt,
             entry.real_name, entry.position, entry.class_name,
             entry.kindergarten_id, entry.age_group,
-            self ? self.kgName : null,
             self ? 'self' : 'roster',
             entry.id])).rows[0];
 

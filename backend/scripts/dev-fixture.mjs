@@ -2,109 +2,154 @@
  * 造一套「能走完激活流程」的测试数据。
  *
  * 【为什么要这个脚本】
- * 2026-09-21 想在服务器上试真正的登录流程，发现走不通，两个原因叠在一起：
+ * 2026-09-21 想在服务器上试真正的登录流程，发现走不通，几个原因叠在一起：
  *
  *   ① `listOpenKindergartens` / `listOpenEntries` 都只回 `status = 'pending'` 的行，
- *      而库里唯一那条名单行被 09-01 的假登录账号认领了（`claimed`）——
- *      所以「从名单里选自己」那一屏是空的
+ *      而库里唯一那条名单行被 09-01 的假登录账号认领了（`claimed`）
  *   ② 库里那个未使用的码是**匿名码**（`kindergarten_id` 是 NULL），
- *      匿名码本来就不走「从名单里选自己」这条路
+ *      匿名码不在「从名单里选自己」这条路上
+ *   ③ 四级下拉上线后，`listOpenRegions` 要求园所有 `province` / `city` ——
+ *      而原有的测试园所两个都是 NULL，**第一级会直接是空的**
  *
  * 而库里现有的园所叫「契约测试园_xxxx」—— 那是 `cleanup-test-data.mjs` 的清理目标，
  * 拿它做测试等于踩在随时会被删的东西上。
  *
- * 【为什么不做成 SQL 片段】
- * 激活流程对数据有**六条**隐含要求（见下面 activeFixture 的注释），
- * 手写 SQL 每次都可能漏一条，而漏掉的表现是「激活页报一句看不懂的错」。
- *
- * 【为什么不做成 npm run seed:demo】
- * `seed:demo` 是 6 园所 20 教师 45 教案的**展示数据**，走真接口、跑得慢，
- * 而且它造的教案正文是占位文字。这里要的是**一条能走通激活链路的干净数据**，
- * 目的完全不同。两者并存，别合并。
+ * 【为什么不走后台的 xlsx 导入】
+ * 那条路真实、能测到解析器，但要先建 10 个园所、而且名单模板没有「地区」这一列。
+ * 这个脚本是**为了能立刻打开 /redeem 走一遍**，不是验收导入功能。
  *
  * 用法：
- *   node scripts/dev-fixture.mjs              # 造（幂等，重复跑不会造重）
- *   node scripts/dev-fixture.mjs --clean      # 清掉这个脚本造的东西
- *   node scripts/dev-fixture.mjs --clean --yes  # 清，不预览直接删
+ *   node scripts/dev-fixture.mjs                # 造（幂等，重复跑会先清掉上次的）
+ *   node scripts/dev-fixture.mjs --clean        # 清（预览，不删）
+ *   node scripts/dev-fixture.mjs --clean --yes  # 清，真删
  *
- * ⚠️ 造出来的园所名字带 FIXTURE_PREFIX，**清理只认这个前缀 + 硬证据**
- * （见 `_shared` 那套判据：不按名字猜，按 id 引用来删）。
+ * ⚠️ 判据是**硬证据**（前缀 + id 引用），不按名字猜 —— 跟 `cleanup-test-data.mjs` 同一套取向。
  */
 import 'dotenv/config';
-import { query, queryOne, withTransaction } from '../src/db/pool.js';
+import { queryOne, withTransaction } from '../src/db/pool.js';
 
-/** 园所名前缀。清理和识别都靠它，改这里就够了 */
+/** 园所名前缀。清理和识别都靠它 */
 const FIXTURE_PREFIX = '测试园所_';
-const KG_NAME = `${FIXTURE_PREFIX}平台自测`;
 
-/** 名单：三条够走完流程，而且能试出「同名同姓靠 note 区分」那一条 */
-const ROSTER = [
-  { real_name: '王小美', class_name: '小一班', position: '主班', age_group: '小班' },
-  { real_name: '李静',   class_name: '中一班', position: '配班', age_group: '中班' },
-  { real_name: '陈丽华', class_name: '大一班', position: '主班', age_group: '大班' },
+/**
+ * 2 个地区 × 5 个园 = 10 个园，每园 10 位老师。
+ *
+ * ⚠️ 地区用**真实存在的省市对**（北京 / 广东-广州 等）——
+ * 因为「不在名单」那条路的地区校验是「必须出现在 kindergartens 的
+ * province/city 里」，而她能选的值就是从这张表 DISTINCT 出来的。
+ * 造一个不存在的地区会让那个校验永远过不去。
+ */
+const REGIONS = [
+  { province: '北京', cities: ['北京'], prefix: '北京' },
+  { province: '广东', cities: ['广州', '深圳'], prefix: '广州' },
+];
+
+/** 每园几个老师 */
+const PER_KG = 10;
+/** 每园几个班，用来铺开老师的班级（10 人分到 5 个班） */
+const CLASSES = ['小一班', '小二班', '中一班', '中二班', '大一班'];
+const POSITIONS = ['主班', '配班'];
+
+/** 姓氏池。够 100 个人不重复即可，这里循环用 */
+const SURNAMES = [
+  '王', '李', '张', '刘', '陈', '杨', '赵', '黄', '周', '吴',
+  '徐', '孙', '马', '朱', '胡', '郭', '何', '高', '林', '罗',
 ];
 
 /**
- * 兑换码。
+ * 兑换码。**必须是绑定码**（`kindergarten_id` 有值）——
+ * 匿名码不在「从名单里选自己」这条路上。
  *
- * 🔴 **必须是绑定码**（`kindergarten_id` 有值）。
- * 匿名码在这个流程里走不通 —— `roster/options` 拿到匿名码之后
- * `listOpenKindergartens()` 回的是「所有有待认领位置的园所」，
- * 那是「整批交给园所」的场景，不是「一个人自己激活」。
+ * ⚠️ 2026-09-21 之后码**不再限定园所**（它只用来证明「你有资格进来」），
+ * 但这里仍然绑一个园，因为「绑定码」是老师实际会拿到的那种码的形状。
  */
 const CODE = 'STEM-TEST-0001';
 
-function log(...a) { console.log(...a); }
+const log = (...a) => console.log(...a);
 
 // ---------------------------------------------------------------
 // 造
 // ---------------------------------------------------------------
 async function build() {
   return withTransaction(async (client) => {
-    // 幂等：已经造过就把上次的清掉重来，避免「名单行越跑越多」
+    // 幂等：已经造过就先清掉重来，避免名单行越跑越多
     await cleanupWithin(client, { preview: false });
 
-    const kg = (await client.query(
-      `INSERT INTO kindergartens (name) VALUES ($1) RETURNING id, name`,
-      [KG_NAME])).rows[0];
-    log(`  园所  #${kg.id}  ${kg.name}`);
-
-    const entries = [];
-    for (const r of ROSTER) {
-      /* teacher_ref 是「人」，跨班跨园不变。这里每条名单一个新 ref ——
-         造的是三个不同的人，不是同一个人换了三次班。 */
-      const ref = (await client.query(
-        `SELECT COALESCE(MAX(teacher_ref), 1000) + 1 AS next FROM teacher_roster`
-      )).rows[0].next;
-
-      const e = (await client.query(
-        `INSERT INTO teacher_roster
-           (teacher_ref, real_name, kindergarten_id, class_name, position,
-            age_group, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'pending')
-         RETURNING id, real_name, class_name, position, age_group`,
-        [ref, r.real_name, kg.id, r.class_name, r.position, r.age_group])).rows[0];
-      entries.push(e);
-      log(`  名单  #${e.id}  ${e.real_name}  ${e.class_name} ${e.position}  (${e.age_group})`);
+    const kgs = [];
+    for (const region of REGIONS) {
+      for (let i = 0; i < 5; i += 1) {
+        /* 每个园给一个市：北京那个直辖市只有「北京」一个市，
+           广东那个在「广州」和「深圳」之间轮着分 —— 好让第二级
+           真的有多个选项可点，能测到那条分支 */
+        const city = region.cities[i % region.cities.length];
+        const name = `${FIXTURE_PREFIX}${region.prefix}${i + 1}园`;
+        const kg = (await client.query(
+          `INSERT INTO kindergartens (name, province, city, ownership)
+           VALUES ($1, $2, $3, $4) RETURNING id, name, province, city`,
+          [name, region.province, city, i % 3 === 0 ? '公办' : (i % 3 === 1 ? '普惠民办' : '民办')]
+        )).rows[0];
+        kgs.push(kg);
+      }
     }
+    log(`  园所  ${kgs.length} 个（${REGIONS.map((r) => r.province).join(' / ')}）`);
+
+    let ref = (await client.query(
+      `SELECT COALESCE(MAX(teacher_ref), 1000) AS max FROM teacher_roster`
+    )).rows[0].max;
+
+    let n = 0;
+    for (const kg of kgs) {
+      for (let i = 0; i < PER_KG; i += 1) {
+        ref += 1;
+
+        /* 🔴 **班级和年级必须从同一个下标算出来。**
+           分开取模（班级 `i % 5`、年级 `i % 3`）会让它们错开 ——
+           结果是「小一班的老师被标成中班」，而 `age_band_violations`
+           那套硬校验会拿这个值去管她的教案。错开之后界面上完全看不出来，
+           只在生成教案时冒出一堆莫名其妙的年龄班违规。
+           班级名的第一个字就是年级（小一班 → 小班），从它派生最不容易写错。 */
+        const cls = CLASSES[i % CLASSES.length];
+
+        await client.query(
+          `INSERT INTO teacher_roster
+             (teacher_ref, real_name, kindergarten_id, class_name, position,
+              age_group, status)
+           VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
+          [ref,
+            /* 🔴 **姓名必须以姓氏开头。**
+               `surnameOf()` 取的是第一个字，所以「测试王01」这种
+               「前缀 + 姓」的写法会让**每个人都显示成「测老师」** ——
+               名单上十个人全叫同一个名字，她认不出自己是谁。
+               而这一屏的全部作用就是让她认出自己。
+               后面缀那个数字是为了保证不重名（同姓配班要靠 note 区分，
+               造数据时先避开那个复杂度）。 */
+            `${SURNAMES[n % SURNAMES.length]}${String(n + 1).padStart(2, '0')}`,
+            kg.id,
+            cls,
+            POSITIONS[i % POSITIONS.length],
+            `${cls[0]}班`]
+        );
+        n += 1;
+      }
+    }
+    log(`  名单  ${n} 条（每园 ${PER_KG} 条）`);
 
     const code = (await client.query(
       `INSERT INTO redemption_codes
          (code, kindergarten_id, init_text, init_image, grant_reason, status)
        VALUES ($1, $2, 20, 10, '首次激活', 'unused')
        RETURNING id, code, init_text, init_image`,
-      [CODE, kg.id])).rows[0];
-    log(`  兑换码  #${code.id}  ${code.code}  (${code.init_text} 教案 / ${code.init_image} 配图)`);
+      [CODE, kgs[0].id])).rows[0];
+    log(`  兑换码  ${code.code}  (${code.init_text} 教案 / ${code.init_image} 配图)`);
 
-    return { kg, entries, code };
+    return { kgs, code };
   });
 }
 
 // ---------------------------------------------------------------
 // 清理
 //
-// ⚠️ 判据是**硬证据，不按名字猜**：先按前缀找到园所 id，
-//    再按「引用了这些 id」删 —— 跟 `cleanup-test-data.mjs` 同一套取向。
+// ⚠️ 判据是**硬证据，不按名字猜**：先按前缀找到园所 id，再按「引用了这些 id」删。
 //    ⚠️ `model_calls` 一行都不删：那是真花过钱的事实。
 // ---------------------------------------------------------------
 async function cleanupWithin(client, { preview }) {
@@ -114,7 +159,7 @@ async function cleanupWithin(client, { preview }) {
 
   if (!kgs.length) {
     if (preview) log('  （没有要清的东西）');
-    return { kgs: 0, entries: 0, codes: 0 };
+    return { kgs: 0 };
   }
 
   const ids = kgs.map((k) => k.id);
@@ -161,51 +206,59 @@ async function cleanup({ preview }) {
 // ---------------------------------------------------------------
 async function main() {
   const args = process.argv.slice(2);
-  const clean = args.includes('--clean');
-  const yes = args.includes('--yes');
 
-  if (clean) {
-    log('\n清理测试数据' + (yes ? '（真删）' : '（预览）') + '：\n');
+  if (args.includes('--clean')) {
+    const yes = args.includes('--yes');
+    log(`\n清理测试数据${yes ? '（真删）' : '（预览）'}：\n`);
     await cleanup({ preview: !yes });
     log('');
     return;
   }
 
   log('\n造测试数据：\n');
-  const { kg, entries, code } = await build();
+  const { kgs, code } = await build();
 
   /* 自检：把「这份数据到底能不能走通激活」当场验一遍。
      写在脚本里而不是靠人去点 —— 漏一条要求的表现是激活页报一句
-     看不懂的错，那比脚本自己红掉难查得多。 */
-  log('\n自检（走一遍 listOpenKindergartens / listOpenEntries 的真实查询）：\n');
-  const { listOpenKindergartens, listOpenEntries } = await import('../src/services/roster.js');
+     看不懂的错，那比脚本自己红掉难查得多。
 
-  const openKgs = await listOpenKindergartens();
-  const mine = openKgs.find((k) => k.id === kg.id);
-  if (!mine) throw new Error('❌ 自检失败：这个园所没出现在 listOpenKindergartens 里');
-  if (!mine.open) throw new Error('❌ 自检失败：园所的待认领数是 0');
-  log(`  ✅ 园所可见，待认领 ${mine.open} 个位置`);
+     🔴 2026-09-21 加了第 ④ 条：四级下拉要求园所有 province/city。
+     这条是**真踩过的** —— 原来的测试园所两个字段都是 NULL，
+     加完四级之后第一级直接是空的，而界面上只表现为「一个选项都没有」。 */
+  log('\n自检（走一遍真实查询）：\n');
+  const {
+    listOpenRegions, listOpenCities, listOpenKindergartens, listOpenEntries,
+  } = await import('../src/services/roster.js');
 
-  const openEntries = await listOpenEntries(kg.id);
-  if (openEntries.length !== entries.length) {
-    throw new Error(`❌ 自检失败：名单应有 ${entries.length} 条，实际 ${openEntries.length} 条`);
-  }
-  log(`  ✅ 名单 ${openEntries.length} 条，姓氏：${openEntries.map((e) => e.surname).join(' / ')}`);
+  const regions = await listOpenRegions();
+  if (!regions.length) throw new Error('❌ 自检失败：地区列表是空的（园所缺 province/city？）');
+  log(`  ✅ 地区 ${regions.length} 个：${regions.map((r) => r.province).join(' / ')}`);
+
+  const first = regions[0];
+  const cities = await listOpenCities(first.province);
+  if (!cities.length) throw new Error(`❌ 自检失败：${first.province} 下面一个市都没有`);
+  log(`  ✅ ${first.province} 的市：${cities.join(' / ')}`);
+
+  const inCity = await listOpenKindergartens(first.province, cities[0]);
+  if (!inCity.length) throw new Error(`❌ 自检失败：${cities[0]} 下面一个园都没有`);
+  log(`  ✅ ${cities[0]} 的园 ${inCity.length} 个，第一个待认领 ${inCity[0].open} 个位置`);
+
+  const entries = await listOpenEntries(inCity[0].id);
+  if (!entries.length) throw new Error('❌ 自检失败：那个园一条待认领的位置都没有');
+  log(`  ✅ 名单 ${entries.length} 条，姓氏：${entries.slice(0, 5).map((e) => e.surname).join(' ')}…`);
 
   const codeRow = await queryOne(
     `SELECT status, kindergarten_id FROM redemption_codes WHERE code = $1`, [code.code]);
   if (codeRow.status !== 'unused') throw new Error('❌ 自检失败：码不是 unused');
-  /* 🔴 这条是这次踩坑的根因，必须自检 —— 匿名码在这个流程里走不通 */
-  if (!codeRow.kindergarten_id) throw new Error('❌ 自检失败：码没绑定园所（匿名码走不通这条路）');
-  log(`  ✅ 码 ${code.code} 未使用，且已绑定园所 #${codeRow.kindergarten_id}`);
+  log(`  ✅ 码 ${code.code} 未使用`);
 
   log(`
 ───────────────────────────────────────────────
 现在可以走激活流程了：
 
   兑换码    ${code.code}
-  园所      ${kg.name}
-  名单      ${ROSTER.map((r) => `${r.class_name} ${r.position}`).join(' / ')}
+  园所      ${kgs.length} 个，分 ${REGIONS.map((r) => r.province).join(' / ')} 两地
+  名单      ${kgs.length * PER_KG} 条
 
   手机号自己定一个 11 位数（它只是用户名，不发短信）
   密码至少 6 位
@@ -215,4 +268,4 @@ async function main() {
 `);
 }
 
-main().catch((e) => { console.error('\n' + e.message + '\n'); process.exit(1); });
+main().catch((e) => { console.error(`\n${e.message}\n`); process.exit(1); });

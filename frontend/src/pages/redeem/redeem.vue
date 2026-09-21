@@ -54,6 +54,7 @@
           :sub="`还有 ${item.open} 个位置`"
           @press="pickKg(item)"
         />
+        <button type="button" class="alt" @click="backToCity">‹ 换一个市</button>
       </template>
 
       <!-- 第二级：这个省有哪些市 -->
@@ -67,6 +68,9 @@
           :label="item"
           @press="pickCity(province, item)"
         />
+        <!-- 🔴 回退。用户 2026-09-21 指出：走到某一级发现没有自己
+             就只能刷新页面重来 —— 四级里原来只有最底那一级有回退 -->
+        <button type="button" class="alt" @click="backToProvince">‹ 换一个地区</button>
       </template>
 
       <!-- 第一级：有哪些省 / 直辖市 -->
@@ -80,6 +84,8 @@
           :label="item.province"
           @press="pickProvince(item.province)"
         />
+        <!-- 第一级的回退是「退回输码」—— 上面没有更上一级了 -->
+        <button type="button" class="alt" @click="backToCode">‹ 重新输兑换码</button>
       </template>
 
       <!--
@@ -97,60 +103,56 @@
       <span class="kicker">没关系</span>
       <h1 class="q">填几项就能开始用</h1>
 
+      <!--
+        **只要姓氏，不要全名**（用户 2026-09-21 定）。
+        之后系统里就叫她「{姓氏}老师」。跟白名单那条路同一个立场：
+        姓名只给姓氏 —— 认出自己只需要一个字，收集全名没有必要。
+      -->
       <label class="f">
-        <span class="f__k">你的姓名</span>
+        <span class="f__k">你的姓氏</span>
         <input
-          v-model="self.realName"
+          v-model="self.surname"
           class="f__in"
           type="text"
-          autocomplete="name"
-          maxlength="32"
-          placeholder="你的名字"
+          autocomplete="off"
+          maxlength="2"
+          placeholder="比如 林"
         />
-      </label>
-
-      <label class="f">
-        <span class="f__k">你所在的幼儿园</span>
-        <input
-          v-model="self.kindergartenName"
-          class="f__in"
-          type="text"
-          maxlength="64"
-          placeholder="幼儿园全名"
-        />
+        <span class="f__hint">只用姓氏就够了，之后叫你 {{ self.surname || '某' }}老师</span>
       </label>
 
       <!--
-        地区用**下拉**不用手打（用户 2026-09-21 定）。
-        自由填会脏成「北京 / 北京市 / 北京朝阳」，而研究上要按地区分组 ——
-        那种数据分不了组，而且脏了之后补不回来。
-      -->
-      <label class="f">
-        <span class="f__k">地区</span>
-        <select
-          class="f__in f__in--select"
-          :value="self.province || ''"
-          @change="pickSelfProvince($event.target.value)"
-        >
-          <option value="">选一个省 / 直辖市</option>
-          <option v-for="r in regions" :key="r.province" :value="r.province">
-            {{ r.province }}
-          </option>
-        </select>
-      </label>
+        地区：**中国的省市，不限已有园所**（用户 2026-09-21 定）。
+        白名单那条路的第一级是从园所表 DISTINCT 出来的（只有实际有园的省市），
+        而她不在名单里，所以不该被那几个市框住 —— 她是哪儿的就得能选哪儿。
 
-      <label v-if="self.province" class="f">
-        <span class="f__k">市</span>
-        <select v-model="self.city" class="f__in f__in--select">
-          <option :value="null">选一个市</option>
-          <option v-for="c in cities" :key="c" :value="c">{{ c }}</option>
-        </select>
-      </label>
+        ⚠️ **省市并排**（用户 2026-09-21 定）：选中省之后，右边的市**立刻**可用。
+        分两行的话先选完省还要往下找第二个框，而它们本来是一件事（「你在哪」）。
+        窄屏上两栏各占一半，长省名（新疆维吾尔自治区）会截断 —— 见下面
+        `.f__2` 的注释。
+      -->
+      <div class="f">
+        <span class="f__k">你所在的地区</span>
+        <div class="f__2">
+          <select v-model="self.province" class="f__in f__in--select">
+            <option :value="null">请选择</option>
+            <option v-for="p in CHINA" :key="p.n" :value="p.n">{{ p.n }}</option>
+          </select>
+          <select v-model="self.city" class="f__in f__in--select" :disabled="!self.province">
+            <option :value="null">请选择</option>
+            <option v-for="c in selfCities" :key="c" :value="c">{{ c }}</option>
+          </select>
+        </div>
+        <!-- 选完把组合回显成「广东 - 广州」。她要在提交前看到这一条是什么 -->
+        <span v-if="self.province && self.city" class="f__hint">
+          {{ self.province }} - {{ self.city }}
+        </span>
+      </div>
 
       <label class="f">
         <span class="f__k">园所类型</span>
         <select v-model="self.ownership" class="f__in f__in--select">
-          <option :value="null">选一个</option>
+          <option :value="null">请选择</option>
           <option v-for="o in OWNERSHIPS" :key="o" :value="o">{{ o }}</option>
         </select>
       </label>
@@ -159,6 +161,10 @@
     </template>
 
     <!-- ============ 第三步：手机号 + 密码 ============ -->
+    <!-- 白名单老师（entry 有值）和自填的人（selfName 有值）走的是**同一个屏**，
+         只是顶上那句回显不一样。分成两屏会让「手机号要输两遍」那套规矩
+         在两处各写一遍 —— 而这个项目已经因为「同一件事写两份」踩过几次。 -->
+
     <template v-else>
       <span class="kicker">最后一步</span>
       <h1 class="q">设一个手机号和密码</h1>
@@ -191,7 +197,9 @@
           maxlength="11"
           placeholder="两边要一样"
         />
-        <span class="f__hint">打错一位的话，你下次就登不进来了 —— 所以核对一下</span>
+        <!-- 不一致时当场说，不用等她点提交往返一次 -->
+        <span v-if="phoneMismatch" class="f__bad">两边不一样，核对一下</span>
+        <span v-else class="f__hint">打错一位的话，你下次就登不进来了 —— 所以核对一下</span>
       </label>
 
       <label class="f">
@@ -209,6 +217,17 @@
       <p class="note">
         手机号只是你登录用的名字。我们不会拿它联系你、不会给 AI 看、也不会显示在任何页面上。
       </p>
+
+      <!--
+        回退（用户 2026-09-21 指出：这一屏原来没有回退）。
+
+        ⚠️ **两条路回的地方不一样**，而且不能都退到「名单」——
+        不在名单的人退到名单会看到一份没有她的列表，那是条死路。
+        白名单老师退回去还能换一个位置。
+      -->
+      <button type="button" class="alt" @click="backFromAccount">
+        {{ entry ? '‹ 回去换一个位置' : '‹ 回去改资料' }}
+      </button>
     </template>
 
     <template #dock>
@@ -227,14 +246,17 @@
         :loading="submitting"
         @press="submitActivate"
       />
-      <!-- 自填那一步：她填的东西比白名单老师多，所以按钮要判的条件也多 -->
+      <!--
+        自填那一步是「下一步」不是「完成」——
+        2026-09-21 修：原来它直接调 activate，而那时手机号和密码还是空的，
+        后端报「手机号看起来不对」，她就卡在这一屏了。
+        自填的人跟白名单老师一样，**资料填完还要设账号**。
+      -->
       <s-button
         v-else-if="step === 'self'"
-        label="完成，开始用"
-        arrow
+        label="下一步"
         :disabled="!canSelfSubmit"
-        :loading="submitting"
-        @press="submitActivate"
+        @press="goAccount"
       />
       <button type="button" class="alt" @click="goLogin">已经有账号？用手机号登录</button>
     </template>
@@ -266,6 +288,10 @@ import { rosterOptions } from '../../api/auth.js'
 import { activate, ensureSession, gate } from '../../stores/session.js'
 import { replace } from '../../utils/nav.js'
 import { showApiError, toast } from '../../utils/ui.js'
+/* 完整的中国省市清单 —— **只给「不在名单」那条路用**。
+   白名单那条路的地区是从园所表 DISTINCT 出来的（只有实际有园的省市），
+   而她不在名单里，不该被那几个市框住。 */
+import { CHINA } from '../../utils/chinaRegions.js'
 
 const step = ref('code') // code | pick | self | account
 const code = ref('')
@@ -284,10 +310,17 @@ const city = ref(null)
 const kg = ref(null)
 const entry = ref(null)
 
-/* 「不在名单之内」那条路。用户 2026-09-21 定：
-   地区**下拉选**（不是自由填，否则数据会脏成「北京/北京市/北京朝阳」），
-   还要填姓名、园所名、园所类型。 */
-const self = ref({ realName: '', kindergartenName: '', province: null, city: null, ownership: null })
+/**
+ * 「不在名单之内」那条路。
+ *
+ * 用户 2026-09-21 定的几处（第二轮修改）：
+ *   · **只要姓氏，不要全名** —— 之后就叫「林老师」。跟白名单那条路一致：
+ *     姓名只给姓氏，全名不下发也不收集
+ *   · **不填所在幼儿园名称** —— 收集它没有用途，少收一样可识别信息就少一整套义务
+ *   · **地区用中国的省市写法**，而且**不能只限于已有园所所在的那几个市**
+ *     （见 `allRegions` 那段注释）
+ */
+const self = ref({ surname: '', province: null, city: null, ownership: null })
 const OWNERSHIPS = ['公办', '普惠民办', '民办']
 
 const phone = ref('')
@@ -298,10 +331,34 @@ const password = ref('')
    ⚠️ 'self' 也要显示 dock —— 她在那一步需要「完成，开始用」那个按钮 */
 const showDock = computed(() => step.value !== 'pick')
 
+/**
+ * 两遍手机号一致吗。
+ *
+ * 🔴 用户 2026-09-21 报：「没有对两次手机号码的一致性进行核对」。
+ * 根因在后端（`phoneAgain && ...` 那个 falsy 判断把「第二遍填错」整条跳过了），
+ * 但**前端也该当场告诉她** —— 让她填完整个表单、点提交、
+ * 等一个来回才被告知「两边不一样」，是最不必要的等待。
+ *
+ * ⚠️ 判据是「两遍都填了、而且不相等」，**不是**「不相等就报错」——
+ * 第二个框还空着的时候不该立刻冒红字（她正在打字）。
+ *
+ * ⚠️ **必须定义在 `canActivate` 之前** —— 后者引用它。
+ * computed 是惰性的、不会立刻求值，但 `const` 有 TDZ，
+ * 顺序反了会是「Cannot access before initialization」而不是算错。
+ */
+const phoneMismatch = computed(() => {
+  const a = phone.value.trim()
+  const b = phoneConfirm.value.trim()
+  return Boolean(a && b && a !== b)
+})
+
 /* 跟兑换码那边同一个立场：只判「填了没有」，不判「填得对不对」。
-   格式由后端说中文，比一个灰着的按钮有用 —— 灰按钮只会让她猜。 */
+   格式由后端说中文，比一个灰着的按钮有用 —— 灰按钮只会让她猜。
+   ⚠️ 唯一的例外是「两遍手机号不一致」—— 那不是格式问题，是她刚打完
+   而旁边没有打勾，见 `phoneMismatch`。 */
 const canActivate = computed(() =>
   Boolean(phone.value.trim() && phoneConfirm.value.trim() && password.value)
+  && !phoneMismatch.value
 )
 
 /**
@@ -313,15 +370,30 @@ const canActivate = computed(() =>
  * 保持跟别处一致：格式错了报中文，比灰按钮有用。
  */
 const canSelfSubmit = computed(() =>
-  Boolean(self.value.realName.trim() && self.value.kindergartenName.trim()
-    && self.value.province && self.value.city && self.value.ownership
-    && canActivate.value)
+  Boolean(self.value.surname.trim()
+    && self.value.province && self.value.city && self.value.ownership)
 )
 
-/** 她选的那一行，回显给她确认。只有姓氏 —— 全名不下发是后端定的 */
+/** 她是走「不在名单」那条路吗 —— 两条路共用最后那屏，用这个分辨 */
+const isSelfPath = computed(() => (
+  step.value === 'self' || (step.value === 'account' && !entry.value)
+))
+
+/** 自填那条路：她选的省对应的市列表（从 CHINA 里取，不查库） */
+const selfCities = computed(() => (
+  CHINA.find((p) => p.n === self.value.province)?.c || []
+))
+
+/**
+ * 她是谁 —— 回显给她确认。
+ *
+ * 两条路都有这一行，因为这一步（设手机号密码）是两条路共用的。
+ * 白名单老师显示园所 + 班级岗位 + 姓氏；自填的人只有姓氏和地区
+ * （**她不填园所名**，见下面 `self` 的注释）。
+ */
 const whoLine = computed(() => {
-  if (step.value === 'self') {
-    const parts = [self.value.kindergartenName, self.value.province, self.value.city]
+  if (isSelfPath.value) {
+    const parts = [self.value.surname, self.value.province, self.value.city]
     return parts.filter(Boolean).join(' · ')
   }
   if (!entry.value) return ''
@@ -465,43 +537,37 @@ async function pickKg(k) {
 
 function pickEntry(e) {
   entry.value = e
-  self.value = { realName: '', kindergartenName: '', province: null, city: null, ownership: null }
+  // 清掉自填那条路的残留，免得两条路的数据串味
+  self.value = { surname: '', province: null, city: null, ownership: null }
   step.value = 'account'
 }
 
-/** 「不在名单之内」—— 她自己填。地区用下拉，所以要先有一份地区清单 */
-async function startSelf() {
+/**
+ * 「不在名单之内」—— 她自己填。
+ *
+ * ⚠️ **不拉接口**：她选的省市来自 `CHINA`（前端那份完整中国省市清单），
+ * 不来自库里的园所。她不在名单里，不该被「实际有园的省市」框住
+ * —— 她是哪儿的就得能选哪儿（用户 2026-09-21 定）。
+ */
+function startSelf() {
   entry.value = null
   kg.value = null
-  /* 地区清单从第一级接口拿。**每次进来都重拉**，不用缓存 ——
-     她走这条路说明名单里没有她，而名单可能刚被人改过 */
-  loading.value = true
-  try {
-    const data = await rosterOptions(code.value.trim())
-    regions.value = data.regions || []
-  } catch (err) {
-    showApiError(err)
-    return
-  } finally {
-    loading.value = false
-  }
+  self.value = { surname: '', province: null, city: null, ownership: null }
   step.value = 'self'
 }
 
-/** 自填那条路上选了省，要拉市 */
-async function pickSelfProvince(p) {
-  self.value.province = p
-  self.value.city = null
-  cities.value = []
-  loading.value = true
-  try {
-    const data = await rosterOptions(code.value.trim(), { province: p })
-    cities.value = data.cities || []
-  } catch (err) {
-    showApiError(err)
-  } finally {
-    loading.value = false
-  }
+/**
+ * 自填那条路的「下一步」—— 进设账号那屏。
+ *
+ * 🔴 这是 2026-09-21 修的那个 bug：原来自填那屏的按钮直接调 `submitActivate`，
+ * 而那时 `phone` / `password` 还是空的，后端报「手机号看起来不对」，
+ * 她反复点都进不去。**资料和账号是两步**，两条路都一样。
+ */
+function goAccount() {
+  if (!canSelfSubmit.value) return
+  // entry 保持 null —— 最后一屏靠它分辨「这是自填的人」
+  self.value.surname = self.value.surname.trim()
+  step.value = 'account'
 }
 
 /**
@@ -522,15 +588,88 @@ function backToKg() {
   step.value = 'code'
 }
 
+/**
+ * 从「选市」退回「选地区」。
+ *
+ * 🔴 用户 2026-09-21 指出：**走到某一级发现没有自己，原来只能刷新页面重来** ——
+ * 四级里只有最底那一级（选人）有回退，上面三级一个都没有。
+ *
+ * ⚠️ **不能直接 `step = 'pick'`。** 上面那几级是「按当前数据渲染哪一段」的，
+ * 不清掉下一级的数据，`v-if` 会渲染到**更深的那一段**（因为
+ * `kindergartens.length` 还非空），她会看到自己明明点了「换一个地区」
+ * 却还停在选园所那一屏 —— 一个「点了没反应」的按钮。
+ * 所以退一级必须**把它下面各级的数据全清掉**。
+ */
+function backToProvince() {
+  cities.value = []
+  province.value = null
+  city.value = null
+  kindergartens.value = []
+  backToCodeOrRegions()
+}
+
+/** 从「选园所」退回「选市」 */
+function backToCity() {
+  /* ⚠️ **只清下面一级是不够的。**
+     模板是按 `entries → kindergartens → cities → regions` 的顺序 `v-if` 的，
+     所以「退到选市」意味着**必须把 cities 也清掉** —— 留着它的话
+     `v-if` 仍然命中 `cities.length` 那一段，渲染回「② 选市」，
+     而她点的正是「换一个市」，看起来就是点了没反应。
+     （这个 bug 是我写完之后拿真逻辑跑了一遍才发现的。） */
+  kindergartens.value = []
+  entries.value = []
+  cities.value = []
+  city.value = null
+  province.value = null
+  backToCodeOrRegions()
+}
+
+/**
+ * 退回第一级的入口。
+ *
+ * ⚠️ 只有一个地区时没有可退的地方（刚才已经替她跳过了），
+ * 那就退回输码那一步 —— 否则她会退到一个只有一个选项的列表上。
+ */
+function backToCodeOrRegions() {
+  if (regions.value.length > 1) { step.value = 'pick'; return }
+  backToCode()
+}
+
+/** 退回输码那一步。清空所有层级的数据 —— 否则回来时会看到上一次的残留 */
+function backToCode() {
+  regions.value = []
+  cities.value = []
+  kindergartens.value = []
+  entries.value = []
+  province.value = null
+  city.value = null
+  kg.value = null
+  step.value = 'code'
+}
+
 /** 自填那条路的返回 —— 回到选园所那一屏 */
 function backFromSelf() {
   step.value = 'pick'
 }
 
+/**
+ * 设账号那一屏的回退（用户 2026-09-21 指出这一屏原来没有回退）。
+ *
+ * ⚠️ 两条路回的地方不一样：
+ *   · 白名单老师 → 回去换一个位置（`pick`）
+ *   · 不在名单的人 → 回去改资料，**不能退到名单** ——
+ *     名单上本来就没有她，退过去是一份空列表，那是条死路
+ */
+function backFromAccount() {
+  step.value = entry.value ? 'pick' : 'self'
+}
+
 async function submitActivate() {
-  if (submitting.value) return
-  const isSelf = step.value === 'self'
-  if (isSelf ? !canSelfSubmit.value : !canActivate.value) return
+  if (submitting.value || !canActivate.value) return
+
+  /* ⚠️ 判据是 `entry` 有没有值，**不是 `step === 'self'`** ——
+     自填的人在设账号那一屏上 `step` 是 `'account'`，用它判会走错分支。 */
+  const isSelf = !entry.value
 
   submitting.value = true
   try {
@@ -541,8 +680,7 @@ async function submitActivate() {
          `activate` 里用 `self?.x` 取，传 undefined 会被 JSON.stringify
          整个丢掉，所以路径一不会带上多余的字段。 */
       self: isSelf ? {
-        realName: self.value.realName.trim(),
-        kindergartenName: self.value.kindergartenName.trim(),
+        surname: self.value.surname,
         province: self.value.province,
         city: self.value.city,
         ownership: self.value.ownership,
@@ -694,5 +832,38 @@ function goLogin() {
   appearance: none;
   -webkit-appearance: none;
   background-image: none;
+}
+
+/* 省市并排。两栏等宽 —— 不等宽的话「新疆维吾尔自治区」会把左栏撑开，
+   而右栏的市名都很短，白占宽度。
+   ⚠️ 窄屏上长省名会被截断（select 里没法换行），这是有意的取舍：
+   并排的好处是「选中省、市立刻在右边出现」这件事一眼看得见，
+   而截断的部分她点开下拉就看到了全称。 */
+.f__2 {
+  display: flex;
+  gap: 8px;
+}
+
+.f__2 > .f__in {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 禁用态：省还没选时右边的市是这个状态。灰掉是告诉她「先选左边」，
+   而不是让她点开一个空列表 */
+.f__in:disabled {
+  background: $paper-2;
+  color: $ink-3;
+}
+
+/* 不一致时的提示。**用珊瑚红**（design-tokens 里出错用的那一档），
+   跟上面薄荷绿的 hint 明显不同色 —— 换行位置一样的两种字，
+   只靠措辞区分的话她会读成同一件事 */
+.f__bad {
+  display: block;
+  font-size: var(--fs-sub);
+  color: $coral-deep;
+  line-height: 1.65;
+  margin-top: 6px;
 }
 </style>

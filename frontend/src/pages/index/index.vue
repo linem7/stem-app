@@ -131,23 +131,32 @@
       因为四项都是必填，没有「填一部分也能过」的情况。
     -->
     <s-sheet :visible="profileSheet" title="完善信息" @close="profileSheet = false">
-      <label class="f">
-        <span class="f__k">出生年份</span>
-        <input
-          v-model="form.birthYear"
-          class="f__in"
-          type="tel"
-          inputmode="numeric"
-          maxlength="4"
-          placeholder="比如 1995"
-        />
-      </label>
+      <!--
+        出生年月 —— **两个并排的下拉，不弹新的框**
+        （用户 2026-09-21 定：「直接给年月的输入框就好了，不要弹出新的框」）。
+        原来点开是个底部抽屉，而它嵌在这个抽屉里就成了**两层抽屉**，
+        第二层的蒙层跟第一层打架 —— 选完点「好了」连这层也一起关掉，
+        她看不到下面那个「填好了，领额度」按钮，表现就是「填写完了也没法提交」。
+        现在没有第二层了，那类问题整个不存在。
+      -->
+      <div class="f">
+        <span class="f__k">出生年月</span>
+        <s-birth v-model="form.birthMonth" />
+      </div>
 
       <label class="f">
         <span class="f__k">最高学历</span>
         <select v-model="form.education" class="f__in">
-          <option :value="null">选一个</option>
+          <option :value="null">请选择</option>
           <option v-for="e in EDUCATIONS" :key="e" :value="e">{{ e }}</option>
+        </select>
+      </label>
+
+      <label class="f">
+        <span class="f__k">职称</span>
+        <select v-model="form.professionalTitle" class="f__in">
+          <option :value="null">请选择</option>
+          <option v-for="t in TITLES" :key="t" :value="t">{{ t }}</option>
         </select>
       </label>
 
@@ -167,7 +176,7 @@
       <label class="f">
         <span class="f__k">当前任教年级</span>
         <select v-model="form.ageGroup" class="f__in">
-          <option :value="null">选一个</option>
+          <option :value="null">请选择</option>
           <option v-for="a in AGE_GROUPS" :key="a" :value="a">{{ a }}</option>
         </select>
       </label>
@@ -196,16 +205,18 @@ import { COLORS } from '../../utils/colors.js'
 import { push, replace } from '../../utils/nav.js'
 import { showApiError, stateKind, toast } from '../../utils/ui.js'
 import { autogrow } from '../../utils/autogrow.js'
+import sBirth from '../../components/s-birth.vue'
 
 const checkInk = iconCheck(COLORS.ink, 2.6)
 
 // 前三个是已经真跑过的主题（小班/中班/大班各一），第四个说明其余主题一样能走
 const SEEDS = ['浮与沉', '影子', '搭高塔', '磁铁']
 
-/* 完善信息那两项白名单。**跟后端同源**（services/roster.js 的
-   EDUCATIONS / AGE_GROUPS）—— 后端也会校验，这里只是让下拉有东西可选。
-   ⚠️ 改后端那两处记得同步这里，`test:api` 不查它们。 */
+/* 完善信息那三份白名单。**跟后端同源**（services/roster.js 的
+   EDUCATIONS / TITLES / AGE_GROUPS）—— 后端也会校验，这里只是让下拉有东西可选。
+   ⚠️ 改后端那几处记得同步这里，`test:api` 不查它们。 */
 const EDUCATIONS = ['中专及以下', '大专', '本科', '硕士及以上']
+const TITLES = ['未评级', '初级', '中级', '副高级', '正高级']
 const AGE_GROUPS = ['小班', '中班', '大班']
 /** 跟后端 me.js 里那两个常量同源 —— 文案上要一致，别一边 10 一边 15 */
 const PROFILE_REWARD = { text: 10, image: 5 }
@@ -235,17 +246,20 @@ const profileSheet = ref(false)
 const profileChecked = ref(false)
 const profileGranted = ref(false)
 const profileSaving = ref(false)
-const form = ref({ birthYear: '', education: null, teachingYears: '', ageGroup: null })
+const form = ref({
+  birthMonth: '', education: null, professionalTitle: null,
+  teachingYears: '', ageGroup: null,
+})
 
 const needProfile = computed(() => (
   session.ready && profileChecked.value && !profileGranted.value
 ))
 
 const canSubmitProfile = computed(() => {
-  const y = Number(form.value.birthYear)
   const t = Number(form.value.teachingYears)
-  return Number.isInteger(y) && y > 1900
+  return /^(19|20)\d{2}-(0[1-9]|1[0-2])$/.test(form.value.birthMonth.trim())
     && form.value.education !== null
+    && form.value.professionalTitle !== null
     /* ⚠️ `teachingYears` 空字符串不能过，但 `'0'` 要过 ——
        0 是刚入职的真实值。所以判的是「填了没有」而不是「是不是 0」 */
     && form.value.teachingYears !== '' && Number.isInteger(t) && t >= 0
@@ -271,8 +285,9 @@ async function submitProfile() {
   profileSaving.value = true
   try {
     const d = await saveProfile({
-      birthYear: Number(form.value.birthYear),
+      birthMonth: form.value.birthMonth.trim(),
       education: form.value.education,
+      professionalTitle: form.value.professionalTitle,
       teachingYears: Number(form.value.teachingYears),
       ageGroup: form.value.ageGroup,
     })
@@ -455,6 +470,16 @@ async function start() {
 
 .f__in:focus {
   border-color: $mint;
+}
+
+/*
+  出生年月那个「输入框」其实是个按钮（点开是滚轮）。
+  样式跟 `.f__in` 对齐 —— 她不该看出这里跟别的格有什么不同，
+  只是点下去弹的是滚轮不是键盘。
+*/
+.f__pick {
+  text-align: left;
+  color: $ink;
 }
 
 .kicker {

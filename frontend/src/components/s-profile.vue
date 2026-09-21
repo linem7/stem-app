@@ -12,8 +12,8 @@
           光靠颜色分不出哪个选中了（design-tokens 规则 3）。
           再点一次同一个 = 取消，她可能就是不想标。
 
-          🔴 **没选中 ≠ 选了「未评定」。** 没选是 NULL（她没填过），
-          「未评定」是她主动选的一个值 —— 两件事，任何地方不许把 NULL 显示成「未评定」。
+          🔴 **没选中 ≠ 选了「未评级」。** 没选是 NULL（她没填过），
+          「未评级」是她主动选的一个值 —— 两件事，任何地方不许把 NULL 显示成「未评级」。
           学历和职称是研究要用的自变量，混了就没法分析。
         -->
         <div v-for="g in PICKS" :key="g.key" class="pf__r pf__r--wrap">
@@ -33,6 +33,16 @@
           </div>
         </div>
 
+        <!--
+          出生年月 —— 两个并排的下拉，**内联不弹框**（用户 2026-09-21 定）。
+          用跟首页同一个组件，年份范围和补零规则只写一份 ——
+          写两份会分叉，而分叉的表现是「一处能选 1995-1、另一处只能选 1995-01」。
+        -->
+        <div class="pf__r">
+          <span class="pf__k">出生年月</span>
+          <s-birth v-model="born" dense />
+        </div>
+
         <div class="pf__r">
           <span class="pf__k">教龄</span>
           <input v-model="years" class="pf__in pf__in--n" type="number" inputmode="numeric" maxlength="2" />
@@ -50,7 +60,7 @@
 /**
  * 个人档案 —— 「我的」弹窗里的一节。
  *
- * 六项：园所 / 年级 / 岗位 / 最高学历 / 职称 / 教龄。
+ * 七项：园所 / 年级 / 岗位 / 最高学历 / 职称 / **出生年月** / 教龄。
  *
  * **归在「我的记忆」底下、是第一条但不参与编号**（用户 2026-08-21 定）：
  * 那一节的副标题就是「写教案时会自动带上」，而园所、年级、职称正是每次都会带上的东西 ——
@@ -66,6 +76,7 @@ import { session } from '../stores/session.js'
 import { iconCheck } from '../utils/icons.js'
 import { COLORS } from '../utils/colors.js'
 import { showApiError, toast } from '../utils/ui.js'
+import sBirth from './s-birth.vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -82,12 +93,15 @@ const PICKS = [
   {
     key: 'professional_title',
     label: '职称',
-    options: ['未评定', '三级教师', '二级教师', '一级教师', '高级教师', '正高级教师'],
+    options: ['未评级', '初级', '中级', '副高级', '正高级'],
   },
 ]
 
 const kg = ref('')
 const years = ref('')
+/* 出生年月（2026-09-21 加）。**自由输入不是选项** ——
+   它是 `YYYY-MM` 字符串，不是枚举，所以不放进 PICKS */
+const born = ref('')
 const picks = reactive({})
 const saving = ref(false)
 
@@ -104,6 +118,7 @@ watch(
     // `?? ''` 不是 `|| ''`：教龄 0 是有意义的值（今年刚来的新老师），
     // 用 || 会把它显示成空的
     years.value = t.teaching_years ?? ''
+    born.value = t.birth_month || ''
     for (const g of PICKS) picks[g.key] = t[g.key] || ''
   },
   { immediate: true }
@@ -132,6 +147,15 @@ async function save() {
     return toast('教龄填 0 到 60 之间的整数')
   }
   if (n !== (t.teaching_years ?? null)) fields.teaching_years = n
+
+  /* 出生年月。**前端也判一次格式** —— 后端和数据库那条 CHECK 都会挡，
+     但让一个 500 或者「出生年月像 1995-12 这样填」替她说出「你打错了」
+     不如在本地就拦住。判据跟后端那条正则完全一致，两边别改歪一处。 */
+  const bornText = born.value.trim()
+  if (bornText && !/^(19|20)\d{2}-(0[1-9]|1[0-2])$/.test(bornText)) {
+    return toast('出生年月像 1995-12 这样填')
+  }
+  if (bornText !== (t.birth_month || '')) fields.birth_month = bornText || null
 
   // 一个字都没动就直接关掉，不发请求
   if (!Object.keys(fields).length) return emit('close')
@@ -198,6 +222,28 @@ async function save() {
 
 .pf__in::placeholder {
   color: $ink-3;
+}
+
+/*
+  出生年月那个「输入框」其实是个按钮（点开是滚轮）。
+  样式跟 `.pf__in` 对齐 —— 她不该看出这里跟别的格有什么不同，
+  只是点下去弹的是滚轮不是键盘。
+*/
+.pf__pick {
+  flex: 1;
+  min-width: 0;
+  outline: none;
+  border: 1px solid $rule-2;
+  border-radius: $r-btn;
+  background: $white;
+  padding: 8px 11px;
+  font-size: var(--fs-body);
+  color: $ink;
+  text-align: left;
+}
+
+.pf__pick:active {
+  border-color: $mint;
 }
 
 .pf__u {

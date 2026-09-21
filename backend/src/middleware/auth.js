@@ -88,8 +88,19 @@ export function toTeacherDTO(row) {
     // 可以下发（是她自己填的、她自己要看），跟 real_name 不同级，别一起屏蔽掉。
     education: row.education,
     professional_title: row.professional_title,
-    // 档案引导页的判定条件：这两项齐了才算填过档案
-    profile_completed: Boolean(row.kindergarten_name && row.age_group),
+    // 024：出生年月（YYYY-MM）。同样可下发 —— 她主动填的、她自己要看，
+    // 而且它跟 real_name/phone 不是一个量级的可识别信息
+    birth_month: row.birth_month,
+    /* 档案引导页的判定条件。
+       ⚠️ 2026-09-21 改：原来只看 `kindergarten_name && age_group`，
+       而**自填进来的老师不填园所名**（用户 2026-09-21 定），
+       所以那个判据对他们**恒为 false** —— 他们会永远被当成「档案没填」。
+       现在改成看「完善信息」那几步真正收的四项。
+       ⚠️ 但**别拿它当「领过额度」的判据** —— 那是 quota_grants 里
+       那条 reason='完善信息' 的记录说了算（见 me.js）。她会改档案，
+       而改完之后这个标记仍然可能为真，两者不是一回事。 */
+    profile_completed: Boolean(row.birth_month && row.education
+      && row.teaching_years !== null && row.age_group),
     // 前端靠这两位决定落在哪个页：没激活 → 待激活页，没同意 → 协议页，都齐了才进主流程
     activated: Boolean(row.activated_at),
     agreed: Boolean(row.agreed_at),
