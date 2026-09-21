@@ -24,6 +24,7 @@
     "seed:demo": "node scripts/seed-demo.mjs"
   },
   "dependencies": {
+    "docx": "^9.7.1",
     "dotenv": "^16.4.7",
     "exceljs": "^4.4.0",
     "express": "^4.21.2",

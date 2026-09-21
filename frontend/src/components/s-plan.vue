@@ -424,6 +424,9 @@ const PURPOSE_CN = Object.fromEntries(
 const purposeCn = (k) => PURPOSE_CN[k] || '配图'
 
 const sheetOpen = ref(false)
+/** 导出中。⚠️ **必须有** —— 一份 1.7MB，弱网下要好几秒，
+    没有这个状态她会反复点，点几次就下几份 */
+const exporting = ref(false)
 const purpose = ref('material')
 const pickedIndex = ref(-1)
 const pickedName = ref('')
@@ -650,15 +653,39 @@ function saveOne(img) {
   downloadImage(img.url, img.label || '配图')
 }
 
+/**
+ * 导出 Word。
+ *
+ * 🔴 **后端回的是文件本身，不是链接**（2026-09-21 改的）。
+ * 原来那段注释是按对象存储写的（「传上去 → 回一个 1 小时有效的预签名 URL」），
+ * 而用户定了不上对象存储 —— 那么当场生成、当场下载最省事，
+ * 也少一类「链接过期了打不开」的故障。
+ *
+ * ⚠️ 接口是 `POST`，所以**不能用 `window.open` 或 `<a href>`** ——
+ * 浏览器直开链接发不出 POST。只能 `fetch` 拿 blob，再用一个临时的
+ * `<a download>` 触发保存。文件名从响应头的 `Content-Disposition` 里取，
+ * 因为后端拼的时候带了班级和年龄班（她一天导好几份，都叫「教案.docx」
+ * 的话在下载文件夹里分不出哪个是哪个）。
+ */
 async function doExport() {
+  if (exporting.value) return
+  exporting.value = true
   try {
-    const res = await exportLessonPlan(planId.value)
-    if (res?.url) {
-      await navigator.clipboard.writeText(res.url)
-      toast('下载链接已复制')
-    }
+    const { blob, filename } = await exportLessonPlan(planId.value)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    /* 🔴 **必须 revoke**，否则那份 blob 会一直占着内存到页面关掉。
+       一份 1.7MB，她连导几份就是十几 MB —— 手机上会被系统杀后台。 */
+    URL.revokeObjectURL(url)
   } catch (err) {
     showApiError(err)
+  } finally {
+    exporting.value = false
   }
 }
 </script>

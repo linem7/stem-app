@@ -79,7 +79,7 @@ function toQuery(data) {
  * @param {boolean} [opts.auth] 默认 true；登录接口传 false
  * @returns {Promise<object>}   已拆掉信封的 data
  */
-export async function request({ method = 'GET', path, data, timeout = 20000, auth = true }) {
+export async function request({ method = 'GET', path, data, timeout = 20000, auth = true, raw = false }) {
   let url = API_BASE + path
   let body
   const headers = {}
@@ -119,6 +119,20 @@ export async function request({ method = 'GET', path, data, timeout = 20000, aut
     throw new ApiError({ ...(timedOut ? TIMEOUT_ERROR : NETWORK_ERROR) })
   } finally {
     clearTimeout(timer)
+  }
+
+  /* `raw`：导出 .docx 要的是**文件本身**，不是 JSON 信封。
+     ⚠️ 错误响应**仍然是 JSON**（后端出错时走的还是那个信封），
+     所以这里只在成功时才短路 —— 不然「导出失败」会变成「下载了一个
+     装着错误信息的 .docx」，而 Word 打开它只会说文件损坏。 */
+  if (raw && res.ok) {
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    /* 从响应头里取文件名。后端用的是 `filename*=UTF-8''<encoded>` 那个形式
+       （中文文件名必须这么写，只写 `filename=` 会变乱码），所以先找它。 */
+    const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+    const filename = m ? decodeURIComponent(m[1]) : '教案.docx';
+    return { blob, filename };
   }
 
   // 后端没按约定返回信封（被网关/代理截了、或者路径写错吃到了 HTML）。

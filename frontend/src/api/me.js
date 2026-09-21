@@ -1,9 +1,30 @@
 /** 老师档案、额度、记忆 —— api-spec 第 1.5、2、8 节 */
-import { get, post, del } from '../utils/request.js'
+import { get, post, del, setToken } from '../utils/request.js'
 
-/** 返回 teacher 对象（含 activated / agreed / profile_completed） */
-export function getMe() {
-  return get('/me')
+/**
+ * 拿自己的档案。返回 teacher 对象（含 activated / agreed / profile_completed）。
+ *
+ * 🔴 **顺手接住续期的 token**（2026-09-21 用户要求「每次打开续期」）。
+ *
+ * 后端在「这枚 token 剩余不足一半」时会**在同一个响应里带一个新 token**。
+ * 这里把它换掉，调用方什么都看不出来 —— 续期不该是她要操心的事。
+ *
+ * ⚠️ **要把 `token` 从返回值里摘掉再给调用方。** 调用方
+ * （`stores/session.js`）是直接 `session.teacher = await getMe()` 的，
+ * 多一个 `token` 字段进去会让 `teacher` 这个对象的形状跟别处
+ * （登录、激活回来的那份）不一致，而那些地方都没有 `token`。
+ */
+export async function getMe() {
+  const data = await get('/me')
+  if (!data) return data
+  if (data.token) {
+    setToken(data.token)
+    /* 摘掉再给调用方。用 delete 而不是解构出 `token` 再丢掉 ——
+       后者会引出一个「声明了没用」的 lint warning，
+       而这个仓库的取向是 0 warning 起步（见 CLAUDE.md 的 lint 那节）。 */
+    delete data.token
+  }
+  return data
 }
 
 /**

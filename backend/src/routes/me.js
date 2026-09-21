@@ -14,19 +14,60 @@
  */
 import { Router } from 'express';
 import { queryOne, withTransaction } from '../db/pool.js';
-import { toTeacherDTO } from '../middleware/auth.js';
+import { toTeacherDTO, signToken } from '../middleware/auth.js';
 import { ok, asyncRoute, badRequest } from '../utils/errors.js';
 import { AGE_GROUPS } from '../services/promptBuilder.js';
 import { POSITIONS, EDUCATIONS, TITLES } from '../services/roster.js';
 import { getQuota } from '../services/quota.js';
+import { config } from '../config.js';
 import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
 
 export const meRouter = Router();
 
+/**
+ * GET /me —— 拿自己的档案。
+ *
+ * 🔴 **顺便续期 token**（2026-09-21 用户要求：「每次打开续期」）。
+ *
+ * 【为什么需要】
+ * token 是 30 天有效的（`JWT_EXPIRES_IN`）。而前端每次打开网站都会调
+ * 这一个接口 —— 所以它正好是「她还在用」的那个信号。
+ * 不续的话，她第 31 天打开会被踢到 `/redeem` 重新输手机号密码，
+ * 而那是**她完全没做错什么**的一次中断。
+ *
+ * 【为什么不是每次都换】
+ * 每次请求都签新 token 的话，她随便点几下就换一个 ——
+ * 而且 `signToken` 里没带随机数，同一秒签出来的**完全一样**，
+ * 换不换其实没区别。所以按「剩余不到一半」来续：
+ * 她一天开一次，大约每 15 天换一个新 token，够用且不折腾。
+ *
+ * 【为什么在这里加而不是加个 /auth/renew】
+ * 那个接口要她主动调，而「主动」就意味着**可能永远不被调**——
+ * 那正是要解决的问题。挂在 `GET /me` 上是「顺手」，她不用知道。
+ *
+ * ⚠️ `token_version` 必须跟当前值一致：注销或改密码时后端会 +1
+ * （那是「把旧 token 全作废」的机制），续期时带错版本会**立刻把她踢掉**。
+ */
 meRouter.get(
   '/',
-  asyncRoute(async (req, res) => ok(res, toTeacherDTO(req.teacher)))
+  asyncRoute(async (req, res) => {
+    const data = toTeacherDTO(req.teacher);
+
+    /* 剩余时间不足一半就换一个。
+       `req.tokenExp` 由中间件解出来（没有就当 0，也就是「不知道」→ 续）。 */
+    const fresh = shouldRenew(req) ? signToken(req.teacherId, req.teacher.token_version) : null;
+
+    return ok(res, fresh ? { ...data, token: fresh } : data);
+  })
 );
+
+/** 这枚 token 该不该续 —— 剩余不足总时长的一半就续 */
+function shouldRenew(req) {
+  const total = config.jwt.expiresInSeconds;
+  if (!req.tokenExp) return true;
+  const left = req.tokenExp - Math.floor(Date.now() / 1000);
+  return left < total / 2;
+}
 
 const updateMe = asyncRoute(async (req, res) => {
     const body = req.body || {};

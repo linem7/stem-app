@@ -8,9 +8,11 @@
  */
 import { Router } from 'express';
 import { query, queryOne } from '../db/pool.js';
-import { ok, asyncRoute, badRequest, notFound, AppError, ErrorCode } from '../utils/errors.js';
+import { ok, asyncRoute, badRequest, notFound } from '../utils/errors.js';
 import { renderMarkdown } from '../services/lessonGenerator.js';
-import { buildImageUrl } from '../services/imageStore.js';
+import { buildImageUrl, readImage } from '../services/imageStore.js';
+import { buildLessonDocx } from '../services/lessonDocx.js';
+import { PURPOSES } from '../services/imagePurpose.js';
 import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
 import { rateHandler } from './feedback.js';
 import { logger } from '../utils/logger.js';
@@ -272,6 +274,22 @@ lessonPlansRouter.post('/:id/update', updateLessonPlan);
 // ---------------------------------------------------------------
 // POST /lesson-plans/:id/export
 // ---------------------------------------------------------------
+
+/* 配图用途的中文名。**从 PURPOSES 里取，不另写一份** ——
+   同一个概念写两处，改一处另一处就会分叉，而分叉的表现是
+   「网页上叫记录表、导出来叫配图」，她分不清哪张是给孩子填的。 */
+const PURPOSE_LABEL = Object.fromEntries(
+  Object.entries(PURPOSES).map(([k, v]) => [k, v.cn])
+);
+
+/** 从 object_key 里取扩展名（生成时存的是 jpg 或 png） */
+function extOf(key) {
+  const m = /\.(\w+)$/.exec(String(key || ''));
+  const ext = m ? m[1].toLowerCase() : 'jpg';
+  // docx 的 ImageRun 只认这几个；别的当 jpg 试
+  return ['jpg', 'jpeg', 'png', 'gif', 'bmp'].includes(ext) ? ext : 'jpg';
+}
+
 lessonPlansRouter.post(
   '/:id/export',
   asyncRoute(async (req, res) => {
@@ -307,24 +325,75 @@ lessonPlansRouter.post(
 
     if (format !== 'docx') throw badRequest('暂时只支持导出 Word 和 Markdown');
 
-    // ============ TODO：导出 docx ============
-    // 照着 `plan.content_md` 的板块顺序排 —— 那一份**不含**学习模式的教案解读（见上面那段）。
-    // 待补的三步（拿到对象存储之后做）：
-    //   1. npm i docx          —— 纯 JS 生成 .docx，不需要装 Office
-    //      文档：https://docx.js.org/  按 content_json 的结构逐段建 Paragraph
-    //      注意教案里有表格（STEAM 知识概念），用 docx 的 Table 组件
-    //   2. 用 services/imageStore.js 里的 uploadImage 同款方式传到对象存储
-    //   3. 生成 1 小时有效的**预签名 URL**（不能给公开永久链接，教案是老师的私有内容）
-    //      腾讯云 COS: cos.getObjectUrl({ Sign: true, Expires: 3600 })
-    //      阿里云 OSS: client.signatureUrl(key, { expires: 3600 })
-    // 上面三步做完，把下面这个 throw 换成返回 { url, expires_at } 即可，
-    // 接口形状（api-spec 第 5 节）已经定死了，前端不用改。
-    // =========================================
-    logger.warn('export_not_implemented', { lesson_plan_id: plan.id, format });
-    throw new AppError(ErrorCode.NOT_IMPLEMENTED, {
-      message: '导出 Word 还在做，先用「复制全文」把教案带走吧',
-      detail: { reason: 'export_docx_not_implemented' },
+    /* ============ 导出 .docx（2026-09-21 做的）============
+     *
+     * 🔴 **直接回文件流，不用对象存储。**
+     * 原来这里那段 TODO 是按对象存储写的（要预签名 URL、要 1 小时过期），
+     * 而用户 2026-09-21 定了**不上对象存储** —— 那么「先传上去再给她一个
+     * 会过期的链接」这件事就没有存在理由了：**文件当场生成、当场给她**，
+     * 少一个外部依赖，也少一类「链接过期了图打不开」的故障。
+     *
+     * ⚠️ **`POST` 而不是 `GET`，所以前端不能用 `window.open`。**
+     * 这是个 POST 接口（`req.body.format`），浏览器直接开链接发不出 POST。
+     * 前端那边是用 `fetch` 拿 blob 再触发下载的 —— 见 `s-plan.vue`。
+     * 要改成 `window.open` 的话得先把这个接口改成 GET + query 参数，
+     * 而那会动 api-spec，所以没动。
+     * ==================================================== */
+
+    /* 取配图。
+       ⚠️ 只取 `ready` 的 —— 还在画或者画失败的那些没有文件可读，
+       硬塞会变成一个空图框，而她打出来才发现（一份 A4 纸就废了）。
+       ⚠️ 顺序按 id，跟她在网页上看到的顺序一致。 */
+    const imageRows = (await query(
+      `SELECT i.id, i.object_key, i.width, i.height, i.purpose
+         FROM lesson_images i
+        WHERE i.lesson_plan_id = $1 AND i.status = 'ready'
+        ORDER BY i.id`,
+      [plan.id])).rows;
+
+    const images = [];
+    for (const row of imageRows) {
+      try {
+        const data = await readImage(row.object_key);
+        if (!data) continue;
+        images.push({
+          data,
+          width: row.width,
+          height: row.height,
+          /* 扩展名从 object_key 里取 —— 生成时存的是 jpg / png，
+             写死 'jpg' 的话 PNG 那张在 Word 里会解不出来 */
+          type: extOf(row.object_key),
+          purposeLabel: PURPOSE_LABEL[row.purpose] || '配图',
+        });
+      } catch (err) {
+        /* 一张图读不出来**不能让整份导出失败** ——
+           教案正文才是她要的东西，少一张图她还能用，
+           而整份导不出来她今天就交不上。记日志，跳过。 */
+        logger.warn('export_image_skipped', {
+          lesson_plan_id: plan.id, object_key: row.object_key, err: err.message,
+        });
+      }
+    }
+
+    const buf = await buildLessonDocx({
+      plan,
+      content: plan.content_json || {},
+      images,
     });
+
+    /* 文件名。**要带班和年龄班** —— 她一天可能导好几份，
+       都叫「教案.docx」的话在下载文件夹里分不出哪个是哪个。
+       ⚠️ 中文文件名必须用 `filename*=UTF-8''` 那个形式，
+       只写 `filename=` 的话 Chrome 会把它变成一串乱码。 */
+    const parts = [plan.title, plan.class_name, plan.age_group].filter(Boolean);
+    const filename = `${parts.join('_')}.docx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="jiaogan.docx"; filename*=UTF-8''${encodeURIComponent(filename)}`
+    );
+    res.setHeader('Content-Length', buf.length);
+    return res.end(buf);
   })
 );
 

@@ -66,6 +66,11 @@ export async function requireAuth(req, res, next) {
 
     req.teacher = teacher;
     req.teacherId = teacher.id;
+    /* 这枚 token 什么时候过期（unix 秒）。
+       给 `GET /me` 判断「要不要顺手续一个」用（2026-09-21）。
+       ⚠️ 从**已验证的 payload** 里取，不是自己再解一遍 ——
+       再解一遍就多一处可能跟这里不一致的地方。 */
+    req.tokenExp = payload.exp || null;
     next();
   } catch (err) {
     next(err);

@@ -18,9 +18,18 @@ export function updateLessonPlan(id, patchBody) {
   return post(`/lesson-plans/${id}/update`, patchBody)
 }
 
-/** 导出 docx。后端还没实现，现在会返回 NOT_IMPLEMENTED（不可重试）。 */
+/**
+ * 导出 .docx。**返回的是文件本身**：`{ blob, filename }`（2026-09-21 做的）。
+ *
+ * ⚠️ **接口是 POST**，所以调用方不能用 `window.open` —— 浏览器直开链接
+ * 发不出 POST。要拿 blob 再用临时 `<a download>` 存下来（见 s-plan.vue）。
+ *
+ * ⚠️ `raw: true` 是必须的：默认那条路会把响应当 JSON 解析，
+ * 而这里回的是二进制 —— 不传的话会抛一个「解析失败」，
+ * 看起来像导出坏了。
+ */
 export function exportLessonPlan(id, format = 'docx') {
-  return post(`/lesson-plans/${id}/export`, { format })
+  return post(`/lesson-plans/${id}/export`, { format }, { raw: true })
 }
 
 /* ============ 改一改 ============ */

@@ -89,3 +89,36 @@ export function buildImageUrl(objectKey) {
   if (!base) return null;
   return `${base.replace(/\/$/, '')}/${objectKey.replace(/^\//, '')}`;
 }
+
+/**
+ * object_key → 文件字节。**导出 .docx 要嵌图，所以需要把图读回来**（2026-09-21）。
+ *
+ * ⚠️ **跟 `buildImageUrl` 是两条路，别混**：那个给的是「前端怎么取到图」
+ * （拼 URL，浏览器自己去拿），这个给的是「服务端自己要把图塞进 docx」
+ * （必须拿到字节）。前者将来接对象存储时要改成签名 URL，
+ * 后者要改成 SDK 的下载方法 —— 但**调用方不用知道**，这正是包在这一层的原因。
+ *
+ * @returns {Promise<Buffer|null>} 读不到返回 null（**不抛**）——
+ *   调用方拿到 null 就跳过这张图。一张图没了不该让整份导出失败，
+ *   教案正文才是她要的东西。
+ */
+export async function readImage(objectKey) {
+  if (!objectKey) return null;
+
+  if (config.storage.configured) {
+    // TODO：接对象存储时在这里改成 SDK 的下载（`cos.getObject` / `oss.get`）
+    logger.warn('cloud_read_not_implemented', { objectKey });
+    return null;
+  }
+
+  const full = path.join(config.localImageDir, objectKey);
+  try {
+    return await fs.readFile(full);
+  } catch (err) {
+    /* 文件不在（换过机器、被清过、object_key 是旧的）—— 记下来但不抛。
+       ⚠️ **这条日志要留着**：它是「库里有记录、硬盘上没文件」的唯一线索，
+       而那正是「刷新之后图不见了」那类问题的成因之一。 */
+    logger.warn('image_file_missing', { objectKey, err: err.code || err.message });
+    return null;
+  }
+}
