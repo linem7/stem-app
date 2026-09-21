@@ -17,7 +17,7 @@ import { taskQueue } from '../services/taskQueue.js';
 import { generateImage, resolveImageProvider, anyModelReady } from '../services/imageGen.js';
 import { uploadImage, buildImageUrl } from '../services/imageStore.js';
 import { buildImagePrompt } from '../services/lessonGenerator.js';
-import { buildPurposeSystem, countSubjects, purposeSpec, resolvePurpose } from '../services/imagePurpose.js';
+import { buildPurposeSystem, countSubjects, purposeSpec, resolvePurpose, isPrintKind } from '../services/imagePurpose.js';
 import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
 import { logger } from '../utils/logger.js';
 
@@ -174,16 +174,32 @@ imagesRouter.post(
           quality: spec.quality,
         });
 
-        // 第三步：落地。配了对象存储就传云上，没配就存本地磁盘；两种都只回 object_key
+        // 第三步：落地。**压缩在 uploadImage 里做** —— 在那里是唯一正确的位置，
+        // 因为它是所有图的唯一落地点（配图生成、后台模型测试两条路都走它）。
+        // 这里只告诉它「这张是不是打印类」：记录表/头饰是粗黑线硬边，
+        // 压缩痕迹比插画容易露，所以用更保守的质量。
         // 扩展名跟着真实格式走（image-01 返回的是 JPEG），别写死 png
-        const { objectKey, bytes } = await uploadImage({ buffer: img.buffer, ext: img.ext || 'jpg' });
+        const { objectKey, bytes, width, height } = await uploadImage({
+          buffer: img.buffer,
+          ext: img.ext || 'jpg',
+          isPrint: isPrintKind(purpose),
+        });
 
+        /* 🔴 **宽高要写压缩之后的实际尺寸，不是模型要求的那个。**
+           原来是 `img.width` / `img.height` —— 那是我们**请求**的尺寸，
+           而模型回的有时候不一样（要 2048 回了 2400），压缩之后又变一次。
+           库里记错尺寸不是小事：导出 docx 时按它算缩放比例
+           （`lessonDocx.js` 的 `fitBox`），记录表被按错比例压扁就是废纸。
+           ⚠️ `uploadImage` 在「没压」时回 `null`（PNG、或压完更大），
+           那时候沿用模型给的值才对。 */
         await query(
           `UPDATE lesson_images
               SET object_key = $1, prompt_sent = $2, width = $3, height = $4,
                   bytes = $5, cost_cents = $6, status = 'ready', error_msg = NULL
             WHERE id = $7`,
-          [objectKey, prompt, img.width, img.height, bytes, img.costCents ?? null, row.id]
+          [objectKey, prompt,
+            width ?? img.width, height ?? img.height,
+            bytes, img.costCents ?? null, row.id]
         );
 
         // 教案库列表要显示"有配图"的标记

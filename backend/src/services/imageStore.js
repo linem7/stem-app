@@ -11,6 +11,7 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { AppError, ErrorCode } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
+import { compressImage } from './imageCompress.js';
 
 /**
  * 从字节流本身认格式和宽高，**不信参数也不信扩展名**。
@@ -51,13 +52,26 @@ export function readImageMeta(buf) {
  * 第 2 种是**开发期方案**，只在单机上成立：多实例部署时各存各的，老师会随机看到图裂。
  * 但没有它，本地就完全验证不了「生成→落地→显示」这条链路，图片功能只能停在纸面上。
  *
+ * 🔴 **压缩在这里做，而且在这里是唯一正确的位置**（2026-09-21 加）：
+ * 这是**所有图的唯一落地点**（配图生成、后台模型测试两条路都走它），
+ * 所以在这儿压一次，两条路都受益，也不会有「哪条路忘了压」的可能。
+ * 「生成时压」而不是「存原图再压」—— 存进去的就是最终那份，少一层状态。
+ *
+ * @param {object} o
+ * @param {Buffer} o.buffer
+ * @param {string} o.ext           模型回的格式
+ * @param {boolean} o.isPrint      打印类（记录表/头饰）用更保守的压缩质量
  * @returns {Promise<{objectKey:string, bytes:number}>}
  */
-export async function uploadImage({ buffer, ext = 'png' }) {
+export async function uploadImage({ buffer: raw, ext = 'png', isPrint = false }) {
+  const got = await compressImage(raw, { ext, isPrint });
+  const buffer = got.buffer;
+  const finalExt = got.ext;
+
   const d = new Date();
   const objectKey = `images/${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(
     d.getDate()
-  ).padStart(2, '0')}/${crypto.randomUUID()}.${ext}`;
+  ).padStart(2, '0')}/${crypto.randomUUID()}.${finalExt}`;
 
   if (config.storage.configured) {
     // TODO：接对象存储。两家的 SDK 用法：
@@ -77,7 +91,18 @@ export async function uploadImage({ buffer, ext = 'png' }) {
   await fs.mkdir(path.dirname(full), { recursive: true });
   await fs.writeFile(full, buffer);
   logger.info('image_saved_local', { objectKey, bytes: buffer.length });
-  return { objectKey, bytes: buffer.length };
+  /* 🔴 **宽高也回给调用方。**
+     原来是「调用方自己拿模型要求的尺寸去写库」，而压缩之后**实际尺寸变了**
+     （2048 而不是要的 2400）—— 那样库里记的就是错的。
+     错的尺寸不是装饰：导出 docx 时按它算缩放比例（`lessonDocx.js` 的
+     `fitBox`），记录表被按错比例压扁就是废纸。
+     ⚠️ 没压的那些（PNG / 压完更大）回 `null`，调用方就沿用模型给的值。 */
+  return {
+    objectKey,
+    bytes: buffer.length,
+    width: got.width,
+    height: got.height,
+  };
 }
 
 /** object_key → 可访问的 URL。换域名/换云厂商时只改这一个函数。 */
