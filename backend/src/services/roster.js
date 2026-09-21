@@ -45,6 +45,22 @@ export const EDUCATIONS = ['中专及以下', '大专', '本科', '硕士及以�
 export const TITLES = ['未评定', '三级教师', '二级教师', '一级教师', '高级教师', '正高级教师'];
 export const AGE_GROUPS = ['小班', '中班', '大班'];
 
+/**
+ * 园所类型。**中文三项**。
+ *
+ * 🔴 **只写这一份。** 原来 `tasks.js` 有一份 `['public','private']`、
+ * `admin/kindergartens.js` 又有一份，加上中文映射表，同一个概念散在三处。
+ * 而 2026-09-21 要加「普惠民办」这一档时，**三处都要改** ——
+ * 只改一处的表现是「后台导入报『只认 公办 / 民办』」，而那是第三个文件在拦。
+ *
+ * ⚠️ 「普惠民办」不是「民办」的同义词：它收费受政府指导价约束、
+ * 有生均补助，师资和生源都不是一回事。研究上必须分得开。
+ *
+ * ⚠️ 库里的值从 `public` / `private` 迁过来（023 迁移），
+ * 所以**新代码一律用中文**，英文那两个只作为导入时的兼容别名。
+ */
+export const OWNERSHIPS = ['公办', '普惠民办', '民办'];
+
 /** 姓氏。她认自己够了，把同事全名摊给任何拿到码的人是没必要的暴露 */
 export function surnameOf(name) {
   const s = String(name || '').trim();
@@ -177,13 +193,66 @@ export function summarize(rows) {
  * **姓名只给姓氏**。调用方（路由）负责先校验码有效，
  * 不设那道门任何人打开小程序就能看到一整个园的老师名单。
  */
-export async function listOpenKindergartens() {
-  return (await query(`
-    SELECT k.id, k.name, COUNT(r.id)::int AS open
+/**
+ * 四级选择器：省 → 市 → 园所 → 位置。
+ *
+ * 🔴 **三级查询共用一个口径：只算还有 `pending` 位置的园所。**
+ * 不统一的话会出现「点了省进去，市是空的」——她只能退回来，而且不知道为什么。
+ * 同一个 `JOIN teacher_roster ... WHERE status='pending'` 写在三个函数里
+ * 就是在等它们分叉，所以抽成下面这个 CTE 片段。
+ *
+ * ⚠️ `province` / `city` 可能是 NULL（010 迁移建列时没强制填）。
+ * 不排掉的话下拉框第一项会是个空白，她点了不知道去哪 —— 那种项只能给她困惑。
+ */
+const OPEN_KG_CTE = `
+  WITH open_kg AS (
+    SELECT k.id, k.name, k.province, k.city, COUNT(r.id)::int AS open
       FROM teacher_roster r JOIN kindergartens k ON k.id = r.kindergarten_id
      WHERE r.status = 'pending'
-     GROUP BY k.id, k.name
-     ORDER BY k.name`)).rows;
+       AND k.province IS NOT NULL AND k.city IS NOT NULL
+     GROUP BY k.id, k.name, k.province, k.city
+  )`;
+
+/** 第一级：有哪些省。每条带它下面的市，前端一次请求就能画出两级 */
+export async function listOpenRegions() {
+  const rows = (await query(`
+    ${OPEN_KG_CTE}
+    SELECT province, city FROM open_kg
+     ORDER BY province, city`)).rows;
+
+  /* 按省聚合。用 Map 不用 SQL 的 array_agg —— 两种写法结果一样，
+     但这个形状前端直接就能用，省掉一层转换 */
+  const byProvince = new Map();
+  for (const r of rows) {
+    if (!byProvince.has(r.province)) byProvince.set(r.province, []);
+    byProvince.get(r.province).push(r.city);
+  }
+  return [...byProvince].map(([province, cities]) => ({ province, cities }));
+}
+
+/** 第二级：这个省有哪些市 */
+export async function listOpenCities(province) {
+  const rows = (await query(`
+    ${OPEN_KG_CTE}
+    SELECT DISTINCT city FROM open_kg WHERE province = $1 ORDER BY city`,
+  [province])).rows;
+  return rows.map((r) => r.city);
+}
+
+export async function listOpenKindergartens(province = null, city = null) {
+  /* 不传地区时保持老行为（列出所有有位置的园）—— `redeem.vue` 的
+     `backToKg` 和「只有一个园就直接跳过」那两个判断依赖它。
+     传了地区才收窄。 */
+  const where = [];
+  const params = [];
+  if (province) { params.push(province); where.push(`province = $${params.length}`); }
+  if (city)     { params.push(city);     where.push(`city = $${params.length}`); }
+
+  return (await query(`
+    ${OPEN_KG_CTE}
+    SELECT id, name, open FROM open_kg
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+     ORDER BY name`, params)).rows;
 }
 
 export async function listOpenEntries(kindergartenId) {

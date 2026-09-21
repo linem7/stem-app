@@ -41,6 +41,23 @@
         <span class="banner__b">去看看 ›</span>
       </button>
 
+      <!--
+        完善信息的提醒。**她填完就永久消失**（判据是后端那个 reason='完善信息'
+        的发放记录，不是本地状态 —— 换设备打开也不该再冒出来）。
+
+        ⚠️ 跟上面那条任务条**是两个不同的来源**，所以两条可能同时在。
+        这不冲突：一条是「去做事换额度」，一条是「填档案换额度」。
+      -->
+      <button
+        v-if="needProfile"
+        type="button"
+        class="banner"
+        @click="profileSheet = true"
+      >
+        <span class="banner__t">完善信息，领 {{ PROFILE_REWARD.text }} 次教案额度</span>
+        <span class="banner__b">去填 ›</span>
+      </button>
+
       <span class="kicker">开始新教案</span>
       <h1 class="q">{{ greeting }}<span class="q__br">今天想做个什么活动？</span></h1>
 
@@ -107,6 +124,62 @@
         <img v-if="prefs.mode === m.key" class="mrow__ck" :src="checkInk" alt="已选" />
       </button>
     </s-sheet>
+
+    <!--
+      完善信息那个表单。四项，都要选/填了才提交 ——
+      后端每一条都会报中文，但这里**先让按钮灰着**，
+      因为四项都是必填，没有「填一部分也能过」的情况。
+    -->
+    <s-sheet :visible="profileSheet" title="完善信息" @close="profileSheet = false">
+      <label class="f">
+        <span class="f__k">出生年份</span>
+        <input
+          v-model="form.birthYear"
+          class="f__in"
+          type="tel"
+          inputmode="numeric"
+          maxlength="4"
+          placeholder="比如 1995"
+        />
+      </label>
+
+      <label class="f">
+        <span class="f__k">最高学历</span>
+        <select v-model="form.education" class="f__in">
+          <option :value="null">选一个</option>
+          <option v-for="e in EDUCATIONS" :key="e" :value="e">{{ e }}</option>
+        </select>
+      </label>
+
+      <label class="f">
+        <span class="f__k">教龄</span>
+        <!-- 0 是有意义的值（刚入职），所以这个框允许它 -->
+        <input
+          v-model="form.teachingYears"
+          class="f__in"
+          type="tel"
+          inputmode="numeric"
+          maxlength="2"
+          placeholder="几年"
+        />
+      </label>
+
+      <label class="f">
+        <span class="f__k">当前任教年级</span>
+        <select v-model="form.ageGroup" class="f__in">
+          <option :value="null">选一个</option>
+          <option v-for="a in AGE_GROUPS" :key="a" :value="a">{{ a }}</option>
+        </select>
+      </label>
+
+      <s-button
+        label="填好了，领额度"
+        arrow
+        :disabled="!canSubmitProfile"
+        :loading="profileSaving"
+        @press="submitProfile"
+      />
+    </s-sheet>
   </s-page>
 </template>
 
@@ -116,11 +189,12 @@ import { ensureSession, gate, session } from '../../stores/session.js'
 import { put } from '../../stores/handoff.js'
 import { createConversation } from '../../api/conversations.js'
 import { listTasks } from '../../api/tasks.js'
+import { getQuota, saveProfile } from '../../api/me.js'
 import { MODES, modeLabel, prefs, setMode } from '../../stores/prefs.js'
 import { iconCheck } from '../../utils/icons.js'
 import { COLORS } from '../../utils/colors.js'
 import { push, replace } from '../../utils/nav.js'
-import { showApiError, stateKind } from '../../utils/ui.js'
+import { showApiError, stateKind, toast } from '../../utils/ui.js'
 import { autogrow } from '../../utils/autogrow.js'
 
 const checkInk = iconCheck(COLORS.ink, 2.6)
@@ -128,11 +202,95 @@ const checkInk = iconCheck(COLORS.ink, 2.6)
 // 前三个是已经真跑过的主题（小班/中班/大班各一），第四个说明其余主题一样能走
 const SEEDS = ['浮与沉', '影子', '搭高塔', '磁铁']
 
+/* 完善信息那两项白名单。**跟后端同源**（services/roster.js 的
+   EDUCATIONS / AGE_GROUPS）—— 后端也会校验，这里只是让下拉有东西可选。
+   ⚠️ 改后端那两处记得同步这里，`test:api` 不查它们。 */
+const EDUCATIONS = ['中专及以下', '大专', '本科', '硕士及以上']
+const AGE_GROUPS = ['小班', '中班', '大班']
+/** 跟后端 me.js 里那两个常量同源 —— 文案上要一致，别一边 10 一边 15 */
+const PROFILE_REWARD = { text: 10, image: 5 }
+
 const seed = ref('')
 const seedEl = ref(null)
 const starting = ref(false)
 /** 未读任务数。为 0 时那条条带整个不出现 */
 const unreadTasks = ref(0)
+
+/* ---- 完善信息领额度 ---- */
+
+/**
+ * 还该不该给她看那条提醒。
+ *
+ * 🔴 **判据只有一个：后端给没给过那笔额度。**
+ * 具体做法是从 `GET /me/quota` 的 `grants` 里找 `reason === '完善信息'`。
+ *
+ * ⚠️ **不许改判「四个字段填全了没有」** —— 她填完之后再从「我的」里把学历
+ * 改一下，那个条件仍然成立，提醒就会**再冒出来一次**，而第二次点进去
+ * 后端不会发额度（它认台账）。表现就是「点了没反应」，她会以为是坏的。
+ *
+ * `profileChecked` 是「这一次启动查过没有」，防止接口还没回来就画提醒 ——
+ * 否则每个老师进首页都会先闪一下那条不该出现的条。
+ */
+const profileSheet = ref(false)
+const profileChecked = ref(false)
+const profileGranted = ref(false)
+const profileSaving = ref(false)
+const form = ref({ birthYear: '', education: null, teachingYears: '', ageGroup: null })
+
+const needProfile = computed(() => (
+  session.ready && profileChecked.value && !profileGranted.value
+))
+
+const canSubmitProfile = computed(() => {
+  const y = Number(form.value.birthYear)
+  const t = Number(form.value.teachingYears)
+  return Number.isInteger(y) && y > 1900
+    && form.value.education !== null
+    /* ⚠️ `teachingYears` 空字符串不能过，但 `'0'` 要过 ——
+       0 是刚入职的真实值。所以判的是「填了没有」而不是「是不是 0」 */
+    && form.value.teachingYears !== '' && Number.isInteger(t) && t >= 0
+    && form.value.ageGroup !== null
+})
+
+/**
+ * 查有没有领过。**故意不 await、失败也不弹错** —— 跟任务那条同一个立场：
+ * 首页的正事是那个输入框，为了一条提醒让首页停在加载态是把主次弄反了。
+ * 查不到就不画那条提醒（fail-closed：宁可不提，不要提一条点了没反应的）。
+ */
+function refreshProfile() {
+  getQuota()
+    .then((d) => {
+      profileGranted.value = (d.grants || []).some((g) => g.reason === '完善信息')
+    })
+    .catch(() => { profileGranted.value = true })
+    .finally(() => { profileChecked.value = true })
+}
+
+async function submitProfile() {
+  if (profileSaving.value || !canSubmitProfile.value) return
+  profileSaving.value = true
+  try {
+    const d = await saveProfile({
+      birthYear: Number(form.value.birthYear),
+      education: form.value.education,
+      teachingYears: Number(form.value.teachingYears),
+      ageGroup: form.value.ageGroup,
+    })
+    profileSheet.value = false
+    profileGranted.value = true
+    /* 后端在已经领过时**不回 granted**（只改档案，不报错）——
+       那不是失败，所以文案要跟着分。 */
+    if (d.granted) {
+      toast(`领到了 ${d.granted.text} 次教案、${d.granted.image} 次配图`)
+    } else {
+      toast('档案已更新')
+    }
+  } catch (err) {
+    showApiError(err)
+  } finally {
+    profileSaving.value = false
+  }
+}
 
 const modeSheet = ref(false)
 const modeName = computed(() => modeLabel())
@@ -164,6 +322,7 @@ async function routeByGate() {
   // 进得了主流程才查任务。没激活的老师看任务没有意义，
   // 而且那个接口挂在 requireActivated 后面，查了只会拿到 403
   refreshTasks()
+  refreshProfile()
 }
 
 /**
@@ -254,6 +413,48 @@ async function start() {
   font-size: var(--fs-tag);
   color: $mint-deep;
   margin-left: 10px;
+}
+
+/*
+  完善信息那个抽屉里的四项。样式跟 redeem.vue 的 `.f` 是同一套 ——
+  两处都是「一列表单」，长得不一样会看起来像两个产品。
+  ⚠️ 它的输入框同样用 --fs-card：iOS Safari 在输入框小于 16px 时会
+  放大整个页面，而这里点进输入框的正是「她要填字」那一刻。
+*/
+.f {
+  display: block;
+  margin-bottom: 13px;
+}
+
+.f__k {
+  display: block;
+  font-size: var(--fs-sub);
+  color: $ink-3;
+  margin-bottom: 6px;
+}
+
+.f__in {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  outline: none;
+  border: 1px solid $rule-2;
+  border-radius: $r-btn;
+  background: $white;
+  padding: 12px 13px;
+  font-size: var(--fs-card);
+  color: $ink;
+  /* select 在 iOS 上默认样式差很远，统一掉 */
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.f__in::placeholder {
+  color: $ink-3;
+}
+
+.f__in:focus {
+  border-color: $mint;
 }
 
 .kicker {

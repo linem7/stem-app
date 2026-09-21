@@ -25,6 +25,36 @@ export function getQuota() {
 }
 
 /**
+ * 完善信息领额度（2026-09-21 新增，api-spec 第 2 节）。
+ *
+ * 🔴 **跟 `updateMe` 是两个接口，别合并。**
+ * `updateMe` 也能改这几项，但**不发额度** —— 合成一个的话她反复改学历
+ * 就能反复领。发额度这件事只认这一个接口。
+ *
+ * **只能领一次。** 后端认的是 `quota_grants` 里 `reason='完善信息'` 那条记录，
+ * 不是「四个字段填全了没有」。所以：
+ *   · 第一次调 → 回 `{ teacher, quota, granted: {text:10, image:5} }`
+ *   · 之后再调 → 回 `{ teacher, quota, granted: null }`（**不报错**，只改档案）
+ *
+ * 前端要按 `granted` 是不是 null 分两句文案 —— 那时候她做的事没失败，
+ * 只是这次没有额度可领。
+ *
+ * @param {object} o
+ * @param {number} o.birthYear     出生年份（4 位，存年份不存年龄）
+ * @param {string} o.education     EDUCATIONS 白名单里的一项
+ * @param {number} o.teachingYears 0–60。**0 是有意义的值**（刚入职）
+ * @param {string} o.ageGroup      AGE_GROUPS 白名单里的一项
+ */
+export function saveProfile({ birthYear, education, teachingYears, ageGroup }) {
+  return post('/me/profile', {
+    birth_year: birthYear,
+    education,
+    teaching_years: teachingYears,
+    age_group: ageGroup,
+  })
+}
+
+/**
  * 注销：删掉我的全部数据。**不可逆**。
  *
  * 后端做的是「留壳去身份」：对话、教案、配图、记忆连同姓名一起删掉，

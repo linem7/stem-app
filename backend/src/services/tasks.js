@@ -27,8 +27,12 @@ export const TARGET_DIMS = [
 ];
 
 const AREA_TYPES = ['city', 'county', 'rural'];
-const OWNERSHIPS = ['public', 'private'];
 const AGE_GROUPS = ['小班', '中班', '大班'];
+/* 🔴 办园性质的白名单**只有一份**，在 services/roster.js。
+   这里原来自己写了一份 `['public','private']` —— 2026-09-21 加「普惠民办」
+   那一档时，改一处不够，而漏掉的那处不会报错，只会让定向任务
+   永远筛不到那些园所。 */
+import { OWNERSHIPS } from './roster.js';
 
 /**
  * 把请求体里的 target 洗成规范形状。

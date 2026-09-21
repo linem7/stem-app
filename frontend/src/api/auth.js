@@ -18,20 +18,39 @@ export async function login(phone, password) {
 }
 
 /**
- * 首次激活：一个码 + 她从名单里选的那一位 + 自己设的手机号密码。
+ * 首次激活：一个码 + 她是谁 + 自己设的手机号密码。
  *
- * **手机号传两遍。** 11 位打错一位是常事，而后果特别隐蔽 ——
+ * **两条路**（2026-09-21 新增第二条），由 `rosterEntryId` 有没有传决定：
+ *
+ *   路径一：`rosterEntryId` 有值 —— 白名单里的老师，从四级下拉认领一个位置
+ *   路径二：不传 —— 不在名单的人，`self` 里带她填的姓名/园所/省市区/园所类型
+ *
+ * **手机号传两遍，两条路都一样。** 11 位打错一位是常事，而后果特别隐蔽 ——
  * 她下次登录输的是**正确的号**、库里存的是**打错的号**，进不去，
  * 且她完全不知道哪里出了问题。后端也会再比一次，两边都守。
  *
  * 建完账号直接就有一个 token（后端回的），她不用立刻再用一次密码。
+ *
+ * @param {object} o
+ * @param {string} o.code
+ * @param {number} [o.rosterEntryId] 路径一必填
+ * @param {object} [o.self] 路径二必填：{realName, kindergartenName, province, city, ownership}
  */
-export async function activate({ code, rosterEntryId, phone, phoneConfirm, password }) {
+export async function activate({
+  code, rosterEntryId, self, phone, phoneConfirm, password,
+}) {
   const data = await post(
     '/auth/activate',
     {
       code,
       roster_entry_id: rosterEntryId,
+      // 路径二那几样**不传就是 undefined**，JSON.stringify 会整个丢掉，
+      // 所以路径一不会带上多余的字段
+      real_name: self?.realName,
+      kindergarten_name: self?.kindergartenName,
+      province: self?.province,
+      city: self?.city,
+      ownership: self?.ownership,
       phone,
       phone_confirm: phoneConfirm,
       password,
@@ -43,13 +62,33 @@ export async function activate({ code, rosterEntryId, phone, phoneConfirm, passw
 }
 
 /**
- * 激活那一屏的选择器：先拿有空位的园，再拿那个园里的位置。
+ * 激活那一屏的选择器：省 → 市 → 园 → 位置，四级。
  *
  * **必须带码** —— 后端靠它挡住「任何人打开网页就能看到一整个园的老师名单」。
  * 回来的姓名只有姓氏。
+ *
+ * 给到哪一级就回哪一级，判据是**最后一个有值的参数**：
+ *
+ *   rosterOptions(code)                    → { regions }
+ *   rosterOptions(code, {province})        → { cities }
+ *   rosterOptions(code, {province, city})  → { kindergartens }
+ *   rosterOptions(code, {kindergartenId})  → { entries }
+ *
+ * ⚠️ `kindergartenId` 是**独立的一路**（不是 province/city 的下一级），
+ * 因为它对应「已经在园里选人」那个状态。两者的关系是「谁先谁后」，
+ * 不是「同一组参数的深浅」。
  */
-export function rosterOptions(code, kindergartenId) {
-  return post('/auth/roster/options', { code, kindergarten_id: kindergartenId }, { auth: false })
+export function rosterOptions(code, { province, city, kindergartenId } = {}) {
+  return post(
+    '/auth/roster/options',
+    {
+      code,
+      province,
+      city,
+      kindergarten_id: kindergartenId,
+    },
+    { auth: false }
+  )
 }
 
 /**

@@ -13,11 +13,12 @@
  * 它没被当闸门用（激活闸门查 activated_at），但别拿它当「档案填全了」的依据。
  */
 import { Router } from 'express';
-import { queryOne } from '../db/pool.js';
+import { queryOne, withTransaction } from '../db/pool.js';
 import { toTeacherDTO } from '../middleware/auth.js';
 import { ok, asyncRoute, badRequest } from '../utils/errors.js';
 import { AGE_GROUPS } from '../services/promptBuilder.js';
 import { POSITIONS, EDUCATIONS, TITLES } from '../services/roster.js';
+import { getQuota } from '../services/quota.js';
 import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
 
 export const meRouter = Router();
@@ -131,3 +132,111 @@ const updateMe = asyncRoute(async (req, res) => {
 
 meRouter.patch('/', updateMe);
 meRouter.post('/update', updateMe);
+
+// ---------------------------------------------------------------
+// POST /me/profile —— 完善信息领额度（2026-09-21 新增，api-spec 第 2 节）
+//
+// 她主动填四项档案（出生年份 / 最高学历 / 教龄 / 当前任教年级），
+// 换 10 教案 + 5 配图。
+//
+// 🔴 **这是第一条「她主动提供信息换东西」的接口。**
+// 跟记忆抽取那条红线（不提取姓名、年龄、幼儿表现、家庭情况、健康与过敏）
+// **不冲突** —— 那条管的是「AI 从她聊天里推断」，这里是「她自己填的」。
+// 两者的区别不是数据是什么，是**数据从哪来、她知不知情**。
+//
+// 【为什么跟 PATCH /me 是两个接口】
+// `PATCH /me` 也改这几项（档案那一行），但**不发额度**。
+// 合成一个的话，她反复改学历就能反复领 —— 而「改一改自己的档案」
+// 是完全正常、应该随时能做的操作。**发额度这件事只认这一个接口。**
+//
+// ⚠️ **交叉影响，改动这两处中的任何一处都要一起看**：
+//   · `PATCH /me` 能改 `education` / `teaching_years` / `age_group`（不能改 birth_year）
+//   · 所以上面那句注释「kindergarten_name 和 teaching_years 只有这一条路能填」
+//     对 teaching_years **已经不成立了** —— 本接口也能填。
+//   · 于是 `profile_completed`（toTeacherDTO 里 = kindergarten_name && age_group）
+//     **不能拿来当「完善过信息」的判据** —— 她改了 age_group 它就真了。
+//     「有没有领过」只认 quota_grants 里那条 reason='完善信息' 的记录。
+// ---------------------------------------------------------------
+const PROFILE_REWARD_TEXT = 10;
+const PROFILE_REWARD_IMAGE = 5;
+const PROFILE_REWARD_REASON = '完善信息';
+
+meRouter.post(
+  '/profile',
+  asyncRoute(async (req, res) => {
+    const body = req.body || {};
+
+    /* ---- 先全部校验，一个字都不写 ---- */
+    const year = Number(body.birth_year);
+    const thisYear = new Date().getFullYear();
+    /* 范围挡的是打错的年份（比如把 1995 打成 1895 或 19950）。
+       下限 1930 是「现在 96 岁」—— 幼师里可能有返聘的，
+       但不会有人在 1930 年前出生还在带班。**宁可放宽，不要误拒真人。** */
+    if (!Number.isInteger(year) || year < 1930 || year > thisYear - 16) {
+      throw badRequest('出生年份看起来不对，填四位数的年份');
+    }
+
+    if (!EDUCATIONS.includes(body.education)) {
+      throw badRequest(`最高学历从选项里选一下（${EDUCATIONS.join(' / ')}）`);
+    }
+
+    /* ⚠️ `0` 在这个字段上是**有意义的值**（刚入职），不是「没填」。
+       所以判据必须写成「不是整数」而不是 `!body.teaching_years` ——
+       后者会把 0 挡掉，而 0 正是新人老师的真实情况。 */
+    const years = Number(body.teaching_years);
+    if (!Number.isInteger(years) || years < 0 || years > 60) {
+      throw badRequest('教龄填 0 到 60 之间的整数');
+    }
+
+    if (!AGE_GROUPS.includes(body.age_group)) {
+      throw badRequest(`当前任教年级从选项里选一下（${AGE_GROUPS.join(' / ')}）`);
+    }
+
+    const result = await withTransaction(async (client) => {
+      /* 🔴 **防重复领的判据：查台账里有没有这一笔。**
+         写在这里而不是事务外，而且加了 FOR UPDATE 挡并发 ——
+         她手快双击提交，两次请求各自的快照都可能看不到对方，
+         那就发两笔。锁住她那一行就够了（同一个 teacher_id 串行）。 */
+      await client.query(`SELECT id FROM teachers WHERE id = $1 FOR UPDATE`, [req.teacherId]);
+
+      /* 🔴 **判据不是「四个字段填全了没有」。**
+         那样她把学历从大专改成本科会**再领一次** —— 因为改完还是「填全了」。
+         领过就是领过，跟填得全不全无关。 */
+      const already = (await client.query(
+        `SELECT 1 FROM quota_grants WHERE teacher_id = $1 AND reason = $2 LIMIT 1`,
+        [req.teacherId, PROFILE_REWARD_REASON])).rows[0];
+
+      const updated = (await client.query(
+        `UPDATE teachers
+            SET birth_year = $1, education = $2, teaching_years = $3, age_group = $4,
+                updated_at = now()
+          WHERE id = $5
+          RETURNING *`,
+        [year, body.education, years, body.age_group, req.teacherId])).rows[0];
+
+      // 领过了就只改档案，不再发额度 —— **不是报错**：
+      // 她改自己的档案是完全正常的操作，不该被拦
+      if (already) return { teacher: updated, granted: null };
+
+      await client.query(
+        `INSERT INTO quota_grants (teacher_id, delta_text, delta_image, reason)
+         VALUES ($1, $2, $3, $4)`,
+        [req.teacherId, PROFILE_REWARD_TEXT, PROFILE_REWARD_IMAGE, PROFILE_REWARD_REASON]);
+
+      return {
+        teacher: updated,
+        granted: { text: PROFILE_REWARD_TEXT, image: PROFILE_REWARD_IMAGE },
+      };
+    });
+
+    /* 额度是 **SUM(quota_grants)** 算出来的（quota.js），
+       所以刚插的那笔立刻就在里面，不用额外做什么。 */
+    const quota = await getQuota(req.teacherId);
+
+    return ok(res, {
+      teacher: toTeacherDTO(result.teacher),
+      quota,
+      granted: result.granted,
+    });
+  })
+);

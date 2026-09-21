@@ -87,9 +87,13 @@ kindergartensRouter.get('/kindergartens', asyncRoute(async (req, res) => {
   });
 }));
 
-/** 城乡与办园性质的合法值。定向要按它们筛，写歪一个字那个园就永远筛不到 */
+/** 城乡分类的合法值。定向要按它筛，写歪一个字那个园就永远筛不到 */
 const AREA_TYPES = ['city', 'county', 'rural'];
-const OWNERSHIPS = ['public', 'private'];
+/* 🔴 **办园性质的白名单在 services/roster.js，不在这里。**
+   原来这里自己写了一份 `['public','private']`，加上下面的中文映射表，
+   同一个概念散在三个文件里 —— 2026-09-21 加「普惠民办」那一档时，
+   改一处不够，表现是「后台导入报『只认 公办 / 民办』」。 */
+import { OWNERSHIPS } from '../../services/roster.js';
 
 /**
  * 把人写的日期洗成 `YYYY-MM-DD`，认不出来回 `undefined`（**不是 null**）。
@@ -267,10 +271,18 @@ const AREA_CN_TO_CODE = {
   农村: 'rural', 乡村: 'rural', 村: 'rural',
   city: 'city', county: 'county', rural: 'rural',
 };
-const OWNER_CN_TO_CODE = {
-  公办: 'public', 公立: 'public', 公: 'public',
-  民办: 'private', 私立: 'private', 民: 'private',
-  public: 'public', private: 'private',
+/**
+ * 导入时把「人写的各种说法」归一到 OWNERSHIPS 里的中文值。
+ *
+ * ⚠️ 右侧现在全是**中文** —— 库里 2026-09-21 从 public/private 迁成了中文，
+ * 所以英文那两个在这里降级成**兼容别名**（老模板、老习惯还认），
+ * 不再作为存储值。新写的映射一律指向中文。
+ */
+const OWNER_ALIAS_TO_VALUE = {
+  公办: '公办', 公立: '公办', 公: '公办', public: '公办',
+  民办: '民办', 私立: '民办', 民: '民办', private: '民办',
+  普惠民办: '普惠民办', 普惠性民办: '普惠民办', 普惠: '普惠民办',
+  inclusive_private: '普惠民办',
 };
 
 /** 列头去掉空格、括号里的补充说明和末尾的星号 */
@@ -363,12 +375,12 @@ function parseKgSheet(rows, existingNames) {
     const areaRaw = at('area_type');
     const ownRaw = at('ownership');
     const area_type = areaRaw ? AREA_CN_TO_CODE[areaRaw] : null;
-    const ownership = ownRaw ? OWNER_CN_TO_CODE[ownRaw] : null;
+    const ownership = ownRaw ? OWNER_ALIAS_TO_VALUE[ownRaw] : null;
     if (areaRaw && !area_type) {
       out.push({ line, ok: false, name, reason: `城乡填的是「${areaRaw}」，只认 城市 / 县镇 / 农村` }); continue;
     }
     if (ownRaw && !ownership) {
-      out.push({ line, ok: false, name, reason: `办园性质填的是「${ownRaw}」，只认 公办 / 民办` }); continue;
+      out.push({ line, ok: false, name, reason: `办园性质填的是「${ownRaw}」，只认 ${OWNERSHIPS.join(' / ')}` }); continue;
     }
 
     // 日期跟上面两个枚举同一条纪律：**认不出来整行拒绝，不静默留空**。
