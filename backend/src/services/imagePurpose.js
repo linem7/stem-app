@@ -139,8 +139,87 @@ export const PURPOSES = {
 4. 描述里点明总共几格、每格分别是什么`,
   },
 
+  /**
+   * 故事图（2026-09-21 加的）。
+   *
+   * 跟 `display` 的区别是**构图**，不是用途：
+   *   display  网格分隔，一格一样，像目录
+   *   story    一幅连贯的场景，像绘本里的一页
+   *
+   * 用户要它是为了「跟孩子讲这次活动是怎么做的」——
+   * 而那需要的是一张**能看进去的画面**，不是一张对照表。
+   *
+   * ⚠️ **不画脸**这条在这张图上尤其要紧：它画的正是「孩子们在做这个活动」，
+   * 是最容易画出人脸的一类。而画了脸就等于在画面里造了一个**不存在的孩子**——
+   * 那是这个项目从第一天起就不做的事（`CLAUDE.md`：不存幼儿的任何信息）。
+   * 所以规则里明确要求「背影、侧影、或者只画手」。
+   */
+  story: {
+    cn: '故事图',
+    hint: '一幅场景，跟孩子讲这次活动',
+    kind: 'illustration',
+    width: LONG,
+    height: 1536,
+    style:
+      'A warm flat vector illustration of one single scene, like one page from a children\'s ' +
+      'picture book. Soft yellow / mint green / sky blue palette on a cream background, ' +
+      'simple rounded shapes, no photorealism. ' +
+      'No faces: the children are shown from behind, in silhouette, or only their hands are visible.',
+    rules: `1. 画**一个场景**（这次活动里最有代表性的那一刻），不是网格、不是拼图
+2. **不出现任何人的面孔** —— 孩子用背影、侧影、或者只露出小手。
+   这是硬要求：画了脸就等于在画面里造了一个不存在的孩子
+3. 场景里要有**这次活动真正在用的那样东西**（水盆、磁铁、记录表…），
+   让它一眼能看出是这个活动
+4. 不写字、不写标签
+5. 描述里要出现 "one single scene" 和 "seen from behind"`,
+  },
+
+  /**
+   * 自由排布的一张纸（2026-09-21 加）。
+   *
+   * 🔴 **它是「方案卡片」那条路专用的**，跟另外六个用途不是一个逻辑：
+   * 那六个都在说「这张图画成什么样」（记录表要粗线大格、头饰要两条长带…），
+   * 而**这一个什么都不预设** —— 因为描述里已经写清了怎么排。
+   *
+   * 【为什么必须有它】
+   * 用户报的那张图：他选的是「材料图」，写了一整段
+   * 「上半张是记录表…下半张是材料图卡…」，而材料图的规则写死了
+   * 「one single object drawn large and centered, filling most of the frame」
+   * 加上 `countSubjects` 数出 9 样排 3×3 ——
+   * **他写的记录表那半张被彻底挤掉了**，拿到的是一张九宫格材料图。
+   *
+   * 根因不是模型不听话，是**我们给了它一套互相矛盾的构图指令**。
+   * 所以这条路上**把构图完全交还给描述**。
+   *
+   * ⚠️ 它仍然要守住那三条底线（不许有文字、不画脸、不要品牌），
+   * 那是所有图共用的，写在 `buildPurposeSystem` 的尾巴上。
+   */
+  plan: {
+    cn: '一张纸',
+    hint: '按描述排，不分格',
+    kind: 'print',
+    // 竖版对着 A4。长边 2048 —— 打印用，跟别的打印类一致
+    width: 1536,
+    height: LONG,
+    /* 关掉提示词润色：它会把「工作表」的套路补齐（标题栏、页脚、水印），
+       而这正是我们写死不许有的。跟记录表那条同一个理由。 */
+    optimize: false,
+    style:
+      'A single printable A4 sheet, portrait orientation, plain white background. ' +
+      'The sheet is divided into clearly separated areas following the description below, ' +
+      'with thin straight cut lines between areas where cutting is needed. ' +
+      'No decorative border, no background scenery, no shading beyond flat simple shapes.',
+    rules: `1. **按下面这段描述来排**，它说的分区、每区画什么、大致尺寸都要照着做 ——
+   这是老师自己写的，她清楚自己的班要什么
+2. 分与分之间要有**清楚的边界**（留白，或者一条细裁切线），
+   不能糊成一片 —— 她要沿线剪开
+3. 每一区里的东西**别叠到别的区去**，每个区自己画满、居中
+4. **不要加任何描述里没说的东西** —— 尤其不要补标题、编号、页眉页脚
+5. 描述里说了要裁切线的位置，就画一条**细的实线或虚线**，别加剪刀图标`,
+  },
+
   backdrop: {
-    cn: '环创背景',
+    cn: '环创',
     hint: '贴墙做主题墙，中间留白',
     kind: 'illustration',
     // 通景，横得越开越像一面墙
@@ -188,8 +267,24 @@ export function resolvePurpose(value) {
 export function countSubjects(note) {
   const s = String(note || '').trim();
   if (!s) return 1;
+
+  /* 🔴 **分隔符不能带分号**（2026-09-21 改）。
+   *
+   * 用户报的那张图：他写的是一段**完整的图片方案描述**，里面用分号分隔**句子** ——
+   *
+   *   「…第一行左侧画一座站着的塔、右边一个空圆圈；第二行左侧画一座倒下的塔…」
+   *
+   * 而分号原来在分隔符里，于是这句话被切成了 **9 段**，
+   * 后端以为「这张纸上要排 9 样材料」，排成 3×3 网格 ——
+   * **记录表那半张被格子挤掉了**，她拿到的是一张九宫格。
+   *
+   * 顿号、逗号才是「并列的几样」；分号、句号是「句子与句子」。
+   * 一条笔记里出现分号，几乎总是在**叙述**，不是在列举。
+   *
+   * ⚠️ 上限仍然 9（`gridFor` 最多排到 3×3）。超过就截断 ——
+   * 一张 A4 上排超过 9 格，每格小到剪出来不成样子。 */
   const parts = s
-    .split(/[、,，;；]|和|跟|与|以及|还有/)
+    .split(/[、,，]|和|跟|与|以及|还有/)
     .map((x) => x.trim())
     .filter(Boolean);
   return Math.min(Math.max(parts.length, 1), 9);
@@ -298,9 +393,26 @@ export function isPrintKind(value) {
  *
  * 前缀分插画/线稿两种，选哪一种由 kind 决定，理由见文件头上 PRINT_PREFIX 那段。
  */
-export function buildPurposeSystem(value, count = 1) {
+export function buildPurposeSystem(value, count = 1, { color = null } = {}) {
   const p = purposeSpec(value, count);
-  const prefix = p.kind === 'print' ? PRINT_PREFIX : ILLUSTRATION_PREFIX;
+
+  /* 🔴 **黑白不再只由 `kind` 决定**（2026-09-21 改）。
+   *
+   * 用户要的是：打印用那三类**默认黑白**（省墨、孩子能涂色），
+   * 但**界面上能切成彩色**。而 `kind` 是用途自带的、她改不了 ——
+   * 所以「用什么前缀」要跟着**她选的颜色**走，而不是跟着 kind 走。
+   *
+   * `color` 三个值：
+   *   true   她明确要彩色 → 一律走插画前缀
+   *   false  她明确要黑白 → 一律走线稿前缀
+   *   null   没传（旧调用方）→ 退回按 kind 判，行为跟改之前一模一样
+   *
+   * ⚠️ **`kind` 仍然管另一件事**：下面 `useLine` 那句话
+   * （「印出来给孩子用」还是「画给人看」）—— 那是**用途**的属性，
+   * 不该跟着颜色变。一个彩色的记录表照样是「印出来给孩子写的」。
+   * 两个概念拆开，是因为它们真的会不一致。 */
+  const wantMono = color === null ? p.kind === 'print' : !color;
+  const prefix = wantMono ? PRINT_PREFIX : ILLUSTRATION_PREFIX;
   const useLine =
     p.kind === 'print'
       ? '这张图**是要印出来直接给孩子用的东西**（表格、纸样），不是一张插画。'

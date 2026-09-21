@@ -40,18 +40,37 @@ async function loadPlan(id, teacherId) {
 const MAX_IMAGES_PER_PLAN = 3;
 
 /**
- * section_key 形如 'material.3'，找出它指的那样材料。
+ * section_key 形如 'material.3' 或 'illustrable.1'，找出它指的那一样。
  *
- * 下标是**提交那一刻**材料清单里的位置。教案改过之后清单可能变了，
- * 所以真正可靠的是 note（老师点的时候那样材料的名字），下标只作兜底。
+ * 下标是**提交那一刻**那个清单里的位置。教案改过之后清单可能变了，
+ * 所以真正可靠的是 note（老师点的时候那样东西的名字），下标只作兜底。
+ *
+ * ⚠️ **两种前缀是两代结构，别混**：
+ *    `material.N`    —— 从前端「材料清单」那条路来的（旧教案、以及
+ *                       没有 `illustrable` 的教案走这条）
+ *    `illustrable.N` —— 2026-09-21 之后新教案的「画什么」那一栏
+ *                       来自 `content_json.illustrable`，**不是 material**
+ *
+ * 🔴 **认错了不会报错，只会兜出一个错的默认名**。而 `note` 一有就直接返回
+ * （前端每次都传），所以这个函数**平时根本走不到下标那一段** ——
+ * 正因如此，写错了也看不出来，只在 note 缺了那天才露出来。
+ * 两种前缀都认，是为了那时候兜底还是对的。
  *
  * 2026-08-20 改版把材料清单从 `materials` 搬进了 `preparation.material`。
- * 这里两个都读：**旧图的 section_key 一律不动**（「图片永不跟着版本走」是定死的规则），
- * 所以库里还有一批 section_key 指向旧路径的图，它们的兜底得继续能用。
+ * 旧图的 section_key 一律不动（「图片永不跟着版本走」是定死的规则），
+ * 所以库里还有指向旧路径的图，它们的兜底得继续能用。
  */
 function materialName(contentJson, sectionKey, note) {
   if (note) return note;
-  const m = /^(?:preparation\.)?material\.(\d+)$/.exec(String(sectionKey || ''));
+  const key = String(sectionKey || '');
+
+  const ill = /^illustrable\.(\d+)$/.exec(key);
+  if (ill) {
+    const item = contentJson?.illustrable?.[Number(ill[1])];
+    if (item?.what) return String(item.what);
+  }
+
+  const m = /^(?:preparation\.)?material\.(\d+)$/.exec(key);
   if (m) {
     const list = contentJson?.preparation?.material ?? contentJson?.materials;
     const item = list?.[Number(m[1])];
@@ -69,13 +88,36 @@ imagesRouter.post(
     const plan = await loadPlan(req.params.id, req.teacherId);
     const sectionKey = req.body?.section_key ? String(req.body.section_key).slice(0, 32) : null;
     const note = req.body?.note ? String(req.body.note).slice(0, 200) : '';
+    /* 黑白还是彩色（2026-09-21 加的）。
+     * `true` 彩色 / `false` 黑白 / 没传 → `null`（**按用途自带的 kind 判，行为跟改之前一样**）。
+     * ⚠️ 用 `typeof === 'boolean'` 判，不用 `Boolean(...)` ——
+     * `Boolean(undefined)` 是 `false`，那会把「没传」当成「她要黑白」，
+     * 于是材料图会莫名其妙变成黑白线稿。 */
+    const color = typeof req.body?.color === 'boolean' ? req.body.color : null;
     // 用途决定构图规则和画布比例。不认识的值一律当材料图 ——
     // 老师那边不该出现「用途填错了」这种事
     const purpose = resolvePurpose(req.body?.purpose);
-    // 她一句话里说了几样（「小狗、小猫和兔子的头饰」= 3）。
-    // 头饰是一张纸上排几条，材料图是排成几列几行的裁切网格（2026-08-25）。
-    // 两个都**不拆成几张** —— 一份教案总共 3 张配额，一句话吃光配额是另一种糟糕
-    const subjects = countSubjects(note);
+    /* 🔴 **两条路的构图规则完全不同，不能都用 `countSubjects`**（2026-09-21 修）。
+     *
+     * 【路 A：她自己描述 / 方案卡片填的内容】（`note` 是一段完整的描述）
+     *   这种情况下**她自己已经说清了这张纸怎么排** ——
+     *   「上半张是记录表，下半张是材料图卡」这种。我们**不该再插一手**。
+     *   而原来这里会用 `countSubjects` 按顿号逗号数出「几样」，
+     *   再按样数排成裁切网格 —— 结果把她的描述**覆盖**成一张九宫格。
+     *
+     *   用户报的那张图就是这么来的：他写了一段「上半记录表 + 下半材料图卡」，
+     *   而那句话里有 8 个逗号 2 个分号，`countSubjects` 数出 9 样，
+     *   于是排成 3×3，**记录表那半张被格子挤掉了**。
+     *
+     * 【路 B：从材料清单里勾了几样】（`note` 是「磁铁、回形针、小石头」）
+     *   这条路上 `countSubjects` 是对的 —— 那是**列举**，不是叙述。
+     *
+     * 判据用 `plan: true` 这个标记（前端在「有方案」时发），
+     * 不靠猜 note 的长短 —— 猜不准，而且「猜错」的表现是她拿到一张
+     * 完全不是她要的图，还不知道为什么。
+     */
+    const isPlan = req.body?.plan === true;
+    const subjects = isPlan ? 1 : countSubjects(note);
     const spec = purposeSpec(purpose, subjects);
     // 用哪家模型**由后台定**，不看请求里传了什么（2026-08-18 定：老师不选模型）。
     // 这里刻意不读 req.body.provider —— 读了就等于把技术选型的开关交到客户端手上，
@@ -157,7 +199,7 @@ imagesRouter.post(
           ageGroup: plan.age_group,
           sectionName: materialName(plan.content_json, sectionKey, note),
           note,
-          system: buildPurposeSystem(purpose, subjects),
+          system: buildPurposeSystem(purpose, subjects, { color }),
           teacherId: req.teacherId,
         });
 
