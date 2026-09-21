@@ -16,7 +16,7 @@ const S = {
   // 现在一张表里两类都在，先看全部更合理 —— 要单看某一类走列头筛选
   filter: {
     kg: '', q: '', codeStatus: 'all',
-    fbKind: 'all', fbCategory: '', fbHandled: '',
+    fbHandled: '',
     // 老师页那排 tab。'current' = 在岗（pending + claimed），
     // 不含 moved —— 那是她换班后留下的历史行，跟当前那一行是同一个人
     teacherStatus: 'current',
@@ -284,7 +284,6 @@ function overviewView() {
   const u = o.usage || {};
   const td = o.todo || {};
   const q = o.quality || {};
-  const rated = (q.usable || 0) + (q.needs_edit || 0) + (q.unusable || 0);
 
   // 要处理的事排在最前面 —— 它才决定你今天做什么
   const todo = [
@@ -348,12 +347,6 @@ function overviewView() {
         <div class="l">活跃 ${u.kindergartens_active_7d ?? 0}</div></div>
       <div class="stat"><div class="t">已激活教师</div><div class="n">${u.teachers ?? '—'}</div>
         <div class="l">活跃 ${u.teachers_active_7d ?? 0}</div></div>
-      <!-- 教案评价那三档现在**只在这里**看得到（反馈表那一列 08-22 撤了），
-           所以这一行小字不能省 —— 它是「AI 写的教案能不能用」唯一的汇总 -->
-      <div class="stat"><div class="t">教案评价</div>
-        <div class="n ${rated === 0 ? '' : (q.unusable > q.usable ? 'low' : '')}">${rated || '—'}</div>
-        <div class="l">${rated
-          ? `可用 ${q.usable} · 需改 ${q.needs_edit} · 不可用 ${q.unusable}` : '暂无'}</div></div>
     </div>
 
     <!-- 「园所概况」那张表 **2026-08-22 撤掉了**（用户定）。
@@ -895,14 +888,6 @@ window.toggleStatus = async (id, status) => {
   try { await api('POST', `/teachers/${id}/status`, { status }); toast(status === 'disabled' ? '已停用' : '已恢复'); S.modal = null; await load(); }
   catch (e) { toast(e.message); }
 };
-
-/** 三档评价的中文。反馈汇总表用它出纯文本，老师详情里那张小表还用胶囊 */
-const RATING_CN = { usable: '可用', needs_edit: '需修改', unusable: '不可用' };
-const ratingPill = (r) => ({
-  usable: '<span class="pill p-ok">可用</span>',
-  needs_edit: '<span class="pill p-warn">需修改</span>',
-  unusable: '<span class="pill p-bad">不可用</span>',
-}[r] || '—');
 
 /* ============ 兑换码 ============ */
 function codesView() {
@@ -1484,23 +1469,14 @@ window.saveKg = async (id, phoneMasked) => {
 /* ============ 反馈 ============ */
 //
 // 2026-08-22：**两个 tab 合成一张汇总表 + 列头筛选**（用户提）。
-//
-// ⚠️ 08-18 拆成两个 tab 是有理由的，而那个理由是真的：
-// 教案评价有「评价等级、对应哪一版教案」，产品建议有「分类」，
-// 混在一张表里两边都得给对方留一列，于是**每行有一半是「—」**。
-//
-// 所以这次不是退回去，是把那个理由解决掉：
-//   · 新增一列「类型」，先告诉人这一行在说什么
-//   · 「评价 / 分类」**合成一列**（`评价等级` 和 `建议分类` 是同一个语义位置：
-//     这条反馈的性质），一行只可能有一个，不再出现半列空白
-//   · 「对应教案」只有评价行有值 —— 这一列留着，因为它是评价数据唯一的用处
-//     （看到「不可用」能立刻翻出那一版原文），而它对建议行是真的没有对应物
-//
-// 净效果：原来每行 1 个「—」，现在只有建议行在「对应教案」上有 1 个。
-// 换来的是不用切 tab 就能看到全部反馈，以及按列筛。
+// 2026-09-21：**教案评价整个删了**，这一页只剩产品建议 ——
+//   用户定：「页面最下方也有让教师重修教案的按键，假如要重修意味着当前教案不行，
+//   两者在功能上重复了」。所以原来的「类型」列、「评价 / 分类」合成列、
+//   「对应教案」那一列**全部撤掉** —— 它们是专为「两类混在一张表」设计的。
+//   表结构本身不用动（`feedback.kind` 还在，库里还有历史行），
+//   只是新数据不再有 `lesson_rating` 那一种。
 
 const SUGGEST_CN = { quality: '教案质量', feature: '功能需求', usability: '易用性', other: '其他' };
-const FB_KIND_CN = { lesson_rating: '教案评价', suggestion: '产品建议' };
 
 function feedbackView() {
   const all = S.data.feedback?.items || [];
@@ -1513,7 +1489,7 @@ function feedbackView() {
     if (f.fbHandled === 'no' && x.handled) return false;
     return true;
   });
-  const filtered = Boolean(f.fbKind !== 'all' || f.fbHandled);
+  const filtered = Boolean(f.fbHandled);
 
   // 「共 N 条，M 条未处理」删了（2026-08-22）。「几条未处理」在侧栏那个红点上
   // 一直都有，而且那里更该有 —— 它是个待办数，不该只在打开这一页时才看得到
@@ -1521,40 +1497,25 @@ function feedbackView() {
     <div class="row row--tools">${clearBtn('clearFbFilter', filtered)}</div>
     <!-- 🔴 **这张表一律纯文本**（2026-08-22 用户提：「保持纯文本可视，
          不要增加文字效果，不需要在文字外面套一个外框」）。
-         原来一行里有三个胶囊（类型、评价/分类）加一个按钮（对应教案）——
-         四个带底色的小方块，而这一列列的是**文字信息**，不是状态标记。
-         「已处理」那一列还是按钮：它是个动作，不是信息。 -->
+         「已处理」那一列还是按钮：它是个动作，不是信息。
+
+         ⚠️ 2026-09-21：**「类型」和「对应教案」两列都撤了** ——
+         它们原本是为了区分「教案评价」和「产品建议」两类数据。
+         评价删了之后这张表只剩建议，那两列（一个恒为「产品建议」、
+         一个恒为「—」）就是每行都一样的死列。
+         宽度让给「内容」和「来源」（内容 380 → 520）。 -->
     ${items.length ? `<table class="tbl-fixed">
       <tr>
-        ${thFilter('类型', 'fbKind', [
-          ['lesson_rating', '教案评价'], ['suggestion', '产品建议'],
-        ], f.fbKind, 'all', 100)}
         <!-- 来源 240：「演示·育苗幼儿园 / 演示孙雅琴」量出来要 230，原来给 190 被截 -->
-        <th style="width:240px">来源</th>
-        <!-- 「评价 / 分类」这一列 **2026-08-22 删了**（用户定，问过一次确认不补）。
-             ⚠️ 代价说清楚：**逐条**的「哪位老师把哪份教案评成不可用」从此没地方看了
-             （教师详情里的反馈记录同一轮也撤了）。概览上还有三档的**汇总**数。
-             这是他明确选的取舍，不是漏改 —— 要恢复的话把 thFilter 那一列加回来即可。 -->
-        <!-- 内容给 380：这一列才是这张表的主体，余量该落在它身上 -->
-        <th style="width:380px">内容</th><th style="width:200px">对应教案</th><th style="width:76px">时间</th>
+        <th style="width:260px">来源</th>
+        <!-- 内容给 520：这一列才是这张表的主体，余量该落在它身上 -->
+        <th style="width:520px">内容</th><th style="width:76px">时间</th>
         ${thFilter('处理状态', 'fbHandled', [['no', '未处理'], ['yes', '已处理']], f.fbHandled, '', 116)}
       </tr>
       ${items.map((x) => `<tr style="${x.handled ? 'opacity:.55' : ''}">
-        <td style="white-space:nowrap">${FB_KIND_CN[x.kind] || '—'}</td>
         <!-- 一行「园所 / 教师」（2026-08-21 用户提）：来源只需要认得出是谁，不占两行 -->
         <td style="white-space:nowrap">${esc([x.kindergarten, x.real_name].filter(Boolean).join(' / ') || '—')}</td>
         <td>${esc(x.text || '—')}</td>
-        <!-- **只给教案本身，不换行**（2026-08-22 用户提：「对应教案同时涵盖了
-             年级和教案本身，你只要提供教案本身就好了」）。年级那行小字删掉 ——
-             同一屏上「年龄班」在别处已经有了，而它把这一列撑成了两行 -->
-        <td style="white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis">${
-            x.kind === 'lesson_rating' && x.lesson_plan_id
-            // 看到「不可用」能立刻翻出那一版的原文 —— 这是评价数据唯一的用处
-            ? (x.plan_title === undefined
-                ? '<span style="color:var(--ink-3)">超级管理员可见</span>'
-                : `<button class="tlnk" onclick="openPlan(${x.lesson_plan_id},null,${x.plan_version || 'null'})"
-                     >${esc(x.plan_title || '该教案')} v${x.plan_version || '?'}</button>`)
-            : '—'}</td>
         <td style="white-space:nowrap">${fmtDay(x.created_at)}</td>
         <td><button class="btn-sm" onclick="markHandled(${x.id},${!x.handled})">
           ${x.handled ? '标为未处理' : '标为已处理'}</button></td>
@@ -1562,7 +1523,7 @@ function feedbackView() {
     </table>` : `<div class="empty">${filtered ? '当前条件下无记录' : '暂无反馈'}</div>`}`;
 }
 window.clearFbFilter = async () => {
-  S.filter.fbKind = 'all'; S.filter.fbHandled = '';
+  S.filter.fbHandled = '';
   await load();
 };
 window.markHandled = async (id, handled) => {
@@ -1592,10 +1553,10 @@ async function load() {
     if (S.page === 'tasks') jobs.tasks = api('GET', '/tasks');
     if (S.page === 'codes') jobs.codes = api('GET', `/codes?status=${S.filter.codeStatus}`);
     if (S.page === 'feedback') {
-      // 「类型」在后端筛（它有 kind 参数），另两个在前端筛 ——
-      // 反馈总量是几十条量级，为两个筛选条件加两个查询参数不值得。
-      // ⚠️ 数据一多就要挪到后端，判据是这一页开始变慢
-      jobs.feedback = api('GET', `/feedback?kind=${S.filter.fbKind}`);
+      // 2026-09-21：**不带 kind 参数了** —— 评价删了，这张表只剩产品建议，
+      // 「类型」那个筛选跟着撤了。后端仍然认这个参数（老调用方还能用），
+      // 只是这一页不再传。
+      jobs.feedback = api('GET', '/feedback');
     }
     if (S.page === 'models' && isSuper()) jobs.models = api('GET', '/models');
     if (S.page === 'admins' && isSuper()) jobs.admins = api('GET', '/admins');

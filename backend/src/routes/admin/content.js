@@ -158,6 +158,16 @@ contentRouter.get('/plans/:id', requireSuper, asyncRoute(async (req, res) => {
   });
 }));
 
+/**
+ * 反馈列表。
+ *
+ * ⚠️ **`kind` 这个查询参数留着**，虽然 2026-09-21 删掉教案评价之后
+ * 前端的「类型」筛选也撤了（这张表只剩产品建议）。
+ * 留着的理由：库里还有 `kind = 'lesson_rating'` 的**历史行**，
+ * 而这一页不做 WHERE 时要能全捞出来。参数本身不删，
+ * 是因为删它没有好处、而以后万一要按类型筛又得加回来。
+ * 所有调用方都被 `LIMIT 200` 兜着，不用担心它捞太多。
+ */
 contentRouter.get('/feedback', asyncRoute(async (req, res) => {
   const kind = String(req.query.kind || 'all');
   const where = kind === 'all' ? '' : `WHERE f.kind = '${kind === 'lesson_rating' ? 'lesson_rating' : 'suggestion'}'`;

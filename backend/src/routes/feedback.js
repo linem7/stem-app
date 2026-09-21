@@ -1,24 +1,34 @@
 /**
  * 反馈 —— operations.md 第 4 节
  *
- *   POST /feedback                产品建议（「我的」页）
- *   POST /lesson-plans/:id/rate   教案评价（成稿页，挂在 lessonPlans 那边的路径下）
+ *   POST /feedback   产品建议（「我的」页）
  *
- * 两类合一张表，靠 kind 区分。教案评价**绑 lesson_plan_id + version** ——
- * 这是关键：后台看到的是「大班搭高塔的 v2 被标了用不了，原文在这」，
- * 而不是一句无从查起的抱怨。CLAUDE.md 里「教案是否真的适龄可用」是这个产品最大的未知数，
- * 目前只有 3 个我自己跑的样本；这个字段一上线，它就变成每份教案都有的真实标注。
+ * 【教案评价已删】（2026-09-21 用户定）
+ *
+ * 原来还有 `POST /lesson-plans/:id/rate`（成稿页底部问「这份教案能直接用吗？」
+ * 三档：直接能用 / 改改能用 / 用不了）。用户的原话：
+ *
+ *   「我不要这个功能了，我觉得多余，页面最下方也有让教师重修教案的按键，
+ *     假如要重修意味着当前教案不行。两者在功能上重复了」
+ *
+ * **这个理由是对的**：成稿页底下那条「哪里不对？我来改」已经表达同一件事，
+ * 而且它更长 —— 她点进去要说清哪里不对，那比一个三档的选择信息量大得多。
+ * 两个入口并排，她会犹豫点哪个，而其中一个是多余的那个。
+ *
+ * ⚠️ **`feedback` 表**不删（产品建议还在用），`kind = 'lesson_rating'` 那几列
+ * （`lesson_plan_id` / `plan_version` / `rating`）**留在表上不删** ——
+ * 库里还有历史行，删列会让它们失去含义。新代码不再写那几列。
+ * 管理端那三档统计也一起撤了（见 `admin/app.js`）。
  */
 import { Router } from 'express';
 import { queryOne } from '../db/pool.js';
-import { ok, asyncRoute, badRequest, notFound } from '../utils/errors.js';
+import { ok, asyncRoute, badRequest } from '../utils/errors.js';
 import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
 import { logger } from '../utils/logger.js';
 
 export const feedbackRouter = Router();
 
 const CATEGORIES = ['quality', 'feature', 'usability', 'other'];
-const RATINGS = ['usable', 'needs_edit', 'unusable'];
 
 /** 反馈正文也是 UGC，规矩不变 */
 async function checkText(text, openid) {
@@ -56,40 +66,3 @@ feedbackRouter.post(
   })
 );
 
-/**
- * POST /lesson-plans/:id/rate —— 教案评价
- * 单独导出，由 lessonPlans 的路由挂进去（路径归属那边）。
- */
-export const rateHandler = asyncRoute(async (req, res) => {
-  const planId = Number(req.params.id);
-  if (!Number.isInteger(planId) || planId <= 0) throw notFound('没有找到这份教案');
-
-  const plan = await queryOne(
-    `SELECT id, version FROM lesson_plans WHERE id = $1 AND teacher_id = $2`,
-    [planId, req.teacherId]
-  );
-  if (!plan) throw notFound('没有找到这份教案');
-
-  const rating = String(req.body?.rating || '');
-  if (!RATINGS.includes(rating)) throw badRequest('请选一个评价');
-
-  const text = String(req.body?.text || '').trim().slice(0, 500) || null;
-  await checkText(text, req.teacher.openid);
-
-  // 同一份教案的同一个版本只留最新一条：老师改主意是覆盖，不是叠加。
-  // 唯一索引 idx_fb_plan_version 保证了这一点。
-  const row = await queryOne(
-    `INSERT INTO feedback (teacher_id, kind, lesson_plan_id, plan_version, rating, text)
-     VALUES ($1, 'lesson_rating', $2, $3, $4, $5)
-     ON CONFLICT (lesson_plan_id, plan_version) WHERE kind = 'lesson_rating'
-     DO UPDATE SET rating = EXCLUDED.rating, text = EXCLUDED.text, created_at = now()
-     RETURNING id`,
-    [req.teacherId, plan.id, plan.version, rating, text]
-  );
-
-  logger.info('feedback_rating', {
-    teacher_id: req.teacherId, lesson_plan_id: plan.id, version: plan.version, rating,
-  });
-
-  return ok(res, { id: row.id, rating, version: plan.version });
-});

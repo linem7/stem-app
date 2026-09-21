@@ -21,15 +21,18 @@ export const overviewRouter = Router();
  *   3. **哪个园用了多少额度** —— 合作是按园谈的，钱也该按园看
  *   4. **等我处理** —— 反馈、失败、快没额度的老师、码不够了
  *
- * 顺手修了一个真 bug：教案评价分布原来查 `kind = 'rating'`，
- * 而库里的真实值是 `'lesson_rating'` —— 所以那一屏**永远显示「还没有人评价过」**，
- * 而实际上早就有数据了。这是这个产品最大未知数的唯一数据源，
- * 一个 typo 让它静静地消失，看起来还完全正常。
+ * ⚠️ **2026-09-21：教案评价那三项汇总删了**（用户定，见 `feedback.js` 的文件头）。
+ * 原来这里有一句 `SELECT rating … WHERE kind = 'lesson_rating'`，
+ * 曾经因为把 kind 写成 `'rating'` 而**永远显示「还没有人评价过」**——
+ * 那件事的教训还留着，只是现在没有那一行了：
+ *
+ *   **一个 typo 能让唯一重要的指标静静地消失，而且看起来完全正常。**
+ *   报「没有数据」之前先确认查的是不是对的字段。
  */
 overviewRouter.get(
   '/overview',
   asyncRoute(async (req, res) => {
-    const [money, usage, quality, lowQuota, todo] = await Promise.all([
+    const [money, usage, lowQuota, todo] = await Promise.all([
       getMoney(),
       // 「几位老师 / 近 7 天来过几位」这两个数**必须同一个口径**，
       // 否则会出现「33 位老师，近 7 天来过 41 位」这种读不通的话。
@@ -48,11 +51,6 @@ overviewRouter.get(
             WHERE activated_at IS NOT NULL AND status <> 'deleted'
               AND last_login_at > now() - interval '7 days')::int AS teachers_active_7d
       `),
-      // 教案评价分布 —— 「AI 写的教案是否真的适龄可用」是这个产品最大的未知数，
-      // 这一行是它唯一的持续数据源，必须摆在概览上。
-      // **kind 是 'lesson_rating' 不是 'rating'**（原来写错了，这一屏一直是空的）
-      query(`SELECT rating, COUNT(*)::int n FROM feedback
-              WHERE kind = 'lesson_rating' AND rating IS NOT NULL GROUP BY rating`),
       // 快没额度的老师：她下一次点「写教案」就会撞墙，而那时才发现就晚了
       query(`
         SELECT t.id, t.real_name, k.name AS kindergarten,
@@ -80,7 +78,6 @@ overviewRouter.get(
       // 一件事写在两处，迟早两处算法分叉，而分叉的表现是两页数字对不上。
     ]);
 
-    const byRating = Object.fromEntries(quality.rows.map((r) => [r.rating, r.n]));
     return ok(res, {
       money,
       usage,
@@ -93,11 +90,6 @@ overviewRouter.get(
           kindergarten: r.kindergarten,
           text_left: r.text_left,
         })),
-      },
-      quality: {
-        usable: byRating.usable || 0,
-        needs_edit: byRating.needs_edit || 0,
-        unusable: byRating.unusable || 0,
       },
     });
   })

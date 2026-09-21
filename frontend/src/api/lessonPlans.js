@@ -82,11 +82,26 @@ export function rollback(lessonPlanId, version) {
  * —— 后端拿它当图片标签，因为教案改过之后材料清单可能已经变了，靠下标认不出来。
  * 每份教案最多 3 张，超了返回 IMAGE_LIMIT_EXCEEDED。
  */
-export function requestImage(lessonPlanId, { purpose, sectionKey, note }) {
+/**
+ * 画一张。
+ *
+ * @param {object} o
+ * @param {boolean|null} [o.color] 要不要彩色。
+ *   `true` 彩色 / `false` 黑白 / `null` 不传（后端按用途的 kind 判，跟以前一样）。
+ *   ⚠️ **只有「打印用」那几类会传它** —— 展示用的图一律彩色，
+ *   传 `null` 让后端自己判更省事，也少一处「前端说彩色、后端说黑白」的可能。
+ */
+export function requestImage(lessonPlanId, { purpose, sectionKey, note, color = null, plan = false }) {
   return post(`/lesson-plans/${lessonPlanId}/images`, {
     purpose,
     section_key: sectionKey,
     note,
+    color,
+    /* `plan: true` = 这段 note 是「一张纸的完整方案描述」，
+       **不要数它有几样、不要排裁切网格**（后端 `countSubjects` 那条路）。
+       见 `routes/images.js` 里那段注释：按逗号数一段散文会数出 9 样排成 3×3，
+       把她写的记录表那半张挤掉。 */
+    plan,
   })
 }
 
@@ -105,14 +120,6 @@ export function pollImage(lessonPlanId, imageId, { onTick } = {}) {
   })
 }
 
-/* ============ 评价 ============ */
-
-/**
- * 教案评价。绑 lesson_plan_id + version —— 后台看到的是「大班搭高塔的 v2 被标了用不了，
- * 原文在这」，而不是一句无从查起的抱怨。同版本重复提交是覆盖。
- *
- * 这是「教案是否真的适龄可用」这个最大未知数的持续数据源。
- */
-export function rateLessonPlan(id, { rating, text }) {
-  return post(`/lesson-plans/${id}/rate`, { rating, text })
-}
+/* 评价那个接口删了（2026-09-21，用户定）。
+   理由见后端 `routes/feedback.js` 的文件头：成稿页底下那条「哪里不对？我来改」
+   已经表达了同一件事，而且信息量更大 —— 两个入口并排，她会犹豫点哪个。 */
