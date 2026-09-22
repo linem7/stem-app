@@ -438,6 +438,7 @@ import {
   requestImage,
 } from '../api/lessonPlans.js'
 import { iconCheck } from '../utils/icons.js'
+import { useUnsavedChanges } from '../utils/unsaved.js'
 import { COLORS } from '../utils/colors.js'
 import { downloadImage } from '../utils/saveImage.js'
 import { alert, showApiError, toast } from '../utils/ui.js'
@@ -557,6 +558,7 @@ function pickPurpose(group, p) {
 }
 const custom = ref('')
 const customEl = ref(null)
+useUnsavedChanges(() => sheetOpen.value && Boolean(custom.value.trim()))
 
 const MAX_IMAGES = 3
 

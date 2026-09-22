@@ -3,7 +3,7 @@
  *
  *   GET   /lesson-plans/:id          取教案（含配图列表）
  *   PATCH /lesson-plans/:id          局部编辑
- *   POST  /lesson-plans/:id/update   同上，给小程序用（wx.request 发不出 PATCH）
+ *   POST  /lesson-plans/:id/update   同上，兼容别名
  *   POST  /lesson-plans/:id/export   导出
  */
 import { Router } from 'express';
@@ -13,7 +13,7 @@ import { renderMarkdown } from '../services/lessonGenerator.js';
 import { buildImageUrl, readImage } from '../services/imageStore.js';
 import { buildLessonDocx } from '../services/lessonDocx.js';
 import { PURPOSES } from '../services/imagePurpose.js';
-import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
+import { checkText, contentBlockedError } from '../services/contentSafety.js';
 import { logger } from '../utils/logger.js';
 
 export const lessonPlansRouter = Router();
@@ -182,7 +182,7 @@ lessonPlansRouter.post(
 //
 // **两个方法同一个 handler**，因为 wx.request 发不出 PATCH（同 memories.js）。
 //
-// 小程序端**目前没有调用方**，这是有意的（用户 2026-08-21 定）：成稿页不给
+// 前端**目前没有调用方**，这是有意的（用户 2026-08-21 定）：成稿页不给
 // 「自己动手改文字」的入口，老师改教案一律走「改一改」那条 AI 重写的路 ——
 // 手打改教案在手机上本来就难用，而 AI 重写是这个产品的核心。
 // 别看到「没人调」就把这条路删掉：接口通着，哪天要用不必再动后端。
@@ -212,11 +212,9 @@ const updateLessonPlan = asyncRoute(async (req, res) => {
     }
 
     // 老师改的内容也是 UGC，要过内容安全
-    const changedText = JSON.stringify(body).slice(0, 2000);
-    const check = await msgSecCheck({
+    const changedText = JSON.stringify(nextJson);
+    const check = await checkText({
       content: changedText,
-      openid: req.teacher.openid,
-      scene: 3,
       stage: 'teacher_input',
     });
     if (!check.pass) throw contentBlockedError('teacher_input');

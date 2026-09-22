@@ -2,7 +2,7 @@
  * 统一错误码与响应格式（对应 api-spec 第 0 节）。
  *
  * 为什么把中文文案放在后端：api-spec 明确写了「话术统一在后端，方便日后调整措辞」。
- * 前端拿到什么就显示什么，改文案不用发版小程序。
+ * 前端拿到什么就显示什么，改文案不用前端跟着发一版。
  */
 
 /** 错误码表：code → { http, message, retryable } —— 与 api-spec 第 0 节逐行对应 */
@@ -11,6 +11,7 @@ export const ERROR_CATALOG = {
   NOT_FOUND: { http: 404, message: '没有找到这份教案', retryable: false },
   VALIDATION_FAILED: { http: 400, message: '提交的内容有点问题', retryable: false },
   RATE_LIMITED: { http: 429, message: '有点忙，请稍等一下再试', retryable: true },
+  CONTENT_CHECK_UNAVAILABLE: { http: 503, message: '安全检查暂时不可用，请稍后重试', retryable: true },
   MODEL_TIMEOUT: { http: 504, message: '生成超时了，再试一次通常就好', retryable: true },
   MODEL_FAILED: { http: 502, message: '生成没成功，换个说法再试试', retryable: true },
   IMAGE_FAILED: { http: 502, message: '配图没生成出来，可以重试', retryable: true },
@@ -21,7 +22,7 @@ export const ERROR_CATALOG = {
   // 文案里一定要带出路，只说「用完了」是个死胡同。
   QUOTA_EXCEEDED: { http: 403, message: '这个月的额度用完了，完成任务可以再拿一些', retryable: false },
   // 还没兑换码激活 / 还没同意协议，前端据此跳对应的页
-  NOT_ACTIVATED: { http: 403, message: '这个小程序目前只开放给合作园的老师，需要兑换码才能使用', retryable: false },
+  NOT_ACTIVATED: { http: 403, message: '这里目前只开放给合作园的老师，需要兑换码才能使用', retryable: false },
   // 一份教案的材料图上限。这是内容判断不是成本判断 ——
   // 三张以上老师就不看了，而且越多越像商品目录、离教案越远。
   IMAGE_LIMIT_EXCEEDED: { http: 403, message: '一份教案最多配 3 张材料图，够用了', retryable: false },

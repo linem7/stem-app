@@ -1,319 +1,92 @@
-# 后端服务 · 怎么跑起来
+# 后端运行说明
 
-这份文档假设你不是专业后端工程师。**照着从上往下做一遍就能跑通**，每一步都写了「做完应该看到什么」，看到的和写的不一样就停下来问 AI。
+Express 4 + JavaScript ESM + PostgreSQL。以下命令除特别注明外都在 `backend/` 目录执行。项目与文档入口见 [根 README](../README.md) 和 [文档导航](../docs/README.md)。
 
-技术栈（已定，见 `docs/adr/ADR-001-technology-stack.md`）：Node.js 20 + Express 4 + 原生 JavaScript + PostgreSQL（手写 SQL，不用 ORM）。
+## 首次配置
 
----
-
-## 零、需要装的两样东西
-
-### 1. Node.js（20 或更高）
-
-去 https://nodejs.org 下载 LTS 版本，一路下一步装完。
-
-验证：打开终端（Windows 用 PowerShell 或 Git Bash），输入
-
-```bash
-node -v
-```
-
-看到 `v20.x.x` 或更高就对了。
-
-### 2. PostgreSQL（14 或更高）
-
-去 https://www.postgresql.org/download/ 下载对应系统的安装包。
-
-**安装时它会让你设一个 postgres 用户的密码，记下来**，等一下要填进 `.env`。
-
-验证：
-
-```bash
-psql --version
-```
-
-看到 `psql (PostgreSQL) 14.x` 或更高就对了。
-（Windows 上如果提示"不是内部或外部命令"，说明安装目录没进 PATH，把 `C:\Program Files\PostgreSQL\16\bin` 加到系统环境变量 Path 里，重开终端。）
-
----
-
-## 一、建数据库
-
-只需要建一个空数据库，表由迁移脚本自动建。
-
-```bash
-# 方式 A：命令行
-createdb -U postgres stem_app
-
-# 方式 B：如果 A 报错，用 psql 进去建
-psql -U postgres
-# 进去后输入下面这行（分号不能少），然后 \q 退出
-CREATE DATABASE stem_app;
-```
-
-**做完应该看到什么**：没有任何报错就是成功了（Unix 哲学，成功时不说话）。
-
----
-
-## 二、装依赖
-
-> ⚠️ **先看这条，不然会卡住**
->
-> 这个项目现在放在 **Google Drive 同步目录（`G:\My Drive\...`）里**。
-> Google Drive 是虚拟盘，`npm install` 要往里写几万个小文件，会失败并报
-> `EBADF: bad file descriptor` 或 `EPERM: operation not permitted`。这不是代码问题，是盘的问题。
->
-> **解决办法（二选一，推荐第一个）**：
->
-> 1. 把 `backend` 这个文件夹**复制到本地硬盘**再开发，比如 `C:\dev\stem-app-backend`。
->    代码照常用 Git 或手动同步回 Drive 备份。`node_modules` 本来也不该进网盘。
-> 2. 或者在 Google Drive 客户端里把这个目录设为"可离线使用"，并在装依赖期间暂停同步。
->
-> 后面所有命令都在你实际开发的那个目录里跑。
-
-在 `backend` 目录下：
+后端需要 Node.js 20+、PostgreSQL 14+；同时运行当前前端需 Node `^20.19.0 || >=22.12.0`（Vite 8.2.2 的 engines）。在本地硬盘安装依赖；若在 Google Drive 虚拟盘遇到 `EBADF` 或 `EPERM`，将项目放到本地硬盘。
 
 ```bash
 npm install
-```
-
-**做完应该看到什么**：`added 119 packages` 之类的一行，并且目录下多了 `node_modules` 文件夹。
-
----
-
-## 三、填 .env
-
-```bash
-# Mac / Linux / Git Bash
+createdb -U postgres stem_app
+# 仅首次创建；已有 .env 时不要覆盖
 cp .env.example .env
-
-# Windows CMD
-copy .env.example .env
 ```
 
-然后用记事本或 VS Code 打开 `.env`，**每一项上面都写了这个东西去哪申请**。
+Windows CMD 可用 `copy .env.example .env`。填写环境文件时以 [.env.example](.env.example) 与 [配置实现](src/config.js) 为准：
 
-最少要填这五项才能启动：
+| 配置 | 用途与条件 |
+|---|---|
+| `DATABASE_URL` | 必填，连接自己的 PostgreSQL 数据库 |
+| `JWT_SECRET` | 必填，至少 32 字符的随机密钥 |
+| `DEEPSEEK_API_KEY` | 新库模型的播种来源；已有模型配置以数据库为准，后续通过后台管理 |
+| `ADMIN_PASSWORD` | 首个管理员的初始密码；已有账号后修改环境变量不会重置账号密码 |
+| `CONTENT_CHECK_ENABLED` | 是否启用文本审核；对外服务应开启 |
+| `ALIBABA_CLOUD_ACCESS_KEY_ID`、`ALIBABA_CLOUD_ACCESS_KEY_SECRET` | 开启审核时必填，缺失会导致启动失败 |
+| `LOCAL_IMAGE_DIR` | 图片目录，默认 `./.local-images`，相对于进程工作目录 |
+| `PUBLIC_BASE_URL` | 图片公开地址的基址，部署时使用实际 HTTPS 入口 |
+| `IMAGE_DAILY_LIMIT` | 配图日限额，代码默认 10；实际值取环境配置 |
 
-| 变量 | 现在就能填 | 说明 |
-|---|---|---|
-| `DATABASE_URL` | ✅ | 把 `你的密码` 换成第零步设的 postgres 密码 |
-| `JWT_SECRET` | ✅ | 自己生成，见下面 |
-| `WECHAT_APPID` | ⚠️ | 还没申请小程序的话，先随便填 `wx_placeholder` |
-| `WECHAT_SECRET` | ⚠️ | 同上，先随便填 `placeholder` |
-| `DEEPSEEK_API_KEY` | ⚠️ | 去 platform.deepseek.com 申请，**必须充值一点钱**，不然调用报余额不足 |
-
-生成 `JWT_SECRET`：
+生成 JWT 密钥：
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 ```
 
-把输出那一长串粘到 `JWT_SECRET=` 后面。
-
-> **先跑通再接模型**：微信和 DeepSeek 的 key 都还没有也没关系。
-> 把 `WECHAT_*` 填占位值、`DEV_FAKE_LOGIN=true`，就能用假登录把整条链路跑通，
-> 只是引导出题会退化成兜底选项、生成教案会报错。
-
----
-
-## 四、建表（跑迁移）
+无需配置微信变量。图片采用本地磁盘方案，保留的 `OBJECT_STORAGE_*` 不需要填写。文本与图片模型播种后通过管理后台修改，避免只改环境文件却误以为数据库模型也已更新。
 
 ```bash
 npm run migrate
-```
-
-**做完应该看到什么**：
-
-```
-准备迁移数据库：postgres://postgres:****@localhost:5432/stem_app
-
-  执行 001_init.sql ...
-  完成 001_init.sql
-
-迁移完成：本次执行了 1 个文件，共 1 个。
-```
-
-再跑一次会说「数据库已经是最新的」——这是对的，跑过的迁移不会重复执行。
-
-**如果报错**：错误信息里会直接写是哪一步的问题（连不上 / 密码不对 / 库不存在），照着改就行。
-
----
-
-## 五、启动
-
-```bash
 npm start
 ```
 
-**做完应该看到什么**：
+迁移执行器记录已执行文件，重复运行只执行新增迁移。当前仓库包含 001–025；已有数据库继续迁移，不重建空库。
 
-```
-════════════════════════════════════════════════════════
- 后端启动成功
-════════════════════════════════════════════════════════
-  地址：      http://localhost:3000
-  环境：      development
-  文本模型：  deepseek-chat
-  配图：      未配置（不影响其他功能）
-  内容安全：  关（上线前必须开）
+## 启动与登录
 
-  验证一下：
-      curl http://localhost:3000/healthz
-════════════════════════════════════════════════════════
-```
-
-开发时用 `npm run dev`，改完代码自动重启。
-
----
-
-## 六、验证跑通了
-
-### 6.1 服务活着吗
-
-新开一个终端：
+后端默认端口 3000，管理后台为 `/admin/`。新开终端验证：
 
 ```bash
 curl http://localhost:3000/healthz
 ```
 
-**期望看到**：
+响应 `ok: true`、`data.db: "up"` 表示服务与数据库连通，`data.queue` 提供当前队列情况。这不代表模型、审核或完整生成链路已验证。
 
-```json
-{"ok":true,"data":{"service":"stem-lesson-backend","db":"up","queue":{"queued":0,"running":0,"concurrency":2},"time":"..."}}
-```
-
-`"db":"up"` 是关键——它说明服务和数据库都通了。
-
-### 6.2 完整走一遍（假登录）
-
-确认 `.env` 里 `DEV_FAKE_LOGIN=true`，然后：
+教师前端在项目根目录另开终端运行：
 
 ```bash
-# 1) 登录，拿 token
-curl -X POST http://localhost:3000/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"code":"dev:test001"}'
+cd frontend
+npm install
+npm run dev
 ```
 
-**期望看到**：`{"ok":true,"data":{"token":"eyJ...","expires_in":2592000,"teacher":{...}}}`
+在后台准备兑换码及名单／地区信息；教师打开 `/redeem`，选择名单身份或「不在名单之内」，设置手机号（输入两次）与密码，使用前同意协议。以后用 `/login` 登录。接口字段见 [API 约定](../docs/design/api-spec.md)。
 
-把 `token` 的值复制下来，下面每一条都要用：
+Windows 可双击根目录 `admin.bat` / `teacher.bat`。Vite 代理固定连接 `localhost:3000`，端口被其他程序占用时先解决冲突。后端采用进程内队列，运行生成任务期间不要使用 `npm run dev` 的自动重启；改后端后手动重启并重新检查健康状态。
 
-```bash
-TOKEN=把上面那串token粘这里
+## 验证与测试
 
-# 2) 看自己的档案
-curl http://localhost:3000/v1/me -H "Authorization: Bearer $TOKEN"
+本节只说明操作条件；运行脚本前确认目标为测试环境。
 
-# 3) 填档案
-curl -X PATCH http://localhost:3000/v1/me \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"kindergarten_name":"阳光幼儿园","age_group":"中班","teaching_years":5}'
-
-# 4) 开一个教案会话 —— 这一步会真的调 DeepSeek
-curl -X POST http://localhost:3000/v1/conversations \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"seed_input":"我想做个浮与沉的活动"}'
-```
-
-**期望看到**：返回里有 `conversation_id` 和第一题（问年龄班，三个选项：小班/中班/大班）。
-
-```bash
-# 5) 答第一题（选 A = 小班），拿下一题
-curl -X POST http://localhost:3000/v1/conversations/1/answer \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"question_id":"q1","selected":["A"]}'
-```
-
-**这一步是验证「年龄班规则生效」的关键**：接着答到第三题（时长），你会看到选项是
-**15 / 20 / 25 分钟**。如果第一题选的是大班（C），同一道题的选项会变成 **30 / 40 / 45 分钟**。
-这不是模型随便给的，是代码从 `age-band-adaptation.md` 的参数表里算出来的。
-
-```bash
-# 6) 直接生成教案（不用把 11 题答完）
-curl -X POST http://localhost:3000/v1/conversations/1/generate \
-  -H "Authorization: Bearer $TOKEN"
-
-# 7) 每 2 秒查一次进度（真实前端也是这么做的）
-curl http://localhost:3000/v1/conversations/1/generate/status \
-  -H "Authorization: Bearer $TOKEN"
-
-# 8) status 变成 completed 后，用返回的 lesson_plan_id 取教案
-curl http://localhost:3000/v1/lesson-plans/1 -H "Authorization: Bearer $TOKEN"
-```
-
-走到这里，**后端主链路就算跑通了**。
-
----
-
-## 七、常见问题
-
-| 现象 | 原因和解决 |
-|---|---|
-| `npm install` 报 `EBADF` / `EPERM` | 项目在 Google Drive 虚拟盘上，见第二步开头的提醒，复制到本地硬盘再装 |
-| 启动时列出一堆「还差 N 项」 | `.env` 没填全，照着提示补 |
-| `连不上数据库` | PostgreSQL 服务没启动，或 `.env` 里密码写错 |
-| `数据库连上了，但表还没建` | 先 `npm run migrate` |
-| 生成教案返回 `生成没成功` | 多半是 DeepSeek 的 key 无效或余额不足，去 platform.deepseek.com 看 |
-| `配图没生成出来` | 正常，豆包接入还没做完，见 `src/services/doubao.js` 顶部注释 |
-| `导出 Word 还在做` | 正常，见 `src/routes/lessonPlans.js` 的 TODO |
-
----
-
-## 八、目录结构
-
-```
-src/
-  server.js              入口：启动自检 + 挂路由
-  config.js              读环境变量，缺什么明确报错
-  db/
-    pool.js              连接池 + query 封装
-    migrate.js           迁移执行器（npm run migrate）
-    migrations/001_init.sql   6 张表 + 索引
-  middleware/
-    auth.js              JWT 签发与校验
-    errorHandler.js      统一错误响应
-    rateLimit.js         限流
-  routes/                一个文件对应 api-spec 的一节
-  services/
-    promptBuilder.js     ★ 拼系统提示词（年龄班规则在这里）
-    guideFlow.js         ★ 三轮引导的流程控制
-    lessonGenerator.js   ★ 生成教案 + 自检 + Markdown 渲染
-    memoryExtractor.js   ★ 提取记忆并去重合并
-    deepseek.js          文本模型
-    doubao.js            图片模型（部分 TODO）
-    wechat.js            登录 + 内容安全
-    taskQueue.js         进程内异步队列
-  utils/
-    errors.js            错误码 + 统一响应
-    logger.js            结构化日志（不记对话正文）
-```
-
----
-
-## 九、上线前必须做的事
-
-这几条不做会出事，按顺序检查：
-
-1. **`.env` 里 `CONTENT_CHECK_ENABLED=true`**
-   微信规定小程序有用户内容就必须过 `msgSecCheck`，不做审核不通过。
-2. **`NODE_ENV=production`**（假登录会被强制关掉）
-3. **`.env` 绝不能提交到 Git**，也不能出现在前端代码里。所有 API key 只在服务器上。
-4. **域名要 HTTPS + 已备案**，小程序强制要求。备案流程见 ADR-001。
-5. 用 PM2 守护进程：`npm i -g pm2 && pm2 start src/server.js --name stem-api`
-6. 定期跑清理（db-schema.md 第 8 节）：软删除 30 天后物理删、失败的配图 7 天后清。
-   这个清理脚本还没写，上线前补一个 `node scripts/cleanup.js` + cron 即可。
-
----
-
-## 十、还没做完的（有意留的 TODO）
-
-| 位置 | 内容 | 什么时候做 |
+| 类别 | 命令 | 条件与副作用 |
 |---|---|---|
-| `src/services/doubao.js` | 火山引擎签名 + 图片接口请求体 | 拿到火山引擎 AK/SK 之后。注释里写了去哪查文档 |
-| `src/services/doubao.js` | 对象存储上传 | 选定腾讯云 COS 或阿里云 OSS 之后 |
-| `src/routes/lessonPlans.js` | 导出 docx | 上线前。用 `docx` npm 包，注释里写了步骤 |
-| （未建） | 数据清理定时脚本 | 上线一个月内 |
+| 后端静态检查 | `npm run lint` | 不起服务、不调用模型 |
+| 后端离线回归 | `npm run test:ageband`、`test:commentary`、`test:stream`、`test:context`、`test:contentsafety:unit` | 每项均用 `npm run` 执行；不连接业务库或真实审核服务 |
+| 前端离线检查（在 `frontend/`） | `npm run lint`、`test:tokens`、`test:contrast`、`test:logout`，以及 `npm run build` | 不需要后端；构建会写入 `dist/` |
+| 接口回归（在 `frontend/`） | `npm run test:api` | 需要后端、数据库和测试管理员，会创建测试数据；加 `-- --generate` 会调用模型 |
+| 生成冒烟 | `npm run smoke -- 小班`（可换中班／大班） | 需要后端、数据库、用户名为 `admin` 的测试管理员及可用文本模型；会建账号、兑换码和教案并产生模型费用 |
+| 真实内容审核 | `npm run test:contentsafety` | 读取 `.env`，调用真实阿里云审核；细节见审核文档 |
 
-除这四项外，其余功能都是**真实现**，不是占位。
+冒烟脚本可用 `BASE` 指定服务地址、`ADMIN_PASSWORD` 指定测试管理员密码、`SEED` 指定主题。其账号通过正式激活接口创建，不依赖假登录。其他接口测试的变量与用途以各脚本文件头为准，不将所有脚本视作离线测试。
+
+`node scripts/cleanup-test-data.mjs` 默认预览候选数据，加 `--yes` 会删除数据；种子、清库与压缩历史图片脚本也会改数据或文件，不属于文档检查。
+
+## 排错与部署参考
+
+- 数据库连接失败：检查服务是否启动、连接地址和密码是否匹配；不要照旧交接直接重置密码。
+- 服务启动但不能生成：核对后台是否有启用的文本模型、凭据和余额；健康检查不验证模型可用性。
+- 审核暂不可用：会返回可重试的 `CONTENT_CHECK_UNAVAILABLE`（503），不能通过关闭审核来掩盖线上故障。
+- Word 下载：接口直接返回文件，前端以 blob 下载；不是跳转到一个有时效的下载链接。
+- 图片访问失败：核对磁盘文件、`LOCAL_IMAGE_DIR` 与 `PUBLIC_BASE_URL`，备份时保留业务图片。
+
+当前功能待办与有日期的部署记录见 [开发约定](../CLAUDE.md)。审核配置见 [内容安全](../docs/design/content-safety.md)。本次文档整理不运行部署、迁移、重启或收费测试。

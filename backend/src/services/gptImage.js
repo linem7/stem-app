@@ -43,7 +43,7 @@ import { logger, startTimer } from '../utils/logger.js';
 /**
  * HTTP 状态码 → 给老师看的中文。
  *
- * 这里的文案是**直接显示在小程序上**的，所以不出现「401」「rate limit」这类词；
+ * 这里的文案是**直接显示给老师看**的，所以不出现「401」「rate limit」这类词；
  * 需要开发者处理的（密钥、余额）才点名环境变量，因为那句是给管理员看的。
  */
 const HTTP_ERR = {

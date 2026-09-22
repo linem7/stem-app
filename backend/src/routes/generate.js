@@ -4,11 +4,12 @@
  *   POST /conversations/:id/generate         立刻返回 task_id，真正的活儿交给任务队列
  *   GET  /conversations/:id/generate/status  前端每 2 秒轮一次
  *
- * 为什么必须异步：生成要 15-30 秒，微信小程序的请求会先超时。
- * 为什么不用 WebSocket：小程序里长连接的断线重连和后台挂起处理成本高，
+ * 为什么必须异步：生成要 15-30 秒，一个 HTTP 请求等不了这么久。
+ * 为什么不用 WebSocket：长连接的断线重连和手机切后台的处理成本高，
  * 而这里只需要一个 30 秒内的结果（api-spec 第 4 节已给出理由）。
  */
 import { Router } from 'express';
+import { config } from '../config.js';
 import { query, queryOne, withTransaction } from '../db/pool.js';
 import { ok, asyncRoute, badRequest } from '../utils/errors.js';
 import { limitGenerate } from '../middleware/rateLimit.js';
@@ -16,7 +17,7 @@ import { taskQueue, setPhase, setStreamText, resetStream, getProgress } from '..
 import { generateLessonPlan } from '../services/lessonGenerator.js';
 import { readablePrefix } from '../services/planStream.js';
 import { extractAndSaveMemories, listMemories } from '../services/memoryExtractor.js';
-import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
+import { checkText, contentBlockedError } from '../services/contentSafety.js';
 import { canFinish } from '../services/guideFlow.js';
 import { loadConversation, parseId } from './conversations.js';
 import { logger } from '../utils/logger.js';
@@ -61,15 +62,13 @@ export function enqueueLessonGeneration({ conv, teacher, memories, qaHistory }) 
           // 第一个字到了 = 它不是在想，是在写。这一步的判据只能在这里 ——
           // lessonGenerator 那边看不见模型什么时候开的口
           setPhase(taskId, 'writing');
-          setStreamText(taskId, readablePrefix(raw));
+          if (!config.contentSafety.enabled) setStreamText(taskId, readablePrefix(raw));
         },
       });
 
       // AI 输出也要过内容安全（api-spec 第 10 节）
-      const check = await msgSecCheck({
-        content: plan.content_md,
-        openid: teacher.openid,
-        scene: 3,
+      const check = await checkText({
+        content: [plan.title, plan.content_md, JSON.stringify(plan.content_json || {})].join('\n'),
         stage: 'ai_output',
       });
       if (!check.pass) throw contentBlockedError('ai_output');
@@ -321,7 +320,7 @@ generateRouter.get(
  * 前端清屏重画。慢一拍，但画面不会花。
  */
 export function streamDelta(p, q) {
-  if (!p) return null;
+  if (config.contentSafety.enabled || !p) return null;
   const epoch = Number(q?.epoch) || 0;
   const from = Number(q?.from) || 0;
   const restart = epoch !== p.epoch || from < 0 || from > p.text.length;

@@ -3,7 +3,7 @@
  *
  * **改档案两个方法指向同一个 handler**：
  *   PATCH /me          —— 语义正确的那个
- *   POST  /me/update   —— 给小程序用，因为 **wx.request 发不出 PATCH**
+ *   POST  /me/update   —— 兼容别名，给发不出 PATCH 的客户端用
  * 同 memories.js 那条别名，理由一模一样。
  *
  * ⚠️ `kindergarten_name` 和 `teaching_years` **只有这一条路能填**。
@@ -20,7 +20,7 @@ import { AGE_GROUPS } from '../services/promptBuilder.js';
 import { POSITIONS, EDUCATIONS, TITLES } from '../services/roster.js';
 import { getQuota } from '../services/quota.js';
 import { config } from '../config.js';
-import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
+import { checkText, contentBlockedError } from '../services/contentSafety.js';
 
 export const meRouter = Router();
 
@@ -163,12 +163,10 @@ const updateMe = asyncRoute(async (req, res) => {
     if (!sets.length) return ok(res, toTeacherDTO(req.teacher));
 
     // 老师自己填的文字也是 UGC，要过内容安全（api-spec 第 10 节）
-    const userText = [body.nickname, body.kindergarten_name].filter(Boolean).join(' ');
+    const userText = [body.nickname, body.kindergarten_name, body.preferences ? JSON.stringify(body.preferences) : null].filter(Boolean).join(' ');
     if (userText) {
-      const check = await msgSecCheck({
+      const check = await checkText({
         content: userText,
-        openid: req.teacher.openid,
-        scene: 1, // 1 = 资料
         stage: 'profile',
       });
       if (!check.pass) throw contentBlockedError('teacher_input');

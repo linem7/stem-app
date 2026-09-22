@@ -6,6 +6,12 @@ node_modules/
 .env
 .env.local
 .env.*.local
+# 🔴 备份和变体也要挡（2026-09-22 加）：`.env.bak` / `.env.old` / `.env.20260922`
+#    只挡上面那三行的话，一份备份就能把真凭据传进**公开**仓库。
+#    这不是预防性的 —— 当天就差点这么干（改 .env 前顺手备份了一个 .env.bak）。
+.env.bak*
+.env.old*
+.env.[0-9]*
 *.key
 *.pem
 

@@ -18,7 +18,7 @@ import { generateImage, resolveImageProvider, anyModelReady } from '../services/
 import { uploadImage, buildImageUrl } from '../services/imageStore.js';
 import { buildImagePrompt } from '../services/lessonGenerator.js';
 import { buildPurposeSystem, countSubjects, purposeSpec, resolvePurpose, isPrintKind } from '../services/imagePurpose.js';
-import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
+import { checkText, contentBlockedError } from '../services/contentSafety.js';
 import { logger } from '../utils/logger.js';
 
 export const imagesRouter = Router();
@@ -170,10 +170,8 @@ imagesRouter.post(
     await assertQuota(req.teacherId, 'image');
 
     if (note) {
-      const check = await msgSecCheck({
+      const check = await checkText({
         content: note,
-        openid: req.teacher.openid,
-        scene: 3,
         stage: 'teacher_input',
       });
       if (!check.pass) throw contentBlockedError('teacher_input');

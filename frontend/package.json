@@ -12,7 +12,8 @@
     "lint:fix": "eslint . --fix",
     "test:api": "node scripts/api-contract-test.mjs",
     "test:tokens": "node scripts/tokens-test.mjs",
-    "test:contrast": "node scripts/contrast-test.mjs"
+    "test:contrast": "node scripts/contrast-test.mjs",
+    "test:logout": "node scripts/logout-test.mjs"
   },
   "dependencies": {
     "vue": "^3.5.42",

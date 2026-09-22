@@ -174,6 +174,7 @@
 </template>
 
 <script setup>
+import { useUnsavedChanges } from '../../utils/unsaved.js'
 /**
  * 一条对话流 —— 引导 + 生成 + 成稿 + 改一改，全在这一页（2026-08-30 用户定）。
  *
@@ -277,6 +278,12 @@ const revise = reactive({
   asking: false,
   submitting: false,
 })
+
+useUnsavedChanges(() =>
+  pendingSaves.value > 0 || Object.values(answers).some((a) => a.failed || a.customText.trim() !== a.savedText.trim()) ||
+  (composerOpen.value && revise.stage === 'idle' && Boolean(revise.feedback.trim())) ||
+  (revise.stage === 'answer' && Object.values(revise.answers).some((a) => a.selected.length || a.customText.trim()))
+)
 
 /* ============ 派生 ============ */
 
@@ -420,8 +427,11 @@ async function loadPlan(id) {
 // 每选一项就调一次接口（她被叫走进度不丢）。手快连点会并发，
 // 同一题按顺序排队，保证最后落库的是最后一次点的那个状态。
 const chains = {}
+const pendingSaves = ref(0)
 function enqueue(qid, task) {
+  pendingSaves.value += 1
   const next = (chains[qid] || Promise.resolve()).then(task, task)
+    .finally(() => { pendingSaves.value -= 1 })
   chains[qid] = next
   return next
 }

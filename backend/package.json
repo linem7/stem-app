@@ -16,6 +16,8 @@
     "smoke": "node scripts/smoke.js",
     "test:ageband": "node scripts/ageband-test.mjs",
     "test:context": "node scripts/context-test.mjs",
+    "test:contentsafety:unit": "node scripts/content-safety-unit-test.mjs",
+    "test:contentsafety": "node --env-file=.env scripts/content-safety-test.mjs",
     "test:commentary": "node scripts/commentary-test.mjs",
     "test:stream": "node scripts/stream-test.mjs",
     "test:mode": "node scripts/mode-test.mjs",

@@ -12,7 +12,7 @@
 import { API_BASE } from './env.js'
 import { readLocal, writeLocal, removeLocal } from './storage.js'
 
-const TOKEN_KEY = 'stem_token'
+export const TOKEN_KEY = 'stem_token'
 
 /**
  * 后端的 message 是「可直接展示给老师的中文文案」，前端不许自己拼错误话术
@@ -36,6 +36,7 @@ export class ApiError extends Error {
 /* ============ 登录态 ============ */
 
 let token = ''
+let sessionEpoch = 0
 
 export function getToken() {
   if (!token) token = readLocal(TOKEN_KEY)
@@ -49,6 +50,7 @@ export function setToken(value) {
 }
 
 export function clearToken() {
+  sessionEpoch += 1
   setToken('')
 }
 
@@ -80,6 +82,12 @@ function toQuery(data) {
  * @returns {Promise<object>}   已拆掉信封的 data
  */
 export async function request({ method = 'GET', path, data, timeout = 20000, auth = true, raw = false }) {
+  const startedEpoch = sessionEpoch
+  const assertCurrentSession = () => {
+    if (startedEpoch !== sessionEpoch) {
+      throw new ApiError({ code: 'SESSION_CHANGED', message: '登录状态已变更', retryable: false })
+    }
+  }
   let url = API_BASE + path
   let body
   const headers = {}
@@ -127,6 +135,7 @@ export async function request({ method = 'GET', path, data, timeout = 20000, aut
      装着错误信息的 .docx」，而 Word 打开它只会说文件损坏。 */
   if (raw && res.ok) {
     const blob = await res.blob();
+    assertCurrentSession()
     const cd = res.headers.get('Content-Disposition') || '';
     /* 从响应头里取文件名。后端用的是 `filename*=UTF-8''<encoded>` 那个形式
        （中文文件名必须这么写，只写 `filename=` 会变乱码），所以先找它。 */
@@ -143,6 +152,8 @@ export async function request({ method = 'GET', path, data, timeout = 20000, aut
   } catch (err) {
     payload = null
   }
+  // 退出前的响应不能恢复旧 token、旧资料，也不能清掉新账号的登录态。
+  assertCurrentSession()
   if (!payload || typeof payload !== 'object' || typeof payload.ok !== 'boolean') {
     throw new ApiError({ ...NETWORK_ERROR, http: res.status })
   }

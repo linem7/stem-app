@@ -23,17 +23,19 @@
 import { Router } from 'express';
 import { queryOne } from '../db/pool.js';
 import { ok, asyncRoute, badRequest } from '../utils/errors.js';
-import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
+import { checkText, contentBlockedError } from '../services/contentSafety.js';
 import { logger } from '../utils/logger.js';
 
 export const feedbackRouter = Router();
 
 const CATEGORIES = ['quality', 'feature', 'usability', 'other'];
 
-/** 反馈正文也是 UGC，规矩不变 */
-async function checkText(text, openid) {
+/** 反馈正文也是 UGC，规矩不变。
+    ⚠️ 这个包装函数**不能叫 checkText** —— 会跟上面 import 进来的那个同名，
+    形成「函数调用自己」的无限递归（2026-09-22 切换时真撞上了）。 */
+async function checkFeedbackText(text) {
   if (!text) return;
-  const c = await msgSecCheck({ content: text, openid, scene: 3, stage: 'teacher_input' });
+  const c = await checkText({ content: text, stage: 'teacher_input' });
   if (!c.pass) throw contentBlockedError('teacher_input');
 }
 
@@ -49,7 +51,7 @@ feedbackRouter.post(
     const text = String(req.body?.text || '').trim().slice(0, 500);
     if (!text) throw badRequest('说说是什么事？');
 
-    await checkText(text, req.teacher.openid);
+    await checkFeedbackText(text);
 
     const row = await queryOne(
       `INSERT INTO feedback (teacher_id, kind, category, text)

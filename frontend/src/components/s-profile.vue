@@ -74,6 +74,7 @@ import { reactive, ref, watch } from 'vue'
 import { updateMe } from '../api/me.js'
 import { session } from '../stores/session.js'
 import { iconCheck } from '../utils/icons.js'
+import { useUnsavedChanges } from '../utils/unsaved.js'
 import { COLORS } from '../utils/colors.js'
 import { showApiError, toast } from '../utils/ui.js'
 import sBirth from './s-birth.vue'
@@ -104,6 +105,13 @@ const years = ref('')
 const born = ref('')
 const picks = reactive({})
 const saving = ref(false)
+useUnsavedChanges(() => {
+  if (!props.visible) return false
+  const t = session.teacher || {}
+  return saving.value || kg.value.trim() !== (t.kindergarten_name || '') ||
+    String(years.value).trim() !== String(t.teaching_years ?? '') ||
+    born.value !== (t.birth_month || '') || PICKS.some((g) => picks[g.key] !== (t[g.key] || ''))
+})
 
 /**
  * 每次**打开**都从 session 重新灌一遍，不留上次没保存的残留：

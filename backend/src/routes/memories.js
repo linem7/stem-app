@@ -12,7 +12,7 @@
 import { Router } from 'express';
 import { query, queryOne } from '../db/pool.js';
 import { ok, asyncRoute, badRequest, notFound } from '../utils/errors.js';
-import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
+import { checkText, contentBlockedError } from '../services/contentSafety.js';
 import { logger } from '../utils/logger.js';
 
 export const memoriesRouter = Router();
@@ -55,10 +55,8 @@ memoriesRouter.post(
 
     const memType = VALID_TYPES.includes(req.body?.mem_type) ? req.body.mem_type : '教学信息';
 
-    const check = await msgSecCheck({
+    const check = await checkText({
       content: fact,
-      openid: req.teacher.openid,
-      scene: 1,
       stage: 'teacher_input',
     });
     if (!check.pass) throw contentBlockedError('teacher_input');
@@ -84,13 +82,13 @@ memoriesRouter.post(
  * 改一条记忆。
  *
  * **两个方法指向同一个 handler**：
- *   PATCH /memories/:id          —— 语义正确的那个，给非小程序客户端用
- *   POST  /memories/:id/update   —— 给小程序用，因为 **wx.request 发不出 PATCH**
+ *   PATCH /memories/:id          —— 语义正确的那个
+ *   POST  /memories/:id/update   —— 兼容别名，见文件头「为什么还留着 POST 别名」
  *
  * 这不是洁癖问题：老师的记忆会被喂进模型，「只能删不能改」逼她删掉再重打一遍，
  * 而她要改的往往只是一个数字（「12 个孩子」→「15 个孩子」）。
  * 请求层拦下 PATCH 之后，这条路一直是断的（CLAUDE.md 里记着这个缺口）。
- * 加一个 POST 别名比让小程序发 PATCH 现实 —— 后者微信根本不支持。
+ * 加一个 POST 别名比要求客户端发 PATCH 现实 —— 有的运行环境根本不支持。
  */
 const updateMemory = asyncRoute(async (req, res) => {
     const id = Number(req.params.id);
@@ -113,10 +111,8 @@ const updateMemory = asyncRoute(async (req, res) => {
       const fact = String(req.body.fact || '').trim();
       if (!fact) throw badRequest('记忆内容不能为空');
       if (fact.length > 200) throw badRequest('一条记忆写 200 字以内就够了');
-      const check = await msgSecCheck({
+      const check = await checkText({
         content: fact,
-        openid: req.teacher.openid,
-        scene: 1,
         stage: 'teacher_input',
       });
       if (!check.pass) throw contentBlockedError('teacher_input');

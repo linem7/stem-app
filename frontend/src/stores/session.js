@@ -130,6 +130,7 @@ export async function agree() {
 export function logout() {
   clearToken()
   session.teacher = null
+  session.bootError = null
   session.ready = true
 }
 

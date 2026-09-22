@@ -14,7 +14,7 @@ export function notFoundHandler(req, res) {
     ok: false,
     error: {
       code: ErrorCode.NOT_FOUND,
-      message: '这个功能还没有上线，请更新小程序试试',
+      message: '这个功能还没有上线，刷新一下页面试试',
       retryable: false,
     },
   });

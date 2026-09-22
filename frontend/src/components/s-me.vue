@@ -284,6 +284,9 @@
           </div>
           </div>
         </template>
+        <button v-if="session.teacher" type="button" class="frow me__logout" :disabled="loggingOut" @click="askLogout">
+          <span class="frow__t">退出登录</span>
+        </button>
       </div>
     </div>
   </div>
@@ -304,14 +307,16 @@ import { nextTick, reactive, ref, watch } from 'vue'
 import { addMemory, deleteMyAccount, getQuota, listMemories, removeMemory, updateMemory } from '../api/me.js'
 import { sendFeedback } from '../api/feedback.js'
 import { listTasks, markTaskRead } from '../api/tasks.js'
-import { redeem, session } from '../stores/session.js'
+import { logout, redeem, session } from '../stores/session.js'
 import { FONT_SCALES, prefs, setFontScale } from '../stores/prefs.js'
 import { iconCheck, iconChevron } from '../utils/icons.js'
 import { COLORS } from '../utils/colors.js'
 import { alert, confirm, showApiError, stateKind, toast } from '../utils/ui.js'
 import { autogrow } from '../utils/autogrow.js'
 import { clearToken } from '../utils/request.js'
-import { push } from '../utils/nav.js'
+import { push, ROUTES } from '../utils/nav.js'
+import { closeDrawer } from '../stores/shell.js'
+import { hasUnsavedChanges, useUnsavedChanges } from '../utils/unsaved.js'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -365,6 +370,29 @@ const category = ref('')
 const suggestion = ref('')
 const sending = ref(false)
 const sent = ref(false)
+const loggingOut = ref(false)
+
+useUnsavedChanges(() => Boolean(
+  (adding.value && newFact.value.trim()) || (!sent.value && suggestion.value.trim()) ||
+  (editing.value && editFact.value.trim() !== (editing.value.fact || '').trim()) ||
+  savingMem.value || savingEdit.value || sending.value || redeeming.value
+))
+
+async function askLogout() {
+  if (loggingOut.value) return
+  loggingOut.value = true
+  if (hasUnsavedChanges() && !await confirm('还有尚未保存或提交的内容，退出后不会保留。确定退出登录？', {
+    confirmText: '退出登录', cancelText: '继续编辑',
+  })) {
+    loggingOut.value = false
+    return
+  }
+  logout()
+  closeDrawer()
+  emit('close')
+  // 完整加载登录页，释放教案、档案、表单、轮询及跨页缓存。
+  window.location.replace(ROUTES.login)
+}
 
 watch(
   () => props.visible,
@@ -637,6 +665,13 @@ async function submitSuggestion() {
 .me__x-t {
   font-size: var(--fs-sub);
   color: $ink-2;
+}
+
+.me__logout {
+  width: 100%;
+  grid-column: 1 / -1;
+  margin-top: $sp-3;
+  border-top: 1px solid $rule;
 }
 
 .me__body {

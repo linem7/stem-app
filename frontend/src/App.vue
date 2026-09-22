@@ -12,7 +12,7 @@
 
 <script setup>
 /**
- * 登录态没了就把她送回激活页。
+ * 登录态没了就把她送回登录页。
  *
  * 两种触发：token 被后端拒了（401 兜底，见 utils/request.js），
  * 或者她自己点了退出。
@@ -41,7 +41,7 @@ watch(
     // （激活页和登录页都要按 gate() 分流，规则不一样）
     if (now || !before) return
     if (route.name === 'redeem' || route.name === 'login') return
-    replace('redeem')
+    replace('login')
   }
 )
 </script>

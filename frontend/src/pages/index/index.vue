@@ -193,6 +193,7 @@
 </template>
 
 <script setup>
+import { useUnsavedChanges } from '../../utils/unsaved.js'
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { ensureSession, gate, session } from '../../stores/session.js'
 import { put } from '../../stores/handoff.js'
@@ -250,6 +251,9 @@ const form = ref({
   birthMonth: '', education: null, professionalTitle: null,
   teachingYears: '', ageGroup: null,
 })
+
+useUnsavedChanges(() => Boolean(seed.value.trim()) || profileSaving.value ||
+  (profileSheet.value && Object.values(form.value).some((v) => v !== null && v !== '')))
 
 const needProfile = computed(() => (
   session.ready && profileChecked.value && !profileGranted.value

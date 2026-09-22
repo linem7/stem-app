@@ -2,7 +2,7 @@
  * JWT 签发与校验。
  *
  * token 里只放 teacher_id（和签发时间），不放 openid、不放昵称。
- * 理由：token 会存在小程序本地，内容是可以被任何人解出来看的（JWT 只签名不加密）。
+ * 理由：token 会存在浏览器里，内容是可以被任何人解出来看的（JWT 只签名不加密）。
  * 放 id 意味着即使 token 泄露，泄露的也只是一个自增数字。
  */
 import jwt from 'jsonwebtoken';
@@ -111,7 +111,7 @@ export function toTeacherDTO(row) {
     agreed: Boolean(row.agreed_at),
   };
   // 注意这里**没有** real_name（手机号那一列 016 迁移已经从库里删了）。
-  // 它们永不下发到小程序前端 —— operations.md 的三条铁律之一。
+  // 它们永不下发到前端 —— operations.md 的三条铁律之一。
   // 前端任何地方都不该出现老师的手机号，包括她自己的。
 }
 
@@ -128,7 +128,7 @@ export function requireActivated(req, res, next) {
   const t = req.teacher;
   if (!t?.activated_at) {
     return next(new AppError(ErrorCode.NOT_ACTIVATED, {
-      message: '这个小程序目前只开放给合作园的老师 —— 填一份问卷就能拿到兑换码',
+      message: '这里目前只开放给合作园的老师 —— 填一份问卷就能拿到兑换码',
       detail: { need: 'redeem' },
     }));
   }

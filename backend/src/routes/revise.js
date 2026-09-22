@@ -18,7 +18,7 @@ import { ok, asyncRoute, badRequest, notFound } from '../utils/errors.js';
 import { chatJSON } from '../services/textChat.js';
 import { buildReviseSystemPrompt } from '../services/promptBuilder.js';
 import { listMemories } from '../services/memoryExtractor.js';
-import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
+import { checkText, contentBlockedError } from '../services/contentSafety.js';
 import { QUESTION_PLAN } from '../services/guideFlow.js';
 import { enqueueLessonGeneration, loadQaHistory, taskIdOf } from './generate.js';
 import { taskQueue } from '../services/taskQueue.js';
@@ -71,10 +71,8 @@ reviseRouter.post(
       throw badRequest('这份教案正在生成中，等它写完再改');
     }
 
-    const check = await msgSecCheck({
+    const check = await checkText({
       content: feedback,
-      openid: req.teacher.openid,
-      scene: 3,
       stage: 'teacher_input',
     });
     if (!check.pass) throw contentBlockedError('teacher_input');
@@ -118,7 +116,7 @@ reviseRouter.post(
     // 模型挂了也要让老师能继续改 —— 给一组通用但不废话的追问
     if (questions.length < REVISE_QUESTION_COUNT) questions = fallbackQuestions(round);
 
-    await checkAiOutput({ openid: req.teacher.openid, ack, questions });
+    await checkAiOutput({ ack, questions });
 
     const nextCollected = {
       ...(conv.collected || {}),
@@ -182,8 +180,8 @@ reviseRouter.post(
       if (!q.multi && labels.length > 1) throw badRequest('这题只能选一个');
 
       if (custom) {
-        const c = await msgSecCheck({
-          content: custom, openid: req.teacher.openid, scene: 3, stage: 'teacher_input',
+        const c = await checkText({
+          content: custom, stage: 'teacher_input',
         });
         if (!c.pass) throw contentBlockedError('teacher_input');
       }
@@ -300,11 +298,11 @@ function fallbackQuestions(round) {
 }
 
 /** AI 生成的追问也是要展示给老师的内容，同样过内容安全 */
-async function checkAiOutput({ openid, ack, questions }) {
+async function checkAiOutput({ ack, questions }) {
   const text = [ack, ...questions.flatMap((q) => [q.title, ...q.options.map((o) => `${o.label} ${o.sub || ''}`)])]
     .filter(Boolean)
     .join(' ');
   if (!text.trim()) return;
-  const check = await msgSecCheck({ content: text, openid, scene: 3, stage: 'ai_output' });
+  const check = await checkText({ content: text, stage: 'ai_output' });
   if (!check.pass) throw contentBlockedError('ai_output');
 }

@@ -87,7 +87,7 @@ export function isUnrestricted(target) {
 export function buildMatchSql(target, params) {
   const where = [
     // 只发给**已激活且没注销**的老师。名单里躺着但还没进来的人收不到任务 ——
-    // 她连小程序都没打开过，任务给她也看不见
+    // 她连网站都没打开过，任务给她也看不见
     `t.activated_at IS NOT NULL`,
     `t.status = 'active'`,
   ];

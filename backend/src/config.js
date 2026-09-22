@@ -47,10 +47,21 @@ export const config = {
     expiresInSeconds: num('JWT_EXPIRES_IN', 2592000),
   },
 
-  wechat: {
-    appid: str('WECHAT_APPID'),
-    secret: str('WECHAT_SECRET'),
-    contentCheckEnabled: bool('CONTENT_CHECK_ENABLED', false),
+  /* 内容安全 —— 阿里云内容安全（Green）的 TextModerationPlus。
+     替掉微信那套（2026-09-22）。两个 service 对应两个调用点：
+     老师输入 2000 字、AI 输出 5000 字，见 services/contentSafety.js。
+
+     开关和凭据分开校验：开启却缺凭据时启动失败，不能静默关闭审核。 */
+  contentSafety: {
+    enabled: bool('CONTENT_CHECK_ENABLED', false),
+    accessKeyId: str('ALIBABA_CLOUD_ACCESS_KEY_ID'),
+    accessKeySecret: str('ALIBABA_CLOUD_ACCESS_KEY_SECRET'),
+    // 内容安全在杭州、北京、上海、深圳、成都都有端点。
+    // 服务器在杭州（ADR-003），离得近。换个地域只改这个值。
+    region: str('CONTENT_SAFETY_REGION', 'cn-hangzhou'),
+    get configured() {
+      return Boolean(this.accessKeyId && this.accessKeySecret);
+    },
   },
 
   /**
@@ -96,7 +107,7 @@ export const config = {
     model: str('IMG_MODEL', 'gpt-image-2'),
     quality: str('IMG_QUALITY', 'medium'),
     // 实测 medium + 1536×2048 要 71 秒，比 MiniMax 还慢。给到 150 秒，
-    // 仍在小程序轮询的 180 秒之内
+    // 仍在前端轮询的 180 秒之内
     timeoutMs: num('IMG_TIMEOUT_MS', 150000),
     get configured() {
       return Boolean(this.apiKey);
@@ -129,15 +140,14 @@ export const config = {
     },
   },
 
-  // 开发期假登录：没有微信 AppID 也能拿到 token 把后端跑通。
-  // 生产环境强制关闭 —— 这是一道防线，不依赖运维记得改 .env。
-  devFakeLogin: nodeEnv !== 'production' && bool('DEV_FAKE_LOGIN', false),
-
-  /* 🔴 只在微信云托管环境里开（控制台环境变量）。
-     开了它，/auth/login 会信任请求头里的 X-WX-OPENID —— 那个头在云托管里
-     由微信网关注入、外部伪造会被覆盖；在任何别的部署形态下它就是个后门。
-     它跟 devFakeLogin 不同：这是**真 openid**，不是假登录。 */
-  trustWxOpenidHeader: bool('TRUST_WX_OPENID_HEADER', false),
+  /* 🔴 假登录和「信任 X-WX-OPENID 请求头」两条后门 2026-09-22 整段删除。
+     它们都是小程序时代的产物：一个是「没有 AppID 也能把后端跑通」，
+     一个是微信云托管里由网关注入真 openid。
+     转 web 之后两条的依据都没了 —— 而 80 是对公网开着的，
+     留着就是「知道地址的人凭空拿到一个账号」。
+     现在登录只有一条路：手机号 + 密码（routes/auth.js）。
+     ⚠️ **删掉一个配置项之后要顺手清 .env 里那一行** ——
+     我把 DEV_FAKE_LOGIN 删了，隔一版读 .env 的人会以为它还生效。 */
 
   taskConcurrency: num('TASK_CONCURRENCY', 2),
 
@@ -166,6 +176,11 @@ export const config = {
  */
 const REQUIRED = [
   {
+    name: 'ALIBABA_CLOUD_ACCESS_KEY_ID / ALIBABA_CLOUD_ACCESS_KEY_SECRET',
+    ok: () => !config.contentSafety.enabled || config.contentSafety.configured,
+    why: '已开启内容安全，请配置阿里云内容安全访问凭据。',
+  },
+  {
     name: 'DATABASE_URL',
     ok: () => Boolean(config.db.url),
     why: '数据库连接串。本地装完 PostgreSQL 后形如 postgres://postgres:密码@localhost:5432/stem_app；线上在云厂商的「云数据库 PostgreSQL」控制台复制。',
@@ -175,16 +190,10 @@ const REQUIRED = [
     ok: () => Boolean(config.jwt.secret) && config.jwt.secret.length >= 32,
     why: '登录令牌的签名密钥，不用申请，自己生成一串 32 位以上的随机字符即可：node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"',
   },
-  {
-    name: 'WECHAT_APPID',
-    ok: () => Boolean(config.wechat.appid),
-    why: '微信小程序 AppID。mp.weixin.qq.com → 开发管理 → 开发设置 → 开发者ID。（若只想先本地跑通，可临时填 wx_placeholder 并把 DEV_FAKE_LOGIN 设为 true）',
-  },
-  {
-    name: 'WECHAT_SECRET',
-    ok: () => Boolean(config.wechat.secret),
-    why: '微信小程序 AppSecret，与 AppID 同一个页面，点「生成」后只显示一次。（同上，本地可临时填占位值）',
-  },
+  /* WECHAT_APPID / WECHAT_SECRET 从必填清单撤下了（2026-09-22）。
+     微信那一整块（登录 + 内容安全）都已经走完了：登录 2026-09-20 改手机号+密码，
+     内容安全 2026-09-22 改阿里云。**这两个变量现在没有任何代码在读**，
+     `.env` 里那两行留着没删只是懒得动，下次清理 .env 时一起收。 */
   /* DEEPSEEK_API_KEY 从必填清单撤下了（2026-08-23）：文本模型播种进库之后，
      「有没有一个能用的文本模型」在 server.js 启动时查库判断 ——
      老库里模型早就在库里了，.env 空着也该能启动。全新部署缺 key 的中文提示在那边。 */
@@ -198,10 +207,14 @@ export function assertConfigOrExit() {
   const missing = REQUIRED.filter((item) => !item.ok());
 
   if (missing.length === 0) {
-    if (!config.wechat.contentCheckEnabled) {
+    if (!config.contentSafety.enabled) {
+      const why = config.contentSafety.configured
+        ? 'CONTENT_CHECK_ENABLED=false'
+        : 'ALIBABA_CLOUD_ACCESS_KEY_ID / _SECRET 没配全';
       console.warn(
-        '\n[提醒] CONTENT_CHECK_ENABLED=false，微信内容安全检查已关闭。' +
-          '\n       本地开发可以这样，但正式提交小程序审核前必须设为 true，否则审核会被打回。\n'
+        `\n[提醒] 内容安全检查是关的（${why}）。` +
+          '\n       老师输入和 AI 输出现在**一条都没在过审**。' +
+          '\n       使用协议里对老师承诺过这一条，上线前必须开。\n'
       );
     }
     if (!config.admin.configured) {
@@ -215,11 +228,6 @@ export function assertConfigOrExit() {
         '\n[危险] 生产环境的 ADMIN_PASSWORD 短于 12 位。' +
           '\n       管理后台能看到全部老师的手机号和对话内容，弱密码在公网上等于没有密码。' +
           '\n       登录后台后立刻改掉，或者改 .env 重启。\n'
-      );
-    }
-    if (config.devFakeLogin) {
-      console.warn(
-        '[提醒] DEV_FAKE_LOGIN=true，任何人用 code="dev:xxx" 都能登录。仅供本地联调，上线前请设为 false 或把 NODE_ENV 设为 production。\n'
       );
     }
     return true;

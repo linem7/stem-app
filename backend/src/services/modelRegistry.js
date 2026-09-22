@@ -299,7 +299,7 @@ function builtins(kind) {
  * 自己加的那些。
  *
  * 这里带 key 的明文，**只能进模型调用那一步**，任何接口都不许把 account 原样回出去
- * （admin 里一律 mask，小程序那边连这张表存在都不知道）。
+ * （admin 里一律 mask，老师端连这张表存在都不知道）。
  */
 async function customModels(kind) {
   try {

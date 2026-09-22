@@ -4,6 +4,19 @@ PostgreSQL 14+。选 PostgreSQL 而非 MySQL 的理由：原生 JSONB（存教�
 
 ---
 
+## 当前结构与迁移
+
+2026-09-23 核对：执行 [backend/src/db/migrations/](../../backend/src/db/migrations/) 的 001–025 得到完整结构。本文 SQL 是分阶段设计示意，不能整份作为当前建库脚本执行。
+
+| 迁移 | 当前结构影响 |
+|---|---|
+| 022 | `teachers.openid` 保留但可空；增加 `phone VARCHAR(20)`（唯一索引）、`password_hash`、`password_salt`；新账号以手机号密码登录 |
+| 023 | `teachers.entry_source` 为 roster／self；`kindergartens.district` 记录区县；自填身份仍建 teacher_roster 行，园所关联可空 |
+| 024 | 删除 birth_year，使用 `birth_month VARCHAR(7)`，格式 YYYY-MM，只记录教师主动填写的出生年月 |
+| 025 | 职称五档：未评级／初级／中级／副高级／正高级；NULL 仍表示未填写 |
+
+`teacher_roster.claimed_openid` 与 `account_rebinds` 属于历史遗留，不因转 Web 自动消失。读取老师当前位置使用 `teachers.roster_entry_id`；不能依靠新账号为空的 openid 判断归属。
+
 ## 表关系总览
 
 ```
@@ -34,7 +47,7 @@ CREATE TABLE teachers (
   -- 下面两列是 018 迁移加的。**不是装饰性档案，是研究要用的自变量**：
   -- 「AI 写的教案对新手和对一级教师，帮助是不是同一回事」—— 教龄答不了这个问题
   education          VARCHAR(32),                   -- 白名单见 services/roster.js EDUCATIONS
-  professional_title VARCHAR(32),                   -- 同上 TITLES。'未评定' ≠ NULL，见下
+  professional_title VARCHAR(32),                   -- 同上 TITLES。'未评级' ≠ NULL，见下
 
   -- 显式偏好（与自动提取的 memories 并存，显式优先）
   preferences       JSONB NOT NULL DEFAULT '{}',
@@ -49,8 +62,8 @@ CREATE TABLE teachers (
 CREATE INDEX idx_teachers_last_login ON teachers (last_login_at DESC);
 ```
 
-⚠️ **上面这段建表语句是 `001_init.sql` 的原貌，不是这张表现在的样子。**
-002 / 013 / 014 / 015 / 016 / 018 都往这张表加过列
+⚠️ **上面这段建表语句是早期结构示意（混有后续字段），不是这张表现在的样子。**
+002 / 013 / 014 / 015 / 016 / 018 及 022–025 都改变过这张表
 （`real_name` `position` `class_name` `kindergarten_id` `activated_at` `agreed_at`
 `token_version` `roster_entry_id` `education` `professional_title`）。
 要看当前真实结构，读 `src/db/migrations/` 或者直接查库 —— **别拿这一段当准。**
@@ -58,8 +71,8 @@ CREATE INDEX idx_teachers_last_login ON teachers (last_login_at DESC);
 ⚠️ **不存所带幼儿的任何信息。** 这条永远不变：幼儿数据一旦入库，合规复杂度指数上升。
 写进后端 code review 清单。
 
-⚠️ **手机号确实不存**（016 迁移把 `teachers.phone` 和 `teacher_roster.phone` 都删了），
-**但真实姓名是存的**（`real_name`，2026-08-17 用户明确反转了旧红线，
+**手机号存于 `teachers.phone`，只作登录名**（016 曾删除，022 已恢复教师账号手机号），
+**真实姓名也是存的**（`real_name`，2026-08-17 用户明确反转了旧红线，
 因为这是合作研究项目）。它有三条铁律：**永不下发前端、永不进模型提示词、永不进日志**。
 `education` 和 `professional_title` 跟它**不同级** —— 那两项是她自己填的、她自己要看，
 可以下发；别顺手把三样塞进同一个屏蔽清单。全套见 `operations.md`。
@@ -186,7 +199,7 @@ CREATE TABLE lesson_images (
 
   section_key    VARCHAR(32),             -- 配到哪一节，如 'flow.1'
   prompt_cn      TEXT,                    -- 老师看到的中文描述
-  prompt_sent    TEXT,                    -- 实际发给豆包的提示词
+  prompt_sent    TEXT,                    -- 实际发给图片模型的提示词
   object_key     TEXT NOT NULL,           -- 对象存储 key，不存完整 URL（换域名不用改库）
   width          SMALLINT,
   height         SMALLINT,

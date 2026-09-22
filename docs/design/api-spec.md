@@ -2,9 +2,9 @@
 
 前后端并行开发的契约。**改接口必须先改这份文档**，否则前后端会各写各的。
 
-- Base URL：`https://api.<你的域名>/v1`（必须 HTTPS + 已备案域名，微信小程序强制）
-- 认证：除登录外，所有请求带 `Authorization: Bearer <token>`
-- 编码：请求与响应一律 UTF-8 JSON
+- Base URL：同源 `/v1`；开发环境由 Vite 代理到 `http://localhost:3000/v1`，部署入口记录见 `CLAUDE.md`
+- 认证：登录、首次激活与持有效兑换码查询名单无需 token；其他教师业务请求带 `Authorization: Bearer <token>`
+- 编码：通常为 UTF-8 JSON；Word 导出成功响应为二进制文件
 - 时间：ISO 8601 带时区，如 `2026-08-16T14:30:00+08:00`
 
 ---
@@ -41,7 +41,7 @@
 | `INTERNAL` | 500 | 出了点问题，我们已经记录下来了 | 是 |
 
 `NOT_IMPLEMENTED` 与 `INTERNAL` 的区别在 `retryable`：功能没做完的接口重试多少次都不会成功，
-必须标成不可重试，否则前端的自动重试会变成死循环。目前只有导出 docx 和配图（未配豆包 key 时）用它。
+必须标成不可重试，否则前端的自动重试会变成死循环。这是保留的错误码；Word 导出已实现，不再以此描述其正常响应。
 
 ---
 
@@ -81,13 +81,18 @@
 它回的 401 意思是「密码不对」而不是「登录态失效」——
 带上 auth 的话，输错密码会被当成掉线处理，提示一闪就被弹走。
 
-日常她不需要这个接口：token 有效期 180 天，每次打开自动续期。
+日常她不需要这个接口：token 默认有效期 30 天（2592000 秒）；打开页面调用 `GET /me`，剩余不足一半时返回续期 token，前端保存。
 
 ---
 
+### 退出登录（前端行为）
+
+“我的”中的退出清除当前浏览器登录资料并返回 `/login`，不调用服务端吊销接口。
+有未保存输入时可取消；退出同步同浏览器标签页。退出前的续期响应不能恢复旧 token，旧 401 不能影响之后登录的新账号。其他设备凭证仍有效，注销另走删除账号流程。
+
 ## 1.5 激活与额度
 
-> 完整运营模型见 `operations.md`。这不是公开产品：**没有兑换码进不来，没有任务没有额度**。
+> 完整运营模型见 `operations.md`。首次使用仍需有效兑换码；名单外也可自填激活。额度除兑换码外还包括一次性完善信息奖励。
 
 ### `POST /auth/login` 响应新增两个状态位
 
@@ -179,7 +184,7 @@ status            'claimed' ← 跳过「待认领」，因为不存在「谁去
 `teachers.kindergarten_name` 对自填的人是 **NULL**（她不填园所名）。
 ⚠️ 这带来一处连带修改：`toTeacherDTO` 的 `profile_completed` 原来判的是
 `kindergarten_name && age_group`，**对自填的人恒为 false**。
-已改成判「完善信息」那五项（`birth_month` / `education` / `teaching_years` / `age_group`）。
+已改成判「完善信息」那五项（`birth_month` / `education` / `professional_title` / `teaching_years` / `age_group`）。
 
 ⚠️ **不审核**（用户 2026-09-21 明确知情）。所以 `status` 直接是 `claimed`，
 没有中间态。代价：白名单的「跟进价值」只对白名单老师成立 ——
@@ -284,62 +289,22 @@ status            'claimed' ← 跳过「待认领」，因为不存在「谁去
 
 **只要码，不用再选身份** —— 她已经被识别过了。**身份一个字段都不动**。
 
-#### 换绑（她换了微信）
+#### 历史换绑
 
-见下一节。同一个输入框，但它不发额度，而是把旧账号挪到新 openid 上。
+微信换绑已退出当前产品流程，不是手机号密码找回功能。
 
 #### 通用
 
 - 输入**宽容**：大小写、空格、下划线、各种横线都认。认不出来是我们的问题，不是老师的
 - **一个码只能兑一次**（`status = 'used'` + `FOR UPDATE` 挡并发）
-- **保留「绑定码」路径**（码上直接带手机号姓名）：它自带身份、不查名单，
-  留作名单外的个别情况（临时给某位老师开通）。不是主路径
+- 绑定码的园所字段用于运营跟进，不限制可查询名单范围，也不绕过首次激活的手机号密码设置。
 
-### `POST /auth/redeem` 的换绑分支 · 她换了微信号
+### 历史换绑分支（已退出当前流程）
 
-老师的身份就是 openid。换手机 openid 不变，但**换微信号 = 一个全新账号** ——
-她的教案、额度、记忆全在那个进不去的旧账号里。
+`account_rebinds` 表及部分管理接口仍保留旧实现，不属于当前 Web 登录能力。
+教师通过手机号密码换设备登录；超管重置密码和修改登录手机号是待实现需求，不能用微信换绑操作替代。
+历史流程见 [整理前开发约定](../handoff/2026-09-23-整理前开发约定.md)。
 
-**为什么不是「把名单那行改回 pending 让她重新领」**：那样会新建一个账号，
-**教案拿不回来**，而教案是这个产品全部的价值。换绑保留教案、额度台账、记忆，
-以及她**已经同意过的协议**（所以换绑成功后她直接进主流程，不再走一遍协议页）。
-
-事务：
-
-1. 锁 `account_rebinds` 那一行，校验 `pending` 且没过期
-2. 目标账号不能是 `status='deleted'` —— 换绑回一个注销过的账号等于绕过注销
-3. **当前这一行（新微信刚建的）必须是空的**：没有教案、没有额度台账。
-   不空就拒绝 —— 她在新微信上已经写了东西，换绑会把那些孤立掉
-4. 先删当前那一空行（释放 openid 唯一约束），再把目标行的 openid / unionid
-   换成新的，顺带更新昵称头像
-5. 标记码已用，记 `old_openid` / `new_openid`
-6. `teachers.token_version + 1`，然后**返回新 token**。这一步不是可选的，有两个原因：
-   她手上的 JWT 指向刚被删掉的那一空行，而且目标账号的 token_version 变了。
-   **前端必须保存它**（`session.js` 的 `redeem()`）
-
-**旧设备当场失去访问**（`token_version`，015 迁移）。这一条是做完之后测出来才补的：
-换绑是把 openid 挪到**旧那一行**上，所以旧 token（payload 里只有 teacher_id）
-指向的行还在、`status` 还是 `active` —— `requireAuth` 那道「非 active 就拒」拦不住它，
-旧设备本来能再用满一个 JWT 周期。而**换绑的常见起因之一就是手机丢了**，
-「换绑」这个词让任何人都以为旧设备当场失效 —— 假设错一个安全属性比没有它更糟。
-
-做法：`signToken` 把 `tv` 写进 payload，`requireAuth` 逐个请求跟库里的
-`token_version` 比对（那一行本来就每次都查，成本是零）。老 token 里没有 `tv`，
-读出来 undefined 当 0 看，跟列默认值一致 —— **现有登录不会被强制退出**。
-
-注：**注销没有这个问题**。它把 `status` 改成 `deleted`，
-而 `requireAuth` 拒绝一切非 `active`，所以那一刻已签发的 token 全部立刻作废。
-
-**不做「输手机号自动换绑」**：那等于「知道她手机号 + 有任意一个码 = 接管她账号」，
-正是名单那套设计要避开的弱点。换绑必须由管理员发起。
-
-**换绑要求新微信上是空的**（没有教案、没有额度台账）。不空就拒绝：
-她在新微信上已经写过东西，换绑会把那些孤立掉。宁可让她先清空。
-
-⚠️ **老师端那个输入框不能把手机号设成必填。** 换绑发生在一个**全新的微信**上，
-她那时落在「首次激活」那一屏、手上却是换绑码 —— 没有手机号要填。
-第一版就是这么错的：按钮永远是灰的，换绑在界面上被堵死。
-现在是「有码就能点」，缺手机号由后端那句话来说。
 
 ### `POST /auth/roster/options` · 让她从名单里找到自己
 
@@ -434,7 +399,7 @@ status            'claimed' ← 跳过「待认领」，因为不存在「谁去
 （记忆抽取那条红线「不提取姓名、年龄、幼儿表现、家庭情况、健康与过敏」管的是后者。）
 
 ```jsonc
-{ "birth_month": "1995-12", "education": "本科", "professional_title": "二级教师",
+{ "birth_month": "1995-12", "education": "本科", "professional_title": "初级",
   "teaching_years": 3, "age_group": "中班" }
 // → { "ok": true, "data": {
 //      "teacher": {…},
@@ -446,7 +411,7 @@ status            'claimed' ← 跳过「待认领」，因为不存在「谁去
 |---|---|
 | `birth_month` | `YYYY-MM` 字符串（如 `1995-12`）。**存年月，不存年龄、也不存日** |
 | `education` | `EDUCATIONS` 白名单（`roster.js`） |
-| `professional_title` | `TITLES` 白名单。⚠️ **「未评定」是一个有意义的值**，不是「没填」 |
+| `professional_title` | `TITLES` 白名单。⚠️ **「未评级」是一个有意义的值**，不是「没填」 |
 | `teaching_years` | 0–60 的整数。**`0` 是有意义的值**，不是「没填」 |
 | `age_group` | `AGE_GROUPS` 白名单 |
 
@@ -515,7 +480,7 @@ SELECT 1 FROM quota_grants WHERE teacher_id = $1 AND reason = '完善信息'
 { "category": "quality | feature | usability | other", "text": "…" }
 ```
 
-两者的正文都过 `msgSecCheck`，都不进日志（只记分类和长度）。
+两者的正文都过阿里云文本内容审核，都不进日志（只记分类和长度）。
 
 ---
 
@@ -544,14 +509,14 @@ SELECT 1 FROM quota_grants WHERE teacher_id = $1 AND reason = '完善信息'
 | `age_group` | 年级 | 小班 / 中班 / 大班 | `promptBuilder.AGE_GROUPS` |
 | `position` | 岗位 | 主班 / 配班 / 保育员 / 园长 / 其他 | `roster.POSITIONS` |
 | `education` | 最高学历 | 中专及以下 / 大专 / 本科 / 硕士及以上 | `roster.EDUCATIONS` |
-| `professional_title` | 职称 | 未评定 / 三级教师 / 二级教师 / 一级教师 / 高级教师 / 正高级教师 | `roster.TITLES` |
+| `professional_title` | 职称 | 未评级 / 初级 / 中级 / 副高级 / 正高级 | `roster.TITLES` |
 
 `education` 和 `professional_title` 是 **018 迁移**加的。它们不是装饰性档案，
 是这个研究项目要分析的自变量 ——「AI 写的教案对新手和对一级教师，帮助是不是同一回事」，
 教龄答不了这个问题（教龄长不等于职称高）。
 
-⚠️ **「未评定」是她主动选的一个值，跟 `null`（没填过）不是一回事。**
-研究上这两者要分得开，所以**任何地方都不许把 `null` 显示成「未评定」**。
+⚠️ **「未评级」是她主动选的一个值，跟 `null`（没填过）不是一回事。**
+研究上这两者要分得开，所以**任何地方都不许把 `null` 显示成「未评级」**。
 同理 `teaching_years: 0` 是有意义的（今年刚入职），不许当成空丢掉。
 
 ⚠️ **`position` 改了会跟名单那一行不一致，这是有意的。**
@@ -562,7 +527,7 @@ SELECT 1 FROM quota_grants WHERE teacher_id = $1 AND reason = '完善信息'
 `age_group` 影响，而那本来就该跟着她带的班走。
 
 **两个方法指向同一个 handler**（2026-08-21）。`PATCH` 是语义正确的那个，
-但**微信小程序的 `wx.request` 发不出 PATCH**，所以加了 POST 别名给小程序用。
+POST 别名是历史兼容入口；当前 Web 客户端支持 PATCH。
 理由和 `POST /memories/:id/update` 完全一样，见第 8 节。
 
 ⚠️ **`kindergarten_name` 和 `teaching_years` 在这个接口之前无路可填。**
@@ -648,7 +613,7 @@ SELECT 1 FROM quota_grants WHERE teacher_id = $1 AND reason = '完善信息'
 ```
 
 **效率模式下这几个字段根本不下发**，不是「下发了但前端不显示」——
-那几段话对效率模式的老师是纯噪音，而响应体每多一份都要过一次微信的传输。
+那几段话对效率模式的老师是纯噪音，而响应体越大，浏览器传输成本越高。
 
 `GET /conversations/:id`（断点续写）和 `GET /conversations/:id/questions`（换年龄班重拉）
 **都要带上这些字段**。少了任何一处的表现都是「她被叫走一趟回来，那几句为什么就没了」。
@@ -710,7 +675,7 @@ SELECT 1 FROM quota_grants WHERE teacher_id = $1 AND reason = '完善信息'
 
 ### `POST /conversations/:id/generate`
 
-生成耗时 15–30 秒，**必须异步**，否则微信小程序请求会超时。
+生成耗时受模型影响，采用异步任务与轮询，允许老师离开后恢复。
 
 ```json
 // 响应（立即返回）
@@ -735,7 +700,7 @@ SELECT 1 FROM quota_grants WHERE teacher_id = $1 AND reason = '完善信息'
 }}
 ```
 
-前端每 800 毫秒轮一次，把 `stream.text` 往后拼，老师就看见**教案正文一个字一个字长出来**（2026-08-25）。
+**开启内容审核时 `stream` 为 null**，只展示生成阶段，审核通过后才显示正文。上例的 `stream` 对象只用于关闭审核的开发环境；此时前端可将增量文本往后拼接。
 
 `phase` 是三个**真实**阶段，不是文案：`thinking` = 模型在想（还没吐第一个字）、`writing` = 正文在长、`checking` = 按年龄班硬校验。
 （此前的 `progress_hint` 是四句按代码行数推进的文案，跟模型真的写到哪没关系，已删除。）
@@ -749,7 +714,7 @@ SELECT 1 FROM quota_grants WHERE teacher_id = $1 AND reason = '完善信息'
 
 对不上（`epoch` 变了，或 `from` 比后端还多）就回 `restart: true` + 全量，前端清屏重画。
 
-> **为什么不用 WebSocket / SSE**：小程序里长连接的断线重连和后台挂起处理成本高。而轮询这条路上，「离开再回来」「断网自动接上」「不重复扣费」三件事都是现成的、已经验过的 —— 换成长连接要重写这三样。流式逐段显示不需要长连接，带个游标的轮询就够。
+> **为什么保留轮询**：现有实现已经处理浏览器离开、断网与恢复。轮询这条路上，「离开再回来」「断网自动接上」「不重复扣费」三件事都是现成的、已经验过的 —— 换成长连接要重写这三样。流式逐段显示不需要长连接，带个游标的轮询就够。
 
 ---
 
@@ -892,25 +857,29 @@ SELECT 1 FROM quota_grants WHERE teacher_id = $1 AND reason = '完善信息'
 **中间缺失的层不自动创建** —— 教案的结构是生成时定好的，允许凭空造出新结构
 只会让 md 渲染出奇怪的东西。
 
-**两个方法指向同一个 handler**（2026-08-21），同 `PATCH /me`：小程序发不出 PATCH。
+**两个方法指向同一个 handler**；POST 别名为历史兼容保留。局部编辑需审核合并后的完整内容。
 
-> **目前小程序端没有调用方**（用户 2026-08-21 定）：成稿页不给「自己动手改文字」的入口，
+> **目前教师 Web 页面没有调用方**（用户 2026-08-21 定）：成稿页不给「自己动手改文字」的入口，
 > 老师改教案一律走「改一改」那条 AI 重写的路。手打改教案在手机上本来就难用，
 > 而 AI 重写是这个产品的核心。别把这里的「没有入口」当成待补的缺口 —— 是有意的。
 
 ### `POST /lesson-plans/:id/export`
+
+请求 `{ "format": "docx" }`（省略 format 时默认 docx）：成功直接返回 Word 二进制文件，不使用 JSON 信封或临时下载链接。
+
+- `Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document`
+- `Content-Disposition: attachment`，含 UTF-8 文件名；文件名由标题、班级、年龄班中非空部分拼接。
+- 前端发送带鉴权的 POST，以 blob 获取并触发下载，不能直接 `window.open`。
+- 包含教案正文、设计意图和按 ID 排序的 ready 配图；无法读取的图片跳过，正文仍可导出。
+- 不包含学习模式的折叠教案解读 `content_json.commentary`。
+
+请求 `{ "format": "md" }`：返回 JSON：
+
 ```json
-{ "format": "docx" }
-// → { "ok": true, "data": { "url": "https://…", "expires_at": "…" } }
-
-{ "format": "md" }
-// → { "ok": true, "data": { "format": "md", "content": "# …", "filename": "….md" } }
+{ "ok": true, "data": { "format": "md", "content": "# …", "filename": "教案标题.md" } }
 ```
-导出链接有效期 1 小时。`docx` 还没实现（返回 501 · `NOT_IMPLEMENTED` · 不可重试）；
-`md` 是现成的（就是 `plan.content_md`），内联返回。
 
-导出的内容 = **教案正文**（含「设计意图」），**不含**学习模式的教案解读
-（`content_json.commentary`）。两者的区别见上面第 5 节那张三行表。
+Markdown 返回已存储的 `content_md`。其他格式返回参数错误；导出失败仍使用统一 JSON 错误响应。
 
 ### `POST /lesson-plans/:id/revise` · 老师说哪里不对，拿到追问
 
@@ -930,7 +899,7 @@ SELECT 1 FROM quota_grants WHERE teacher_id = $1 AND reason = '完善信息'
 是在惩罚她提意见。唯一的例外是她的反馈明确指向之前某个答案（"时长还是改成 20 分钟吧"），
 这时才允许重新问那一题。
 
-`feedback` 上限 300 字，走 `msgSecCheck`。
+`feedback` 上限 300 字，走阿里云文本内容审核。
 
 ### `POST /lesson-plans/:id/revise/answer` · 答完追问，重新生成
 
@@ -1242,7 +1211,7 @@ minimax/gemini 各 3 分、gpt 按 output_tokens 粗估）。
 ### `PATCH /memories/:id` · 改一条 ＝ `POST /memories/:id/update`
 
 **两个方法指向同一个 handler**（2026-08-18）。`PATCH` 是语义正确的那个，
-但**微信小程序的 `wx.request` 发不出 PATCH**，所以加了 POST 别名给小程序用。
+POST 别名是历史兼容入口；当前 Web 客户端支持 PATCH。
 
 这不是洁癖：记忆会被喂进每次生成，「只能删不能改」逼老师删掉重打一遍，
 而她要改的往往只是一个数字（「12 个孩子」→「15 个」）。
@@ -1312,9 +1281,15 @@ minimax/gemini 各 3 分、gpt 按 output_tokens 粗估）。
 
 ## 10. 安全与限流
 
-- **所有 AI 调用在后端**。API key 绝不下发到小程序端
+- **所有 AI 调用在后端**。API key 绝不下发到前端
 - 限流：单用户 `POST /conversations` 每小时 10 次、`generate` 每小时 20 次、配图每天 10 张
-- 内容安全：老师输入和 AI 输出都要过微信内容安全接口（`security.msgSecCheck`）。小程序有 UGC 的必须做，否则审核不过
+- 审核不可用：`CONTENT_CHECK_UNAVAILABLE` / HTTP 503 / retryable=true，提示「安全检查暂时不可用，请稍后重试」。启用审核时，生成过程只显示进度，正文审核通过后展示。
+- 内容安全：老师输入和 AI 输出都要过**阿里云内容安全**（`TextModerationPlus`），
+  实现是 `services/contentSafety.js`。原先走微信 `msgSecCheck`，2026-09-22 换掉
+  （转 web 之后没有 openid，微信那套用不了）
+  - 两个 service 对两个调用点：老师输入 `llm_query_moderation`（上限 2000 字）、
+    AI 输出 `llm_response_moderation`（上限 5000 字）。**超长自动分段，不截断**
+  - 不通过时抛 `VALIDATION_FAILED`，`detail.stage` 区分是谁的内容
 - 日志不记录完整对话正文，只记 id、耗时、token 数、错误码
 
 ---
@@ -1346,7 +1321,7 @@ minimax/gemini 各 3 分、gpt 按 output_tokens 粗估）。
 | GET | `/teachers/:id` | 详情，见下 | |
 | POST | `/teachers/:id/grant` | 发额度。**界面上已经没有入口了**，见下 | |
 | POST | `/teachers/:id/status` | 停用 / 恢复 | |
-| POST | `/teachers/:id/rebind-code` | **她换微信了**：生成换绑码，见下 | ✓ |
+| POST | `/teachers/:id/rebind-code` | 历史换绑码接口，非 Web 找回密码 | ✓ |
 | POST | `/rebind-codes/:id/void` | 作废换绑码 | ✓ |
 | GET | `/codes` | **一行一次建码操作**（019 迁移）。`status=` 筛「这批里还有这种状态的码」 | |
 | GET | `/codes/items` | 按**单个码**查状态。界面没有调用方，别删 —— 见下 | |
@@ -1408,7 +1383,7 @@ minimax/gemini 各 3 分、gpt 按 output_tokens 粗估）。
 一个老师页要回答四件事：**她是谁**（匿名码激活的老师没有手机号，只有码）、
 **额度用到哪了**、**她用得怎么样**、**她说了什么**。
 
-**不再回答「给她加点额度」**（2026-08-18 用户定）：额度只走兑换码一条路 ——
+**不再回答「给她加点额度」**（2026-08-18 用户定）：日常任务奖励通过兑换码发放，另有一次性完善信息奖励 ——
 我建码，通过别的渠道发给她，她自己兑。所以这一页没有发放表单。
 `POST /teachers/:id/grant` 这个接口**保留**，作为出错时的应急通道（回归脚本也在测它），
 但界面上不给入口 —— 能力留着不等于要摆在最常用的那一页上。
@@ -1427,7 +1402,7 @@ minimax/gemini 各 3 分、gpt 按 output_tokens 粗估）。
     // 城市是**园所的**城市，不是她的住址 —— 库里没有那个，也不该有
     "city": "广州",
     // 学历 / 职称 / 教龄（018 迁移）。她自己在小程序档案里填的，是研究要用的自变量。
-    // 🔴 **null = 没填过**。任何地方不许把它显示成「未评定」（那是职称里
+    // 🔴 **null = 没填过**。任何地方不许把它显示成「未评级」（那是职称里
     // 她主动选的一个值），`teaching_years: 0` 同理（那是「今年刚入职」）
     "education": "本科", "professional_title": "一级教师", "teaching_years": 5,
     "status": "active",
@@ -1819,7 +1794,9 @@ minimax/gemini 各 3 分、gpt 按 output_tokens 粗估）。
 旧那一行留着不动（标 `moved`）—— 那是历史，研究要用它区分「她在小一班那半年」
 和「她在中二班这半年」。**她自己什么都不用做。**
 
-### `POST /teachers/:id/rebind-code` · 她换微信了（超管）
+### `POST /teachers/:id/rebind-code` · 历史换绑接口（超管）
+
+此接口仍存在于后台代码，但不属于当前 Web 登录流程，不作为找回手机号密码的操作说明。下面仅记录遗留接口形状。
 
 ```jsonc
 // → { "code": "STEM-A3F9-K7QD", "expires_at": "...", "reused": false }
@@ -1830,10 +1807,6 @@ minimax/gemini 各 3 分、gpt 按 output_tokens 粗估）。
   否则外面同时有两把能接管她账号的钥匙
 - 锁超管：它能把一个账号交给另一个微信，比发额度敏感得多
 - 进 `admin_logs`
-
-**怎么确认打微信来的这个人真是她**（不收手机号，只能线下核）：
-问她**兑的哪个码**（后台记着）或**最近写的教案标题**。
-这条是操作纪律，写在 `operations.md`，**不写在界面上**。
 
 ### `GET /overview` · 概览
 

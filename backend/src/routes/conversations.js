@@ -16,7 +16,7 @@ import { Router } from 'express';
 import { query, queryOne, withTransaction } from '../db/pool.js';
 import { ok, asyncRoute, badRequest, notFound } from '../utils/errors.js';
 import { limitNewConversation } from '../middleware/rateLimit.js';
-import { msgSecCheck, contentBlockedError } from '../services/wechat.js';
+import { checkText, contentBlockedError } from '../services/contentSafety.js';
 import { listMemories } from '../services/memoryExtractor.js';
 import { assertQuota } from '../services/quota.js';
 import { fallbackTitle } from '../services/lessonGenerator.js';
@@ -66,12 +66,12 @@ async function insertQuestionMessage(client, conv, question) {
 }
 
 /** 把 AI 生成的题目和推荐答案过一遍内容安全 */
-async function checkAiOutput({ openid, ack, questions = [] }) {
+async function checkAiOutput({ ack, questions = [] }) {
   const text = [ack, ...questions.flatMap((q) => [q.title, ...(q.options || []).map((o) => `${o.label} ${o.sub || ''}`)])]
     .filter(Boolean)
     .join(' ');
   if (!text.trim()) return;
-  const check = await msgSecCheck({ content: text, openid, scene: 3, stage: 'ai_output' });
+  const check = await checkText({ content: text, stage: 'ai_output' });
   if (!check.pass) throw contentBlockedError('ai_output');
 }
 
@@ -90,10 +90,8 @@ conversationsRouter.post(
     if (!seedInput) throw badRequest('先说说你想做个什么活动吧');
     if (seedInput.length > 500) throw badRequest('说得有点长了，精简到 500 字以内');
 
-    const check = await msgSecCheck({
+    const check = await checkText({
       content: seedInput,
-      openid: req.teacher.openid,
-      scene: 3,
       stage: 'teacher_input',
     });
     if (!check.pass) throw contentBlockedError('teacher_input');
@@ -121,7 +119,7 @@ conversationsRouter.post(
       seedInput,
     });
 
-    await checkAiOutput({ openid: req.teacher.openid, questions });
+    await checkAiOutput({ questions });
 
     // 落库存的是**不带 why 的题目** —— why 是写死的中文，不是模型产出，
     // 存一遍等于把同一段话抄进每一条消息里。挂在下发那一刻就够
@@ -161,7 +159,7 @@ conversationsRouter.get(
       ageGroup,
     });
 
-    await checkAiOutput({ openid: req.teacher.openid, questions });
+    await checkAiOutput({ questions });
 
     // 覆盖掉旧的题目消息：老师换了年龄班，旧推荐答案已经不适用了。
     // 她**已经填的答案不动** —— collected 一个字都没碰。
@@ -218,10 +216,8 @@ conversationsRouter.post(
 
     if (customText) {
       if (String(customText).length > 300) throw badRequest('写得有点长了，精简一下');
-      const check = await msgSecCheck({
+      const check = await checkText({
         content: String(customText),
-        openid: req.teacher.openid,
-        scene: 3,
         stage: 'teacher_input',
       });
       if (!check.pass) throw contentBlockedError('teacher_input');
@@ -273,7 +269,7 @@ conversationsRouter.post(
       seedInput: conv.seed_input, spec, answerText: text,
     });
 
-    await checkAiOutput({ openid: req.teacher.openid, ack });
+    await checkAiOutput({ ack });
 
     logger.info('conv_answer', {
       conversation_id: conv.id,
